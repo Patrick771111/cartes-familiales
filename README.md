@@ -54,8 +54,12 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
 - **Le Pouilleux** (`src/game/pouilleux.js`) : décrit plus bas.
 - **Le Trou du Cul** (`src/game/trouduc.js`) : exactement 4 joueurs. Jeu de 52
   cartes, ordre 3 → 2 (le 2 est la carte la plus forte), on pose des cartes de
-  même rang en quantité égale ou supérieure au pli, sinon on passe ; poser un 8
-  brûle le pli et permet de rejouer immédiatement. À la toute première manche,
+  même rang en quantité égale ou supérieure au pli, sinon on passe. Poser un 8
+  **ou un 2** brûle le pli et permet de rejouer immédiatement (le 2 ne peut de
+  toute façon jamais être battu). On peut aussi **copier** le rang du pli au
+  lieu de le dépasser (ex : 4 → 6 → 6) — dans ce cas le pli se **verrouille**
+  sur ce rang pour le reste du tour : seul ce rang exact reste jouable, plus
+  moyen de relancer plus haut, jusqu'à ce que le pli soit ramassé ou brûlé. À la toute première manche,
   les 4 rôles (Président, Vice-Président, Secrétaire, Trou du Cul) sont tirés
   au sort ; ensuite ils sont reconduits selon le classement de la manche
   précédente. Avant chaque donne : le Trou du Cul donne ses 2 meilleures
