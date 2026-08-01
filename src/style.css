@@ -207,12 +207,12 @@ h1 {
 .player-list__kick {
   background: none;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  color: rgba(247, 241, 225, 0.5);
-  width: 26px;
-  height: 26px;
+  border-radius: 10px;
+  color: rgba(247, 241, 225, 0.55);
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
 }
@@ -423,8 +423,8 @@ h1 {
 }
 .trouduc-seat__status {
   font-family: var(--font-mono);
-  font-size: 10px;
-  color: rgba(247, 241, 225, 0.55);
+  font-size: 11px;
+  color: rgba(247, 241, 225, 0.75);
   margin: 1px 0 4px;
 }
 
@@ -499,7 +499,7 @@ h1 {
 
 /* Main en éventail : léger arrondi, comme des cartes réellement tenues en main. */
 .trouduc-hand__cards {
-  padding-top: 18px;
+  padding-top: 28px;
   align-items: flex-end;
 }
 .trouduc-hand__cards .hand-card {
