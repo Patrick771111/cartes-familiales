@@ -145,6 +145,12 @@ export async function renameLocalPlayer(room, profile, newName) {
  * partie (ça casserait la distribution/l'ordre du tour) : uniquement en salle
  * d'attente ou une fois la manche terminée.
  */
+/** Choisit le nouvel hôte parmi les joueurs restants : toujours un humain en priorité (un bot ne peut pas cliquer sur "Lancer la partie"). */
+function pickNewHost(remainingPlayers) {
+  const human = remainingPlayers.find((p) => !p.isBot);
+  return human?.id || remainingPlayers[0]?.id || null;
+}
+
 export async function leaveTable(room, profile) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const fresh = await fetchRoomById(room.id);
@@ -154,7 +160,7 @@ export async function leaveTable(room, profile) {
     }
 
     const remainingPlayers = fresh.state.players.filter((p) => p.id !== profile.id);
-    const newHostId = fresh.state.hostId === profile.id ? remainingPlayers[0]?.id || null : fresh.state.hostId;
+    const newHostId = fresh.state.hostId === profile.id ? pickNewHost(remainingPlayers) : fresh.state.hostId;
     const newState = {
       ...fresh.state,
       players: remainingPlayers,
@@ -185,7 +191,7 @@ export async function kickPlayer(room, targetId) {
     }
 
     const remainingPlayers = fresh.state.players.filter((p) => p.id !== targetId);
-    const newHostId = fresh.state.hostId === targetId ? remainingPlayers[0]?.id || null : fresh.state.hostId;
+    const newHostId = fresh.state.hostId === targetId ? pickNewHost(remainingPlayers) : fresh.state.hostId;
     const newState = {
       ...fresh.state,
       players: remainingPlayers,
@@ -224,6 +230,37 @@ export async function addBot(room) {
     }
   }
   throw new Error("Impossible d'ajouter un bot, réessaie.");
+}
+
+/**
+ * Permet à un humain de reprendre le rôle d'hôte si celui-ci est actuellement
+ * un bot (ex: après le départ de l'hôte humain). Porte de sortie pour ne pas
+ * rester bloqué, personne ne pouvant retirer un bot hôte sans être hôte soi-même.
+ */
+export async function claimHost(room, profile) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const fresh = await fetchRoomById(room.id);
+    if (fresh.state.status === 'playing') throw new Error("Impossible de changer d'hôte en pleine partie.");
+    if (!fresh.state.players.some((p) => p.id === profile.id)) throw new Error("Tu n'es pas (encore) à cette table.");
+
+    const currentHost = fresh.state.players.find((p) => p.id === fresh.state.hostId);
+    if (currentHost && !currentHost.isBot) {
+      throw new Error('Il y a déjà un hôte humain à la table.');
+    }
+
+    const newState = {
+      ...fresh.state,
+      hostId: profile.id,
+      log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} devient l'hôte.` }]
+    };
+
+    try {
+      return await updateRoomState(fresh.id, fresh.version, newState);
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+    }
+  }
+  throw new Error("Impossible de devenir l'hôte, réessaie.");
 }
 
 export async function startGame(room, gameType = 'pouilleux') {
