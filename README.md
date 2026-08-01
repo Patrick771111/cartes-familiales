@@ -49,19 +49,60 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
    Le dossier `dist/` est déployable tel quel (Netlify, ou exposé via ton tunnel
    Cloudflare comme `repas-ia`, en créant un second hostname).
 
+## Jeux disponibles
+
+- **Le Pouilleux** (`src/game/pouilleux.js`) : décrit plus bas.
+- **Le Trou du Cul** (`src/game/trouduc.js`) : exactement 4 joueurs. Jeu de 52
+  cartes, ordre 3 → 2 (le 2 est la carte la plus forte), on pose des cartes de
+  même rang en quantité égale ou supérieure au pli, sinon on passe ; poser un 8
+  brûle le pli et permet de rejouer immédiatement. À la toute première manche,
+  les 4 rôles (Président, Vice-Président, Secrétaire, Trou du Cul) sont tirés
+  au sort ; ensuite ils sont reconduits selon le classement de la manche
+  précédente. Avant chaque donne : le Trou du Cul donne ses 2 meilleures
+  cartes au Président (qui lui rend 2 cartes en retour), et le Secrétaire fait
+  de même avec le Vice-Président pour 1 carte. Le Trou du Cul entame le
+  premier pli de la nouvelle manche *(hypothèse — certaines familles font
+  démarrer le Président à la place ; à changer dans `initGame`, ligne
+  `currentPlayerId: trouDuCulId`, si besoin)*.
+
+L'hôte choisit le jeu dans la salle d'attente juste avant de lancer la partie.
+Si vous n'êtes que 2 ou 3, l'hôte peut ajouter 1 ou 2 bots pour compléter la
+table (bouton "+ Ajouter un bot" en salle d'attente, jusqu'à 4 joueurs au
+total). Les bots jouent tout seuls après un court délai :
+- **Pouilleux** : tirage au hasard, comme n'importe quel joueur (aucune
+  stratégie possible à ce jeu, c'est purement à l'aveugle).
+- **Trou du Cul** : comportement basique — relance toujours avec l'ensemble de
+  cartes le plus faible de sa main, et pour battre le pli choisit toujours le
+  rang légal le plus faible possible. Pas d'anticipation plus poussée (ne
+  retient pas ses grosses cartes en fin de manche, par exemple).
+
 ## Comment ça marche
 
+- Il n'y a **qu'une seule table**, identifiée par un code fixe caché dans le code
+  (`FAMILY_CODE` dans `src/game/engine.js`, personnalisable via `VITE_FAMILY_CODE`).
+  Personne n'a besoin de créer ou saisir de code : le premier appareil qui ouvre
+  l'appli la crée automatiquement, les suivants la rejoignent.
+- Chaque appareil mémorise son prénom dans `localStorage` dès la première visite
+  (bouton "Ce n'est pas [prénom] ? Changer de prénom" dans la salle d'attente si besoin).
 - `src/game/deck.js` et `src/game/pouilleux.js` : logique du jeu, en fonctions
   pures — aucune dépendance à Supabase ni au DOM. C'est le cœur à copier/adapter
   pour ajouter un nouveau jeu.
-- `src/supabase/sync.js` : lecture/écriture d'une "room" avec un **verrou optimiste**
+- `src/supabase/sync.js` : lecture/écriture de la table avec un **verrou optimiste**
   (colonne `version`) pour éviter que deux actions simultanées ne s'écrasent, et
   un abonnement Realtime (`postgres_changes`) pour pousser les mises à jour à
   tous les téléphones connectés.
-- `src/game/engine.js` : colle les deux ensemble (créer/rejoindre une table,
-  démarrer la partie, jouer un tour) et gère l'identité du joueur en local
-  (stockée dans `localStorage`, pas de compte à créer).
+- `src/game/engine.js` : colle le tout ensemble (rejoindre la table familiale,
+  démarrer une manche, jouer un tour, relancer une partie).
 - `src/ui/` : rendu DOM simple (pas de framework), un écran = une fonction.
+
+## Déroulé d'une partie
+
+1. Chacun ouvre l'appli sur son téléphone. Premier arrivé = hôte.
+2. La salle d'attente affiche la liste des joueurs déjà connectés en temps réel.
+3. L'hôte clique sur "Lancer la partie" quand tout le monde est là (pas besoin
+   d'attendre exactement 4 joueurs, ça marche dès 2).
+4. À la fin d'une manche, n'importe qui peut cliquer "Rejouer" : ça remet tout
+   le monde en salle d'attente avec les mêmes joueurs, prêt pour une nouvelle donne.
 
 ## Règles du Pouilleux implémentées
 
@@ -79,12 +120,14 @@ facilement si besoin).
 ## Limite connue (MVP)
 
 L'état de la partie (y compris les mains de tous les joueurs) transite par une
-ligne Supabase lisible par quiconque a le code de la table. Pour un usage
-familial, la friction du code à 4 lettres + l'absence d'exposition publique
-suffisent. Si un jour tu veux un vrai "fair-play" (empêcher un joueur curieux
-d'inspecter les mains adverses dans les devtools), il faudrait déplacer la
-logique de pioche côté serveur (Edge Function Supabase) pour ne renvoyer à
-chaque client que sa propre main. Pas fait ici pour garder le MVP simple.
+ligne Supabase lisible par quiconque connaît le code de la table. Ce code est
+maintenant fixe et écrit en clair dans le bundle JS (`FAMILY_CODE`), donc la
+seule vraie barrière est de ne pas rendre l'URL de l'appli publique. Suffisant
+pour un usage familial derrière une URL non indexée comme `cartes.blavier.one`.
+Si un jour tu veux un vrai "fair-play" (empêcher un joueur curieux d'inspecter
+les mains adverses dans les devtools), il faudrait déplacer la logique de
+pioche côté serveur (Edge Function Supabase) pour ne renvoyer à chaque client
+que sa propre main. Pas fait ici pour garder le MVP simple.
 
 ## Étendre à d'autres jeux
 
