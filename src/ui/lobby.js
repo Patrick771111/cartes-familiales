@@ -1,79 +1,42 @@
-import { hostNewRoom, joinRoom } from '../game/engine.js';
-
 /**
- * Affiche l'écran d'accueil dans `container`.
- * `onEntered(room, player)` est appelé une fois qu'on a rejoint/créé une salle.
- * `prefillCode` pré-remplit le champ code (ex: depuis un lien partagé ?room=XXXX).
+ * Écran affiché une seule fois par appareil : demande juste le prénom.
+ * `onSubmit(name)` doit créer l'identité locale et rejoindre la table familiale.
  */
-export function renderLobby(container, { onEntered, prefillCode = '' } = {}) {
+export function renderNamePrompt(container, { onSubmit } = {}) {
   container.innerHTML = `
     <div class="screen screen--lobby">
       <div class="lobby-card">
         <p class="eyebrow">Cartes en famille</p>
         <h1>Le Pouilleux</h1>
         <p class="lobby-card__intro">
-          Créez une table ou rejoignez celle d'un proche avec son code à 4 lettres.
+          Comment tu t'appelles ? On ne te redemandera plus sur cet appareil.
         </p>
 
-        <form id="form-create" class="lobby-form">
-          <label for="create-name">Votre prénom</label>
-          <input id="create-name" name="name" type="text" placeholder="Ex : Patrick" required maxlength="20" autocomplete="off" />
-          <button type="submit" class="btn btn--primary">Créer une table</button>
+        <form id="form-name" class="lobby-form">
+          <input id="name-input" name="name" type="text" placeholder="Ton prénom" required maxlength="20" autocomplete="off" autofocus />
+          <button type="submit" class="btn btn--primary">C'est parti</button>
         </form>
 
-        <div class="lobby-divider"><span>ou</span></div>
-
-        <form id="form-join" class="lobby-form">
-          <label for="join-code">Code de la table</label>
-          <input id="join-code" name="code" type="text" placeholder="Ex : R7QK" required maxlength="4"
-                 value="${prefillCode}" autocomplete="off" style="text-transform:uppercase" />
-          <label for="join-name">Votre prénom</label>
-          <input id="join-name" name="name" type="text" placeholder="Ex : Joëlle" required maxlength="20" autocomplete="off" />
-          <button type="submit" class="btn btn--ghost">Rejoindre</button>
-        </form>
-
-        <p id="lobby-error" class="lobby-error" hidden></p>
+        <p id="name-error" class="lobby-error" hidden></p>
       </div>
     </div>
   `;
 
-  const errorEl = container.querySelector('#lobby-error');
-  const showError = (message) => {
-    errorEl.textContent = message;
-    errorEl.hidden = false;
-  };
+  const errorEl = container.querySelector('#name-error');
 
-  container.querySelector('#form-create').addEventListener('submit', async (e) => {
+  container.querySelector('#form-name').addEventListener('submit', async (e) => {
     e.preventDefault();
     errorEl.hidden = true;
     const name = e.target.name.value.trim();
     if (!name) return;
-    const submitBtn = e.target.querySelector('button');
-    submitBtn.disabled = true;
+    const btn = e.target.querySelector('button');
+    btn.disabled = true;
     try {
-      const room = await hostNewRoom(name);
-      const player = room.state.players[0];
-      onEntered(room, player);
+      await onSubmit(name);
     } catch (err) {
-      showError(err.message || 'Impossible de créer la table.');
-      submitBtn.disabled = false;
-    }
-  });
-
-  container.querySelector('#form-join').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    errorEl.hidden = true;
-    const code = e.target.code.value.trim().toUpperCase();
-    const name = e.target.name.value.trim();
-    if (!code || !name) return;
-    const submitBtn = e.target.querySelector('button');
-    submitBtn.disabled = true;
-    try {
-      const { room, player } = await joinRoom(code, name);
-      onEntered(room, player);
-    } catch (err) {
-      showError(err.message || 'Impossible de rejoindre cette table.');
-      submitBtn.disabled = false;
+      errorEl.textContent = err.message || 'Une erreur est survenue.';
+      errorEl.hidden = false;
+      btn.disabled = false;
     }
   });
 }
