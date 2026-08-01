@@ -1,4 +1,36 @@
 /**
+ * Affiché après qu'un joueur ait quitté la table : lui permet d'y revenir
+ * facilement, sans re-saisir son prénom (déjà mémorisé sur l'appareil).
+ */
+export function renderLeftTable(container, { name, onRejoin } = {}) {
+  container.innerHTML = `
+    <div class="screen screen--lobby">
+      <div class="lobby-card">
+        <p class="eyebrow">Cartes en famille</p>
+        <h1>À plus, ${name} !</h1>
+        <p class="lobby-card__intro">Tu as quitté la table. Reviens quand tu veux.</p>
+        <button id="btn-rejoin" class="btn btn--primary">Revenir à la table</button>
+        <p id="rejoin-error" class="lobby-error" hidden></p>
+      </div>
+    </div>
+  `;
+
+  const errorEl = container.querySelector('#rejoin-error');
+
+  container.querySelector('#btn-rejoin').addEventListener('click', async (e) => {
+    errorEl.hidden = true;
+    e.target.disabled = true;
+    try {
+      await onRejoin();
+    } catch (err) {
+      errorEl.textContent = err.message || 'Impossible de revenir pour le moment.';
+      errorEl.hidden = false;
+      e.target.disabled = false;
+    }
+  });
+}
+
+/**
  * Écran affiché une seule fois par appareil : demande juste le prénom.
  * `onSubmit(name)` doit créer l'identité locale et rejoindre la table familiale.
  */

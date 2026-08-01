@@ -71,13 +71,15 @@ export async function fetchRoomById(id) {
 
 /**
  * Met à jour l'état d'une partie avec verrou optimiste basé sur `version`.
- * Si quelqu'un d'autre a écrit entre temps, lève ConflictError : l'appelant doit
- * relire l'état à jour et, si besoin, réappliquer son action.
+ * `extraColumns` permet de modifier d'autres colonnes en même temps (ex: `game`
+ * au moment de lancer une nouvelle partie). Si quelqu'un d'autre a écrit entre
+ * temps, lève ConflictError : l'appelant doit relire l'état à jour et, si
+ * besoin, réappliquer son action.
  */
-export async function updateRoomState(roomId, expectedVersion, newState) {
+export async function updateRoomState(roomId, expectedVersion, newState, extraColumns = {}) {
   const { data, error } = await supabase
     .from('game_rooms')
-    .update({ state: newState, version: expectedVersion + 1 })
+    .update({ ...extraColumns, state: newState, version: expectedVersion + 1 })
     .eq('id', roomId)
     .eq('version', expectedVersion)
     .select()

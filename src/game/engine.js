@@ -5,7 +5,18 @@ import {
   subscribeRoom,
   ConflictError
 } from '../supabase/sync.js';
-import { initGame, applyDraw } from './pouilleux.js';
+import { initGame as initPouilleux, applyDraw } from './pouilleux.js';
+import { initGame as initTrouduc, applyPlay as applyTrouducPlay, applyPass as applyTrouducPass } from './trouduc.js';
+
+const GAME_INITIALIZERS = {
+  pouilleux: initPouilleux,
+  trouduc: initTrouduc
+};
+
+export const AVAILABLE_GAMES = [
+  { id: 'pouilleux', label: 'Le Pouilleux' },
+  { id: 'trouduc', label: 'Le Trou du Cul' }
+];
 
 // Code fixe de la table familiale : personne n'a besoin de le saisir ni de le
 // partager, tout le monde retombe automatiquement sur la même table.
@@ -129,34 +140,109 @@ export async function renameLocalPlayer(room, profile, newName) {
   throw new Error('Impossible de changer le prénom, réessaie.');
 }
 
-export async function startGame(room) {
-  if (room.state.players.length < 2) throw new Error('Il faut au moins 2 joueurs.');
-  const gameState = initGame(room.state.players.map(({ id, name }) => ({ id, name })));
-  const newState = { ...room.state, ...gameState, hostId: room.state.hostId };
-  return updateRoomState(room.id, room.version, newState);
+/**
+ * Retire le profil local de la liste des joueurs de la table. Impossible en pleine
+ * partie (ça casserait la distribution/l'ordre du tour) : uniquement en salle
+ * d'attente ou une fois la manche terminée.
+ */
+export async function leaveTable(room, profile) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const fresh = await fetchRoomById(room.id);
+    if (!fresh.state.players.some((p) => p.id === profile.id)) return fresh; // déjà parti
+    if (fresh.state.status === 'playing') {
+      throw new Error('Impossible de quitter en pleine partie — attends la fin de la manche.');
+    }
+
+    const remainingPlayers = fresh.state.players.filter((p) => p.id !== profile.id);
+    const newHostId = fresh.state.hostId === profile.id ? remainingPlayers[0]?.id || null : fresh.state.hostId;
+    const newState = {
+      ...fresh.state,
+      players: remainingPlayers,
+      hostId: newHostId,
+      log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} a quitté la table.` }]
+    };
+
+    try {
+      return await updateRoomState(fresh.id, fresh.version, newState);
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+    }
+  }
+  throw new Error('Impossible de quitter la table, réessaie.');
 }
 
 /**
- * Fait piocher le joueur courant. On laisse l'appelant gérer ConflictError : il
- * resynchronisera via l'abonnement realtime (watchRoom) plutôt que de rejouer l'action à l'aveugle.
+ * Retire un joueur donné de la table (utilisé par l'hôte pour quelqu'un qui a
+ * oublié de quitter). Mêmes garde-fous que leaveTable : impossible en pleine partie.
+ */
+export async function kickPlayer(room, targetId) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const fresh = await fetchRoomById(room.id);
+    const target = fresh.state.players.find((p) => p.id === targetId);
+    if (!target) return fresh; // déjà parti
+    if (fresh.state.status === 'playing') {
+      throw new Error('Impossible de retirer un joueur en pleine partie.');
+    }
+
+    const remainingPlayers = fresh.state.players.filter((p) => p.id !== targetId);
+    const newHostId = fresh.state.hostId === targetId ? remainingPlayers[0]?.id || null : fresh.state.hostId;
+    const newState = {
+      ...fresh.state,
+      players: remainingPlayers,
+      hostId: newHostId,
+      log: [...fresh.state.log, { ts: Date.now(), message: `${target.name} a été retiré de la table.` }]
+    };
+
+    try {
+      return await updateRoomState(fresh.id, fresh.version, newState);
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+    }
+  }
+  throw new Error('Impossible de retirer ce joueur, réessaie.');
+}
+
+export async function startGame(room, gameType = 'pouilleux') {
+  if (room.state.players.length < 2) throw new Error('Il faut au moins 2 joueurs.');
+  const initializer = GAME_INITIALIZERS[gameType];
+  if (!initializer) throw new Error('Jeu inconnu.');
+
+  const gameState = initializer(room.state.players.map(({ id, name }) => ({ id, name })));
+  const newState = { ...room.state, ...gameState, hostId: room.state.hostId };
+  return updateRoomState(room.id, room.version, newState, { game: gameType });
+}
+
+/**
+ * Fait piocher le joueur courant au Pouilleux. On laisse l'appelant gérer
+ * ConflictError : il resynchronisera via l'abonnement realtime (watchRoom)
+ * plutôt que de rejouer l'action à l'aveugle.
  */
 export async function drawForCurrentPlayer(room, playerId) {
   const newState = applyDraw(room.state, playerId);
   return updateRoomState(room.id, room.version, newState);
 }
 
-/** Remet la table en salle d'attente pour relancer une manche, en gardant les mêmes joueurs. */
+/** Pose un ou plusieurs cartes de même rang au Trou du Cul. */
+export async function playCards(room, playerId, cardIds) {
+  const newState = applyTrouducPlay(room.state, playerId, cardIds);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Passe son tour au Trou du Cul. */
+export async function passTurn(room, playerId) {
+  const newState = applyTrouducPass(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Remet la table en salle d'attente pour relancer une manche du même jeu, en gardant les mêmes joueurs. */
 export async function playAgain(room) {
-  const players = room.state.players.map((p) => ({ id: p.id, name: p.name, hand: [] }));
+  const players = room.state.players.map((p) => ({ id: p.id, name: p.name }));
   const newState = {
     status: 'lobby',
-    players,
+    players: players.map((p) => ({ ...p, hand: [] })),
     hostId: room.state.hostId,
     turnOrder: [],
     currentPlayerId: null,
-    oddCardId: null,
-    loserId: null,
-    lastDraw: null,
     log: [...room.state.log, { ts: Date.now(), message: 'Nouvelle partie.' }].slice(-40)
   };
   return updateRoomState(room.id, room.version, newState);

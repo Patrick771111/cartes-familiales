@@ -1,5 +1,5 @@
 import './style.css';
-import { renderNamePrompt } from './ui/lobby.js';
+import { renderNamePrompt, renderLeftTable } from './ui/lobby.js';
 import { renderGame } from './ui/game.js';
 import {
   getLocalProfile,
@@ -7,6 +7,8 @@ import {
   ensureMembership,
   createIdentityAndJoin,
   renameLocalPlayer,
+  leaveTable,
+  kickPlayer,
   watchRoom
 } from './game/engine.js';
 
@@ -14,8 +16,25 @@ const app = document.getElementById('app');
 let unsubscribe = null;
 let currentPlayer = null;
 let currentRoomId = null;
+let hasLeftTable = false;
 
 function draw(room) {
+  const stillMember = room.state.players.some((p) => p.id === currentPlayer.id);
+  const shouldShowLeftScreen = hasLeftTable || (!stillMember && room.state.status !== 'playing');
+
+  if (shouldShowLeftScreen) {
+    hasLeftTable = true;
+    renderLeftTable(app, {
+      name: currentPlayer.name,
+      onRejoin: async () => {
+        const rejoined = await ensureMembership(room, currentPlayer);
+        hasLeftTable = false;
+        draw(rejoined);
+      }
+    });
+    return;
+  }
+
   renderGame(app, {
     room,
     player: currentPlayer,
@@ -26,6 +45,22 @@ function draw(room) {
         draw(updatedRoom);
       } catch (err) {
         alert(err.message || 'Impossible de changer le prénom.');
+      }
+    },
+    onLeave: async () => {
+      try {
+        await leaveTable(room, currentPlayer);
+        hasLeftTable = true;
+        draw(room);
+      } catch (err) {
+        alert(err.message || 'Impossible de quitter la table.');
+      }
+    },
+    onKick: async (targetId) => {
+      try {
+        await kickPlayer(room, targetId);
+      } catch (err) {
+        alert(err.message || 'Impossible de retirer ce joueur.');
       }
     }
   });

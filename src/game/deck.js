@@ -36,6 +36,11 @@ export function buildPouilleuxDeck({ oddRank = 'J', keepSuit = 'S' } = {}) {
   return { deck, oddCardId: `${oddRank}${keepSuit}` };
 }
 
+/** Jeu de 52 cartes standard, sans retrait — utilisé par les jeux autres que le Pouilleux. */
+export function buildStandardDeck() {
+  return SUITS.flatMap((suit) => RANKS.map((rank) => ({ id: `${rank}${suit.key}`, rank, suit: suit.key })));
+}
+
 /** Distribue les cartes en rond entre les joueurs (certains auront une carte de plus). */
 export function deal(deck, playerIds) {
   const hands = Object.fromEntries(playerIds.map((id) => [id, []]));
