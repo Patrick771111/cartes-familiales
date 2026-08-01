@@ -22,6 +22,7 @@ export function renderGame(container, { room, player, onRename, onLeave, onKick 
 
   if (state.status === 'lobby') {
     lastRenderedState = null;
+    lastShownExchangeId = null;
     return renderWaitingRoom(container, { room, player, onRename, onLeave, onKick });
   }
 
@@ -36,6 +37,9 @@ export function renderGame(container, { room, player, onRename, onLeave, onKick 
 
   const isTrouduc = room.game === 'trouduc';
   if (state.status === 'playing') {
+    if (isTrouduc && state.cardExchange && state.cardExchange.id !== lastShownExchangeId) {
+      return renderTrouducExchangeReveal(container, { room, player, state });
+    }
     return isTrouduc
       ? renderTrouducTable(container, { room, player, state })
       : renderTableNow(container, { room, player, state });
@@ -83,7 +87,7 @@ function renderWaitingRoom(container, { room, player, onRename, onLeave, onKick 
                     (g, i) => `
                       <label class="game-picker__option">
                         <input type="radio" name="game" value="${g.id}" ${i === 0 ? 'checked' : ''} />
-                        <span>${g.label}</span>
+                        <span>${g.label}<br/><small>${g.hint}</small></span>
                       </label>`
                   ).join('')}
                 </div>
@@ -266,6 +270,50 @@ function renderEndScreen(container, { room, player, onLeave }) {
 // n'est plus son tour). Vit en dehors du DOM pour survivre aux re-rendus.
 let selectedCardIds = new Set();
 
+// Id du dernier échange de cartes déjà montré sur cet appareil, pour ne pas
+// répéter l'écran de révélation à chaque re-rendu pendant la même manche.
+let lastShownExchangeId = null;
+
+function renderTrouducExchangeReveal(container, { room, player, state }) {
+  const byId = Object.fromEntries(state.players.map((p) => [p.id, p]));
+
+  const pairHtml = (pair) => {
+    const from = byId[pair.fromId];
+    const to = byId[pair.toId];
+    return `
+      <div class="exchange-pair">
+        <p class="exchange-pair__label">${from?.name} <span class="exchange-pair__role">(${from?.role})</span> → ${to?.name} <span class="exchange-pair__role">(${to?.role})</span></p>
+        <div class="exchange-pair__row">
+          <div class="exchange-pair__side">
+            <p class="exchange-pair__side-label">Donne</p>
+            <div class="exchange-pair__cards">${pair.given.map(cardFaceHtml).join('')}</div>
+          </div>
+          <div class="exchange-pair__arrow">⇄</div>
+          <div class="exchange-pair__side">
+            <p class="exchange-pair__side-label">Reçoit en retour</p>
+            <div class="exchange-pair__cards">${pair.returned.map(cardFaceHtml).join('')}</div>
+          </div>
+        </div>
+      </div>`;
+  };
+
+  container.innerHTML = `
+    <div class="screen screen--waiting">
+      <div class="lobby-card lobby-card--exchange">
+        <p class="eyebrow">Nouvelle manche</p>
+        <h1>Échange de cartes</h1>
+        ${state.cardExchange.pairs.map(pairHtml).join('')}
+        <button id="btn-continue" class="btn btn--primary">Voir ma main</button>
+      </div>
+    </div>
+  `;
+
+  container.querySelector('#btn-continue').addEventListener('click', () => {
+    lastShownExchangeId = state.cardExchange.id;
+    renderTrouducTable(container, { room, player, state });
+  });
+}
+
 function renderTrouducTable(container, { room, player, state }) {
   const me = state.players.find((p) => p.id === player.id);
   const others = state.players.filter((p) => p.id !== player.id);
@@ -290,9 +338,10 @@ function renderTrouducTable(container, { room, player, state }) {
           ${others
             .map((p) => {
               const isTurn = p.id === state.currentPlayerId;
-              const label = p.finished
-                ? `${trouducRankLabel(p.rank, state.players.length)}`
+              const status = p.finished
+                ? trouducRankLabel(p.rank)
                 : `${p.hand.length} carte${p.hand.length > 1 ? 's' : ''}`;
+              const label = p.role ? `${p.role} · ${status}` : status;
               return `
                 <div class="opponent ${isTurn ? 'opponent--turn' : ''} ${p.finished ? 'opponent--finished' : ''}">
                   <div class="opponent__hand">
@@ -330,7 +379,7 @@ function renderTrouducTable(container, { room, player, state }) {
       </div>
 
       <div class="my-hand">
-        <p class="my-hand__label">Ta main (${me.hand.length})</p>
+        <p class="my-hand__label">${me.role ? `${me.role} · ` : ''}Ta main (${me.hand.length})</p>
         <div class="my-hand__cards">
           ${
             me.hand
@@ -383,7 +432,6 @@ function renderTrouducTable(container, { room, player, state }) {
 }
 
 function renderTrouducEnd(container, { room, player, state, onLeave }) {
-  const total = state.players.length;
   const ranked = state.players.slice().sort((a, b) => (a.rank || 99) - (b.rank || 99));
   const me = state.players.find((p) => p.id === player.id);
 
@@ -391,10 +439,10 @@ function renderTrouducEnd(container, { room, player, state, onLeave }) {
     <div class="screen screen--end">
       <div class="lobby-card lobby-card--end">
         <p class="eyebrow">Partie terminée</p>
-        <h1>${trouducRankLabel(me?.rank, total)}${me?.rank === 1 ? ' 🏆' : ''}</h1>
+        <h1>${trouducRankLabel(me?.rank)}${me?.rank === 1 ? ' 🏆' : ''}</h1>
         <ol class="rank-list">
           ${ranked
-            .map((p) => `<li>${trouducRankLabel(p.rank, total)} — ${p.name}${p.id === player.id ? ' (toi)' : ''}</li>`)
+            .map((p) => `<li>${trouducRankLabel(p.rank)} — ${p.name}${p.id === player.id ? ' (toi)' : ''}</li>`)
             .join('')}
         </ol>
         <button class="btn btn--primary" id="btn-again">Rejouer</button>
