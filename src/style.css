@@ -375,6 +375,10 @@ h1 {
   color: rgba(247, 241, 225, 0.55);
   margin: 0;
 }
+.pile__locked {
+  color: #ff9a9a;
+  font-weight: 700;
+}
 
 .trouduc-actions { display: flex; gap: 10px; justify-content: center; margin-top: 6px; }
 .trouduc-actions .btn { flex: 1; max-width: 160px; }

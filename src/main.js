@@ -60,8 +60,9 @@ function maybeScheduleBotMove(room) {
 }
 
 // Politique du bot au Trou du Cul : toujours jouer l'ensemble le plus faible
-// possible (pour relancer un pli libre comme pour battre le pli en cours),
-// sinon passer. Aucune anticipation plus poussée — comportement basique assumé.
+// possible (pour relancer un pli libre comme pour battre — ou copier — le pli
+// en cours), sinon passer. Respecte le verrouillage de rang (rankLocked) une
+// fois qu'une copie a eu lieu. Aucune anticipation plus poussée — basique assumé.
 function chooseTrouducMove(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   const groups = new Map();
@@ -76,8 +77,12 @@ function chooseTrouducMove(state, botId) {
     return { type: 'play', cardIds: cards.map((c) => c.id) };
   }
 
+  const pileRankValue = trouducRankValue(state.pileRank);
   for (const [rank, cards] of sortedGroups) {
-    if (trouducRankValue(rank) > trouducRankValue(state.pileRank) && cards.length >= state.pileCount) {
+    if (cards.length < state.pileCount) continue;
+    const rv = trouducRankValue(rank);
+    const legal = state.rankLocked ? rv === pileRankValue : rv >= pileRankValue;
+    if (legal) {
       return { type: 'play', cardIds: cards.slice(0, state.pileCount).map((c) => c.id) };
     }
   }
