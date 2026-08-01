@@ -496,9 +496,10 @@ function renderTrouducTable(container, { room, player, state }) {
     if (total <= 1) return '';
     const mid = (total - 1) / 2;
     const offset = index - mid;
-    const anglePerCard = Math.min(5, 28 / total);
+    const anglePerCard = Math.min(6, 34 / total);
     const rotate = (offset * anglePerCard).toFixed(1);
-    const rise = Math.min(Math.abs(offset) * 2.2, 16).toFixed(1);
+    const maxRise = 22;
+    const rise = (maxRise * (1 - Math.abs(offset) / (mid || 1))).toFixed(1);
     return `--fan-rotate: ${rotate}deg; --fan-rise: ${rise}px;`;
   };
 
