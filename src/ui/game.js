@@ -451,13 +451,14 @@ function renderTrouducTable(container, { room, player, state }) {
 
   const selectedCards = me.hand.filter((c) => selectedCardIds.has(c.id));
   const selectedRank = selectedCards[0]?.rank;
+  const beatsOrMatchesPile = state.rankLocked
+    ? trouducRankValue(selectedRank) === trouducRankValue(state.pileRank)
+    : trouducRankValue(selectedRank) >= trouducRankValue(state.pileRank);
   const selectionValid =
     isMyTurn &&
     selectedCards.length > 0 &&
     selectedCards.every((c) => c.rank === selectedRank) &&
-    (state.pileCount === 0
-      ? true
-      : selectedCards.length === state.pileCount && trouducRankValue(selectedRank) > trouducRankValue(state.pileRank));
+    (state.pileCount === 0 ? true : selectedCards.length === state.pileCount && beatsOrMatchesPile);
   const canPass = isMyTurn && state.pileCount > 0;
 
   container.innerHTML = `
@@ -490,7 +491,7 @@ function renderTrouducTable(container, { room, player, state }) {
           ${
             state.pileCount > 0
               ? `<div class="pile__cards">${state.pile.map(cardFaceHtml).join('')}</div>
-                 <p class="pile__label">${state.pileCount} × ${state.pileRank}</p>`
+                 <p class="pile__label">${state.pileCount} × ${state.pileRank}${state.rankLocked ? ' <span class="pile__locked">🔒 verrouillé</span>' : ''}</p>`
               : `<p class="pile__empty">Pli libre — pose ce que tu veux</p>`
           }
         </div>
