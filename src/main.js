@@ -1,37 +1,48 @@
 import './style.css';
-import { renderLobby } from './ui/lobby.js';
+import { renderNamePrompt } from './ui/lobby.js';
 import { renderGame } from './ui/game.js';
-import { getLocalPlayer, watchRoom, fetchRoomByCode } from './game/engine.js';
+import {
+  getLocalProfile,
+  ensureFamilyRoom,
+  ensureMembership,
+  createIdentityAndJoin,
+  renameLocalPlayer,
+  watchRoom
+} from './game/engine.js';
 
 const app = document.getElementById('app');
 let unsubscribe = null;
+let currentPlayer = null;
+let currentRoomId = null;
 
-function stopWatching() {
-  if (unsubscribe) {
-    unsubscribe();
-    unsubscribe = null;
-  }
-}
-
-function goToLobby(prefillCode = '') {
-  stopWatching();
-  const url = new URL(window.location.href);
-  url.search = '';
-  window.history.replaceState({}, '', url);
-  renderLobby(app, { prefillCode, onEntered: enterRoom });
+function draw(room) {
+  renderGame(app, {
+    room,
+    player: currentPlayer,
+    onRename: async (newName) => {
+      try {
+        const { room: updatedRoom, player: updatedProfile } = await renameLocalPlayer(room, currentPlayer, newName);
+        currentPlayer = updatedProfile;
+        draw(updatedRoom);
+      } catch (err) {
+        alert(err.message || 'Impossible de changer le prénom.');
+      }
+    }
+  });
 }
 
 function enterRoom(room, player) {
-  const url = new URL(window.location.href);
-  url.search = `?room=${room.code}`;
-  window.history.replaceState({}, '', url);
+  currentPlayer = player;
 
-  stopWatching();
-  renderGame(app, { room, player, onLeave: () => goToLobby() });
+  if (unsubscribe && currentRoomId === room.id) {
+    draw(room);
+    return;
+  }
 
-  unsubscribe = watchRoom(room.id, (freshRow) => {
-    renderGame(app, { room: freshRow, player, onLeave: () => goToLobby() });
-  });
+  if (unsubscribe) unsubscribe();
+  currentRoomId = room.id;
+  draw(room);
+  unsubscribe = watchRoom(room.id, (freshRow) => draw(freshRow));
 }
 
 async function boot() {
@@ -39,22 +50,21 @@ async function boot() {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
-  const params = new URLSearchParams(window.location.search);
-  const codeFromUrl = params.get('room');
+  const room = await ensureFamilyRoom();
+  const profile = getLocalProfile();
 
-  if (codeFromUrl) {
-    const localPlayer = getLocalPlayer(codeFromUrl);
-    const room = await fetchRoomByCode(codeFromUrl);
-    if (room && localPlayer && room.state.players.some((p) => p.id === localPlayer.id)) {
-      enterRoom(room, localPlayer);
-      return;
-    }
-    // Lien reçu d'un proche, ou session perdue : on préremplit le code dans le lobby.
-    goToLobby(codeFromUrl.toUpperCase());
+  if (!profile) {
+    renderNamePrompt(app, {
+      onSubmit: async (name) => {
+        const { room: joinedRoom, player } = await createIdentityAndJoin(room, name);
+        enterRoom(joinedRoom, player);
+      }
+    });
     return;
   }
 
-  goToLobby();
+  const joinedRoom = await ensureMembership(room, profile);
+  enterRoom(joinedRoom, profile);
 }
 
 boot();
