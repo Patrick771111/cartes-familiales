@@ -30,6 +30,29 @@ export async function createRoom(initialState, game = 'pouilleux') {
   throw new Error("Impossible de créer une partie, réessaie.");
 }
 
+/**
+ * Récupère la table identifiée par `code`, ou la crée si elle n'existe pas encore.
+ * Gère la course possible entre deux appareils de la famille qui démarreraient
+ * l'appli en même temps pour la toute première fois.
+ */
+export async function getOrCreateRoomByCode(code, initialState, game = 'pouilleux') {
+  const existing = await fetchRoomByCode(code);
+  if (existing) return existing;
+
+  const { data, error } = await supabase
+    .from('game_rooms')
+    .insert({ code: code.toUpperCase(), game, state: initialState, version: 0 })
+    .select()
+    .single();
+
+  if (!error) return data;
+  if (error.code === '23505') {
+    const fresh = await fetchRoomByCode(code);
+    if (fresh) return fresh;
+  }
+  throw error;
+}
+
 export async function fetchRoomByCode(code) {
   const { data, error } = await supabase
     .from('game_rooms')
