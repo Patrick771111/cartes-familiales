@@ -73,6 +73,14 @@ function takeBestCards(hands, fromId, toId, count) {
   return given;
 }
 
+/** Garde-fou : le compte total de cartes ne doit jamais dériver de 52 pendant la distribution/l'échange. */
+function assertCardIntegrity(players, context) {
+  const total = players.reduce((sum, p) => sum + p.hand.length, 0);
+  if (total !== 52) {
+    throw new Error(`Incohérence détectée (${context} : ${total}/52 cartes). Abandonne la partie et relance une manche.`);
+  }
+}
+
 /**
  * Crée l'état initial d'une manche à 4 joueurs : rôles (aléatoires ou hérités du
  * classement précédent via `previousRanking`), distribution, puis don forcé
@@ -111,6 +119,8 @@ export function initGame(players, previousRanking = null) {
     isBot: p.isBot || false
   }));
 
+  assertCardIntegrity(gamePlayers, 'après distribution et don forcé');
+
   const nameOf = (id) => players.find((p) => p.id === id)?.name || '?';
 
   return {
@@ -127,6 +137,7 @@ export function initGame(players, previousRanking = null) {
     finishedOrder: [],
     loserId: null,
     lastMove: null,
+    lastPlayedByPlayer: {},
     exchange: {
       presidentId,
       vicePresidentId,
@@ -186,6 +197,8 @@ export function applyExchangeChoice(state, playerId, cardIds) {
   giver.hand = giver.hand.filter((c) => !cardIds.includes(c.id));
   recipient.hand = sortHand([...recipient.hand, ...cards]);
 
+  assertCardIntegrity(players, `après retour d'échange (${role})`);
+
   const newExchange = {
     ...ex,
     presidentGiven: role === 'president' ? true : ex.presidentGiven,
@@ -234,8 +247,11 @@ function finishRoundIfNeeded(state, players) {
 /**
  * Vérifie si un ensemble de cartes (même rang) peut être posé sur le pli courant :
  * même nombre de cartes, et un rang supérieur OU ÉGAL au pli (le pli est vide =
- * tout est permis). Si le pli est verrouillé (quelqu'un a déjà copié le rang en
- * cours), seul ce rang exact reste jouable — impossible de relancer plus haut.
+ * tout est permis). Si `state.rankLocked` est vrai, c'est que le joueur PRÉCÉDENT
+ * vient de copier le rang du pli : ce tour-ci (un seul tour, pas plus), seul ce
+ * rang exact reste jouable — impossible de relancer plus haut. Le verrou se lève
+ * dès qu'un pass a lieu, ou si ce joueur copie à son tour (ce qui reverrouille
+ * alors le joueur suivant, et ainsi de suite tant que la chaîne de copies continue).
  */
 export function isLegalPlay(state, hand, cardIds) {
   if (!cardIds.length) return false;
@@ -281,7 +297,7 @@ export function applyPlay(state, playerId, cardIds) {
     pile: willBurn ? [] : playedCards,
     pileRank: willBurn ? null : rank,
     pileCount: willBurn ? 0 : playedCards.length,
-    rankLocked: willBurn ? false : isMatch || state.rankLocked,
+    rankLocked: willBurn ? false : isMatch,
     lastPlayerToPlay: willBurn ? null : current.id,
     passedSinceLastPlay: [],
     finishedOrder,
@@ -292,6 +308,7 @@ export function applyPlay(state, playerId, cardIds) {
       burned: willBurn,
       finished: finishedNow
     },
+    lastPlayedByPlayer: { ...state.lastPlayedByPlayer, [current.id]: { cards: playedCards, burned: willBurn } },
     log: [...state.log, { ts: Date.now(), message: logMessage }].slice(-40)
   };
 
@@ -342,6 +359,7 @@ export function applyPass(state, playerId) {
     };
   } else {
     nextState.currentPlayerId = nextActivePlayerId(state.turnOrder, state.players, playerId);
+    nextState.rankLocked = false;
   }
 
   return nextState;
