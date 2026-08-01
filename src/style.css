@@ -281,6 +281,47 @@ h1 {
 
 .btn--draw { display: block; margin: 0 auto; max-width: 280px; }
 
+/* ---------- Révélation de la carte piochée ---------- */
+
+@keyframes draw-reveal-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.7) rotateY(90deg); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1) rotateY(0deg); }
+}
+
+.draw-reveal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(15, 46, 33, 0.72);
+  border-radius: 24px;
+  backdrop-filter: blur(2px);
+  z-index: 5;
+}
+
+.draw-reveal__card {
+  animation: draw-reveal-in 0.32s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+.draw-reveal__card .card {
+  width: 84px;
+  height: 122px;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.5);
+}
+.draw-reveal__card .card__pip { font-size: 38px; }
+.draw-reveal__card .card__corner { font-size: 14px; }
+
+.draw-reveal__label {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-align: center;
+  color: var(--brass-soft);
+  padding: 0 20px;
+  margin: 0;
+}
+
 .my-hand { width: 100%; max-width: 480px; margin-top: 18px; }
 .my-hand__label {
   font-family: var(--font-mono);
