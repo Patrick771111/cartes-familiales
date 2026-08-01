@@ -7,12 +7,21 @@ import { buildStandardDeck, shuffle, deal } from './deck.js';
 export const RANK_ORDER = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2'];
 
 // Règle "8 brûle" : poser un 8 vide immédiatement le pli en cours, et la main continue
-// au même joueur (qui peut relancer sur n'importe quel rang). Règle classique du Trou du
-// Cul, à distinguer du Président générique qui ne l'a pas toujours.
+// au même joueur (qui peut relancer sur n'importe quel rang).
 const BURN_RANKS = new Set(['8']);
+
+// Jeu à 4 exactement : Président / Vice-Président / Secrétaire / Trou du Cul,
+// avec échange forcé de cartes entre les deux extrêmes (2 cartes) et le binôme
+// du milieu (1 carte) avant chaque donne.
+export const REQUIRED_PLAYERS = 4;
+const ROLE_LABELS = ['Président', 'Vice-Président', 'Secrétaire', 'Trou du Cul'];
 
 export function rankValue(rank) {
   return RANK_ORDER.indexOf(rank);
+}
+
+export function rankLabel(rank) {
+  return ROLE_LABELS[rank - 1] || `Rang ${rank}`;
 }
 
 function sortHand(hand) {
@@ -34,30 +43,80 @@ function nextActivePlayerId(turnOrder, players, fromId) {
 }
 
 /**
- * Crée l'état initial d'une manche : distribution complète du jeu de 52 cartes.
- * Le joueur qui a le 3 de trèfle commence (règle traditionnelle) ; à défaut
- * (ne devrait pas arriver avec un jeu complet), le premier joueur de la liste.
+ * Détermine l'ordre des rôles [Président, Vice-Président, Secrétaire, Trou du Cul]
+ * pour cette manche : reprend le classement de la manche précédente si on en a un
+ * et que les 4 mêmes joueurs sont toujours là, sinon tirage au sort (première manche).
  */
-export function initGame(players) {
+function assignRoleOrder(players, previousRanking) {
+  const ids = players.map((p) => p.id);
+  const previousValid =
+    Array.isArray(previousRanking) &&
+    previousRanking.length === REQUIRED_PLAYERS &&
+    previousRanking.every((id) => ids.includes(id));
+
+  return previousValid ? previousRanking : shuffle(ids);
+}
+
+/**
+ * Déplace `count` cartes du haut de la main de `fromId` vers `toId`, et lui rend
+ * `count` cartes du bas de sa main en échange. Retourne le détail (pour l'affichage).
+ */
+function exchangeCards(hands, fromId, toId, count) {
+  const fromHand = sortHand(hands[fromId]);
+  const given = fromHand.slice(fromHand.length - count);
+  const fromRemainder = fromHand.slice(0, fromHand.length - count);
+
+  const toHand = sortHand(hands[toId]);
+  const returned = toHand.slice(0, count);
+  const toRemainder = toHand.slice(count);
+
+  hands[fromId] = [...fromRemainder, ...returned];
+  hands[toId] = [...toRemainder, ...given];
+
+  return { fromId, toId, given, returned };
+}
+
+/**
+ * Crée l'état initial d'une manche à 4 joueurs : rôles (aléatoires ou hérités du
+ * classement précédent via `previousRanking`), distribution, puis échange forcé
+ * de cartes selon les rôles. Le Trou du Cul entame le premier pli.
+ */
+export function initGame(players, previousRanking = null) {
+  if (players.length !== REQUIRED_PLAYERS) {
+    throw new Error('Le Trou du Cul se joue à 4 joueurs exactement.');
+  }
+
+  const [presidentId, vicePresidentId, secretaireId, trouDuCulId] = assignRoleOrder(players, previousRanking);
+
   const deck = shuffle(buildStandardDeck());
   const hands = deal(deck, players.map((p) => p.id));
+
+  const exchange1 = exchangeCards(hands, trouDuCulId, presidentId, 2);
+  const exchange2 = exchangeCards(hands, secretaireId, vicePresidentId, 1);
+
+  const roleById = {
+    [presidentId]: 'Président',
+    [vicePresidentId]: 'Vice-Président',
+    [secretaireId]: 'Secrétaire',
+    [trouDuCulId]: 'Trou du Cul'
+  };
 
   const gamePlayers = players.map((p) => ({
     id: p.id,
     name: p.name,
     hand: sortHand(hands[p.id]),
     finished: false,
-    rank: null
+    rank: null,
+    role: roleById[p.id]
   }));
 
-  const starter = gamePlayers.find((p) => p.hand.some((c) => c.rank === '3' && c.suit === 'C'));
-  const starterId = starter ? starter.id : gamePlayers[0].id;
+  const nameOf = (id) => players.find((p) => p.id === id)?.name || '?';
 
   return {
     status: 'playing',
     players: gamePlayers,
     turnOrder: players.map((p) => p.id),
-    currentPlayerId: starterId,
+    currentPlayerId: trouDuCulId,
     pile: [],
     pileRank: null,
     pileCount: 0,
@@ -66,7 +125,16 @@ export function initGame(players) {
     finishedOrder: [],
     loserId: null,
     lastMove: null,
-    log: [{ ts: Date.now(), message: 'La partie commence !' }]
+    cardExchange: {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      pairs: [exchange1, exchange2]
+    },
+    log: [
+      { ts: Date.now(), message: 'Nouvelle manche : les rôles sont distribués.' },
+      { ts: Date.now(), message: `${nameOf(trouDuCulId)} (Trou du Cul) donne ses 2 meilleures cartes à ${nameOf(presidentId)} (Président), qui lui rend 2 cartes.` },
+      { ts: Date.now(), message: `${nameOf(secretaireId)} (Secrétaire) donne sa meilleure carte à ${nameOf(vicePresidentId)} (Vice-Président), qui lui rend une carte.` },
+      { ts: Date.now(), message: `${nameOf(trouDuCulId)} entame le premier pli.` }
+    ]
   };
 }
 
@@ -89,15 +157,6 @@ function finishRoundIfNeeded(state, players) {
     finishedOrder,
     loserId: finishedOrder[finishedOrder.length - 1] || null
   };
-}
-
-/** Libellé de statut (Président / Trou du Cul / etc.) à partir du classement final. */
-export function rankLabel(rank, totalPlayers) {
-  if (rank === 1) return 'Président';
-  if (rank === totalPlayers) return 'Trou du Cul';
-  if (totalPlayers >= 4 && rank === 2) return 'Vice-Président';
-  if (totalPlayers >= 4 && rank === totalPlayers - 1) return 'Vice-Trou du Cul';
-  return 'Neutre';
 }
 
 /**
@@ -132,9 +191,7 @@ export function applyPlay(state, playerId, cardIds) {
   current.hand = current.hand.filter((c) => !cardIds.includes(c.id));
 
   const finishedNow = current.hand.length === 0;
-  if (finishedNow) {
-    current.finished = true;
-  }
+  if (finishedNow) current.finished = true;
 
   const finishedOrder = finishedNow ? [...state.finishedOrder, current.id] : state.finishedOrder;
   const willBurn = BURN_RANKS.has(rank);
@@ -166,7 +223,6 @@ export function applyPlay(state, playerId, cardIds) {
   }
 
   if (willBurn && !finishedNow) {
-    // Le joueur qui brûle le pli rejoue immédiatement.
     nextState.currentPlayerId = current.id;
   } else {
     nextState.currentPlayerId = nextActivePlayerId(nextState.turnOrder, players, current.id);
@@ -184,11 +240,10 @@ export function applyPass(state, playerId) {
   const passedSinceLastPlay = [...new Set([...state.passedSinceLastPlay, playerId])];
   const remaining = activePlayers(state.players).filter((p) => p.id !== state.lastPlayerToPlay);
 
-  const logMessage = { ts: Date.now(), message: `${player.name} passe.` };
   let nextState = {
     ...state,
     passedSinceLastPlay,
-    log: [...state.log, logMessage].slice(-40)
+    log: [...state.log, { ts: Date.now(), message: `${player.name} passe.` }].slice(-40)
   };
 
   const everyoneElsePassed = remaining.every((p) => passedSinceLastPlay.includes(p.id));

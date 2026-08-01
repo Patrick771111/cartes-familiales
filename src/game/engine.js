@@ -14,8 +14,8 @@ const GAME_INITIALIZERS = {
 };
 
 export const AVAILABLE_GAMES = [
-  { id: 'pouilleux', label: 'Le Pouilleux' },
-  { id: 'trouduc', label: 'Le Trou du Cul' }
+  { id: 'pouilleux', label: 'Le Pouilleux', hint: '2 à 4 joueurs' },
+  { id: 'trouduc', label: 'Le Trou du Cul', hint: 'exactement 4 joueurs' }
 ];
 
 // Code fixe de la table familiale : personne n'a besoin de le saisir ni de le
@@ -203,10 +203,22 @@ export async function kickPlayer(room, targetId) {
 }
 
 export async function startGame(room, gameType = 'pouilleux') {
-  if (room.state.players.length < 2) throw new Error('Il faut au moins 2 joueurs.');
   const initializer = GAME_INITIALIZERS[gameType];
   if (!initializer) throw new Error('Jeu inconnu.');
 
+  if (gameType === 'trouduc') {
+    if (room.state.players.length !== 4) {
+      throw new Error('Le Trou du Cul se joue à 4 joueurs exactement.');
+    }
+    const gameState = initializer(
+      room.state.players.map(({ id, name }) => ({ id, name })),
+      room.state.previousTrouducRanking || null
+    );
+    const newState = { ...room.state, ...gameState, hostId: room.state.hostId };
+    return updateRoomState(room.id, room.version, newState, { game: gameType });
+  }
+
+  if (room.state.players.length < 2) throw new Error('Il faut au moins 2 joueurs.');
   const gameState = initializer(room.state.players.map(({ id, name }) => ({ id, name })));
   const newState = { ...room.state, ...gameState, hostId: room.state.hostId };
   return updateRoomState(room.id, room.version, newState, { game: gameType });
@@ -237,12 +249,19 @@ export async function passTurn(room, playerId) {
 /** Remet la table en salle d'attente pour relancer une manche du même jeu, en gardant les mêmes joueurs. */
 export async function playAgain(room) {
   const players = room.state.players.map((p) => ({ id: p.id, name: p.name }));
+
+  const justFinishedTrouduc = room.game === 'trouduc' && room.state.status === 'finished';
+  const previousTrouducRanking = justFinishedTrouduc
+    ? room.state.finishedOrder
+    : room.state.previousTrouducRanking || null;
+
   const newState = {
     status: 'lobby',
     players: players.map((p) => ({ ...p, hand: [] })),
     hostId: room.state.hostId,
     turnOrder: [],
     currentPlayerId: null,
+    previousTrouducRanking,
     log: [...room.state.log, { ts: Date.now(), message: 'Nouvelle partie.' }].slice(-40)
   };
   return updateRoomState(room.id, room.version, newState);
