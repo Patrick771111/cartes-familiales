@@ -26,7 +26,6 @@ export function renderGame(container, { room, player, onRename, onLeave, onKick 
     lastRenderedState = null;
     lastCelebratedMoveId = null;
     resetHandOrder('pouilleux');
-    resetHandOrder('trouduc');
     return renderWaitingRoom(container, { room, player, onRename, onLeave, onKick });
   }
 
@@ -481,62 +480,95 @@ function renderTrouducTable(container, { room, player, state }) {
     (state.pileCount === 0 ? true : selectedCards.length === state.pileCount && beatsOrMatchesPile);
   const canPass = isMyTurn && state.pileCount > 0;
 
+  const handCountsByRank = new Map();
+  for (const c of me.hand) handCountsByRank.set(c.rank, (handCountsByRank.get(c.rank) || 0) + 1);
+  const isRankPlayable = (rank) => {
+    if (state.pileCount === 0) return true;
+    if ((handCountsByRank.get(rank) || 0) < state.pileCount) return false;
+    const rv = trouducRankValue(rank);
+    const pileRv = trouducRankValue(state.pileRank);
+    return state.rankLocked ? rv === pileRv : rv >= pileRv;
+  };
+
+  // Éventail : les cartes du milieu restent basses, celles vers les bords remontent
+  // légèrement et pivotent — comme un vrai jeu tenu en main.
+  const handFanStyle = (index, total) => {
+    if (total <= 1) return '';
+    const mid = (total - 1) / 2;
+    const offset = index - mid;
+    const anglePerCard = Math.min(5, 28 / total);
+    const rotate = (offset * anglePerCard).toFixed(1);
+    const rise = Math.min(Math.abs(offset) * 2.2, 16).toFixed(1);
+    return `--fan-rotate: ${rotate}deg; --fan-rise: ${rise}px;`;
+  };
+
   container.innerHTML = `
     <div class="screen screen--table">
-      <div class="table-felt">
-        <div class="opponents">
+      <div class="table-felt trouduc-felt">
+        <div class="trouduc-opponents">
           ${others
-            .map((p) => {
+            .map((p, i) => {
               const isTurn = p.id === state.currentPlayerId;
+              const isCurrentPileOwner = p.id === state.lastPlayerToPlay && state.pileCount > 0;
               const status = p.finished
                 ? trouducRankLabel(p.rank)
                 : `${p.hand.length} carte${p.hand.length > 1 ? 's' : ''}`;
               const label = p.role ? `${p.role} · ${status}` : status;
+              const ghost = state.lastPlayedByPlayer?.[p.id];
+              const showGhost = ghost && !isCurrentPileOwner;
               return `
-                <div class="opponent ${isTurn ? 'opponent--turn' : ''} ${p.finished ? 'opponent--finished' : ''}">
-                  <div class="opponent__hand">
-                    ${p.finished ? '' : Array.from({ length: Math.min(p.hand.length, 7) }).map(() => cardBackHtml()).join('')}
+                <div class="trouduc-seat trouduc-seat--${i} ${isTurn ? 'trouduc-seat--turn' : ''} ${p.finished ? 'trouduc-seat--finished' : ''}">
+                  <p class="trouduc-seat__name">${p.name}</p>
+                  <p class="trouduc-seat__status">${label}</p>
+                  <div class="trouduc-seat__row">
+                    <div class="trouduc-seat__hand">
+                      ${p.finished ? '' : Array.from({ length: Math.min(p.hand.length, 5) }).map(() => cardBackHtml()).join('')}
+                    </div>
+                    <div class="trouduc-seat__ghost ${showGhost ? '' : 'trouduc-seat__ghost--empty'}">
+                      ${showGhost ? ghost.cards.map(cardFaceHtml).join('') : ''}
+                    </div>
                   </div>
-                  <p class="opponent__name">${p.name} · ${label}</p>
                 </div>`;
             })
             .join('')}
         </div>
 
-        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
-          ${isMyTurn ? "C'est ton tour" : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`}
-        </div>
+        <div class="trouduc-center">
+          <div class="trouduc-pile ${state.pileCount > 0 ? 'trouduc-pile--active' : ''}">
+            ${
+              state.pileCount > 0
+                ? `<div class="trouduc-pile__cards">${state.pile.map(cardFaceHtml).join('')}</div>
+                   <p class="trouduc-pile__label">${state.pileCount} × ${state.pileRank}${state.rankLocked ? ' <span class="pile__locked">🔒</span>' : ''}</p>`
+                : `<p class="trouduc-pile__empty">Pli libre — pose ce que tu veux</p>`
+            }
+          </div>
 
-        <div class="pile">
+          <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
+            ${isMyTurn ? "C'est ton tour" : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`}
+          </div>
+
           ${
-            state.pileCount > 0
-              ? `<div class="pile__cards">${state.pile.map(cardFaceHtml).join('')}</div>
-                 <p class="pile__label">${state.pileCount} × ${state.pileRank}${state.rankLocked ? ' <span class="pile__locked">🔒 verrouillé</span>' : ''}</p>`
-              : `<p class="pile__empty">Pli libre — pose ce que tu veux</p>`
+            isMyTurn
+              ? `<div class="trouduc-actions">
+                   <button id="btn-play" class="btn btn--primary" ${selectionValid ? '' : 'disabled'}>
+                     Jouer${selectedCards.length ? ` (${selectedCards.length})` : ''}
+                   </button>
+                   <button id="btn-pass" class="btn btn--ghost" ${canPass ? '' : 'disabled'}>Passer</button>
+                 </div>`
+              : ''
           }
         </div>
-
-        ${
-          isMyTurn
-            ? `<div class="trouduc-actions">
-                 <button id="btn-play" class="btn btn--primary" ${selectionValid ? '' : 'disabled'}>
-                   Jouer${selectedCards.length ? ` (${selectedCards.length})` : ''}
-                 </button>
-                 <button id="btn-pass" class="btn btn--ghost" ${canPass ? '' : 'disabled'}>Passer</button>
-               </div>`
-            : ''
-        }
       </div>
 
-      <div class="my-hand">
-        <p class="my-hand__label">${me.role ? `${me.role} · ` : ''}Ta main (${me.hand.length}) <small>— glisse pour réordonner</small></p>
-        <div class="my-hand__cards">
+      <div class="my-hand trouduc-hand">
+        <p class="my-hand__label">${me.role ? `${me.role} · ` : ''}Ta main (${me.hand.length})</p>
+        <div class="my-hand__cards trouduc-hand__cards">
           ${
-            getOrderedHand('trouduc', me.hand)
-              .map(
-                (c) =>
-                  `<div class="hand-card ${selectedCardIds.has(c.id) ? 'hand-card--selected' : ''}" data-card-id="${c.id}">${cardFaceHtml(c)}</div>`
-              )
+            me.hand
+              .map((c, i) => {
+                const playable = !isMyTurn || isRankPlayable(c.rank);
+                return `<div class="hand-card ${selectedCardIds.has(c.id) ? 'hand-card--selected' : ''} ${playable ? '' : 'hand-card--unplayable'}" data-card-id="${c.id}" style="${handFanStyle(i, me.hand.length)}">${cardFaceHtml(c)}</div>`;
+              })
               .join('') || '<p class="my-hand__empty">Tu as fini, bravo !</p>'
           }
         </div>
@@ -557,20 +589,14 @@ function renderTrouducTable(container, { room, player, state }) {
     }
   });
 
-  const myHandEl = container.querySelector('.my-hand__cards');
-  if (myHandEl) {
-    enableHandDrag(myHandEl, {
-      onTap: isMyTurn
-        ? (cardId) => {
-            if (selectedCardIds.has(cardId)) selectedCardIds.delete(cardId);
-            else selectedCardIds.add(cardId);
-            renderTrouducTable(container, { room, player, state });
-          }
-        : undefined,
-      onDrop: (cardId, index) => {
-        moveCard('trouduc', cardId, index);
+  if (isMyTurn) {
+    container.querySelectorAll('.hand-card:not(.hand-card--unplayable)').forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.cardId;
+        if (selectedCardIds.has(id)) selectedCardIds.delete(id);
+        else selectedCardIds.add(id);
         renderTrouducTable(container, { room, player, state });
-      }
+      });
     });
   }
 
