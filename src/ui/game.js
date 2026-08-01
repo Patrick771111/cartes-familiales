@@ -1,5 +1,5 @@
 import { cardFaceHtml, cardBackHtml } from './cards.js';
-import { startGame, drawForCurrentPlayer } from '../game/engine.js';
+import { startGame, drawForCurrentPlayer, playAgain } from '../game/engine.js';
 import { playerToDrawFrom as computeTarget } from '../game/pouilleux.js';
 
 function rankSortValue(rank) {
@@ -11,39 +11,44 @@ function sortedHand(hand) {
   return hand.slice().sort((a, b) => rankSortValue(a.rank) - rankSortValue(b.rank) || a.suit.localeCompare(b.suit));
 }
 
-function shareUrl(code) {
-  const url = new URL(window.location.href);
-  url.search = `?room=${code}`;
-  return url.toString();
-}
-
 /**
  * Affiche l'écran de partie (salle d'attente / plateau / fin) dans `container`.
- * `room` = ligne courante (state inclus), `player` = joueur local.
- * `onLeave()` optionnel pour revenir au lobby.
+ * `room` = ligne courante (state inclus), `player` = profil local.
+ * `onRename(newName)` optionnel, pour permettre de corriger le prénom depuis la salle d'attente.
  */
-export function renderGame(container, { room, player, onLeave } = {}) {
+export function renderGame(container, { room, player, onRename } = {}) {
   const state = room.state;
 
-  if (state.status === 'lobby') return renderWaitingRoom(container, { room, player, onLeave });
-  if (state.status === 'playing') return renderTable(container, { room, player });
-  if (state.status === 'finished') return renderEndScreen(container, { room, player, onLeave });
+  if (state.status === 'lobby') {
+    lastRenderedState = null;
+    return renderWaitingRoom(container, { room, player, onRename });
+  }
+
+  const previous = lastRenderedState;
+  const isNewDraw = previous && state.lastDraw && (!previous.lastDraw || previous.lastDraw.id !== state.lastDraw.id);
+
+  if (isNewDraw) {
+    return renderDrawReveal(container, { previousState: previous, newState: state, player, room });
+  }
+
+  lastRenderedState = state;
+  if (state.status === 'playing') return renderTableNow(container, { room, player, state });
+  if (state.status === 'finished') return renderEndScreen(container, { room, player });
 }
 
-function renderWaitingRoom(container, { room, player, onLeave }) {
+function renderWaitingRoom(container, { room, player, onRename }) {
   const state = room.state;
   const isHost = state.hostId === player.id;
+  const me = state.players.find((p) => p.id === player.id);
 
   container.innerHTML = `
     <div class="screen screen--waiting">
       <div class="lobby-card">
-        <p class="eyebrow">Table ouverte</p>
-        <h1>Code : <span class="room-code">${room.code}</span></h1>
-        <p class="lobby-card__intro">Partagez ce code, ou ce lien, avec les autres joueurs.</p>
-        <div class="share-row">
-          <input readonly value="${shareUrl(room.code)}" onclick="this.select()" />
-          <button class="btn btn--ghost btn--small" id="btn-copy">Copier</button>
-        </div>
+        <p class="eyebrow">Cartes en famille</p>
+        <h1>Table ouverte</h1>
+        <p class="lobby-card__intro">
+          ${isHost ? "Attends que les autres arrivent, puis lance la partie quand vous êtes prêts." : "En attente que l'hôte lance la partie…"}
+        </p>
 
         <ul class="player-list">
           ${state.players
@@ -56,18 +61,14 @@ function renderWaitingRoom(container, { room, player, onLeave }) {
         ${
           isHost
             ? `<button id="btn-start" class="btn btn--primary" ${state.players.length < 2 ? 'disabled' : ''}>
-                 ${state.players.length < 2 ? 'En attente d\'un 2ᵉ joueur…' : 'Lancer la partie'}
+                 ${state.players.length < 2 ? "En attente d'un 2ᵉ joueur…" : `Lancer la partie (${state.players.length} joueurs)`}
                </button>`
-            : `<p class="waiting-note">En attente que l'hôte lance la partie…</p>`
+            : ''
         }
-        ${onLeave ? `<button class="btn btn--link" id="btn-leave">Quitter la table</button>` : ''}
+        <button class="btn btn--link" id="btn-rename">Ce n'est pas ${me?.name || 'toi'} ? Changer de prénom</button>
       </div>
     </div>
   `;
-
-  container.querySelector('#btn-copy')?.addEventListener('click', () => {
-    navigator.clipboard?.writeText(shareUrl(room.code));
-  });
 
   container.querySelector('#btn-start')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
@@ -79,11 +80,46 @@ function renderWaitingRoom(container, { room, player, onLeave }) {
     }
   });
 
-  container.querySelector('#btn-leave')?.addEventListener('click', () => onLeave());
+  container.querySelector('#btn-rename')?.addEventListener('click', () => {
+    const newName = window.prompt('Ton prénom :', me?.name || '');
+    if (newName && newName.trim() && onRename) onRename(newName.trim());
+  });
 }
 
-function renderTable(container, { room, player }) {
-  const state = room.state;
+// Mémorise le dernier état affiché, pour pouvoir comparer et détecter une nouvelle pioche
+// à animer avant de basculer sur l'état à jour. Réinitialisé à chaque nouvelle partie.
+let lastRenderedState = null;
+
+function renderDrawReveal(container, { previousState, newState, player, room }) {
+  // On affiche d'abord la table telle qu'elle était juste avant la pioche...
+  renderTableNow(container, { room: { ...room, state: previousState }, player, state: previousState });
+
+  const draw = newState.lastDraw;
+  const drawer = previousState.players.find((p) => p.id === draw.by);
+  const target = previousState.players.find((p) => p.id === draw.from);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'draw-reveal';
+  overlay.innerHTML = `
+    <div class="draw-reveal__card">${cardFaceHtml(draw.card)}</div>
+    <p class="draw-reveal__label">
+      ${drawer?.name || '?'} pioche chez ${target?.name || '?'}${draw.paired ? ' — paire !' : ''}
+    </p>
+  `;
+  container.querySelector('.table-felt')?.appendChild(overlay);
+
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  window.setTimeout(() => {
+    lastRenderedState = newState;
+    if (newState.status === 'finished') {
+      renderEndScreen(container, { room, player });
+    } else {
+      renderTableNow(container, { room, player, state: newState });
+    }
+  }, reduceMotion ? 500 : 1400);
+}
+
+function renderTableNow(container, { room, player, state }) {
   const me = state.players.find((p) => p.id === player.id);
   const others = state.players.filter((p) => p.id !== player.id);
   const isMyTurn = state.currentPlayerId === player.id;
@@ -149,7 +185,7 @@ function renderTable(container, { room, player }) {
   });
 }
 
-function renderEndScreen(container, { room, player, onLeave }) {
+function renderEndScreen(container, { room, player }) {
   const state = room.state;
   const loser = state.players.find((p) => p.id === state.loserId);
   const youLost = state.loserId === player.id;
@@ -160,10 +196,18 @@ function renderEndScreen(container, { room, player, onLeave }) {
         <p class="eyebrow">Partie terminée</p>
         <div class="odd-card-reveal">${cardFaceHtml({ id: state.oddCardId, rank: state.oddCardId.slice(0, -1), suit: state.oddCardId.slice(-1) })}</div>
         <h1>${youLost ? 'Tu es le Pouilleux !' : `${loser?.name || '?'} est le Pouilleux !`}</h1>
-        ${onLeave ? `<button class="btn btn--primary" id="btn-again">Retour à l'accueil</button>` : ''}
+        <button class="btn btn--primary" id="btn-again">Rejouer</button>
       </div>
     </div>
   `;
 
-  container.querySelector('#btn-again')?.addEventListener('click', () => onLeave());
+  container.querySelector('#btn-again')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await playAgain(room);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de relancer une partie.');
+    }
+  });
 }
