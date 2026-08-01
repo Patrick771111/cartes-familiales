@@ -1,0 +1,16 @@
+{
+  "name": "Cartes en famille",
+  "short_name": "Cartes",
+  "description": "Jouez au Pouilleux (et bientôt d'autres jeux) à plusieurs, chacun sur son téléphone.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0F2E21",
+  "theme_color": "#173D2C",
+  "lang": "fr",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
