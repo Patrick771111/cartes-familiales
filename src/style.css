@@ -406,8 +406,8 @@ h1 {
   transition: opacity 0.2s ease;
 }
 /* Illusion de demi-cercle : le joueur du milieu est ramené vers le pli, ceux des côtés relevés. */
-.trouduc-seat--0, .trouduc-seat--2 { margin-top: 6px; }
-.trouduc-seat--1 { margin-top: -8px; }
+.trouduc-seat--0, .trouduc-seat--2 { margin-top: 24px; }
+.trouduc-seat--1 { margin-top: -6px; }
 
 .trouduc-seat--turn { opacity: 1; }
 .trouduc-seat--turn .trouduc-seat__name { color: var(--brass-soft); }
@@ -498,8 +498,8 @@ h1 {
 }
 
 /* Main en éventail : léger arrondi, comme des cartes réellement tenues en main. */
-.trouduc-hand__cards {
-  padding-top: 28px;
+.my-hand__cards.trouduc-hand__cards {
+  padding: 28px 60px 4px;
   align-items: flex-end;
 }
 .trouduc-hand__cards .hand-card {
@@ -776,4 +776,28 @@ h1 {
 
   .opponents { gap: 10px; }
   .turn-banner { margin-bottom: 8px; }
+}
+
+/* ---------- Grand écran (laptop/desktop) : éviter le rendu "perdu" dans une
+   colonne étroite au milieu d'un vide immense — on élargit un peu les zones
+   de jeu et les cartes. Le format reste centré, pensé mobile d'abord, mais
+   profite davantage de la place disponible. ---------- */
+
+@media (min-width: 700px) {
+  .table-felt, .my-hand, .log { max-width: 640px; }
+
+  .trouduc-pile__cards .card { width: 84px; height: 122px; }
+  .trouduc-pile__cards .card__pip { font-size: 36px; }
+  .trouduc-pile__cards .card__corner { font-size: 14px; }
+
+  .my-hand__cards.trouduc-hand__cards { padding-left: 70px; padding-right: 70px; }
+  .trouduc-hand__cards .card { width: 66px; height: 94px; }
+  .trouduc-hand__cards .card__pip { font-size: 30px; }
+  .trouduc-hand__cards .hand-card { margin-left: -20px; }
+
+  .trouduc-seat__hand .card--back { width: 24px; height: 35px; }
+  .trouduc-seat__ghost .card { width: 32px; height: 46px; }
+  .trouduc-seat__ghost .card__pip { font-size: 15px; }
+  .trouduc-seat__name { font-size: 13px; }
+  .trouduc-seat__status { font-size: 12px; }
 }
