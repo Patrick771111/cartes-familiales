@@ -385,17 +385,142 @@ h1 {
 
 .opponent--finished .opponent__name { color: var(--brass-soft); }
 
+/* ---------- Trou du Cul : table réagencée (adversaires en arc, pli central, main en éventail) ---------- */
+
+.trouduc-felt { padding: 16px 8px 20px; }
+
+.trouduc-opponents {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0 4px;
+  margin-bottom: 6px;
+}
+
+.trouduc-seat {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+/* Illusion de demi-cercle : le joueur du milieu est ramené vers le pli, ceux des côtés relevés. */
+.trouduc-seat--0, .trouduc-seat--2 { margin-top: 6px; }
+.trouduc-seat--1 { margin-top: -8px; }
+
+.trouduc-seat--turn { opacity: 1; }
+.trouduc-seat--turn .trouduc-seat__name { color: var(--brass-soft); }
+.trouduc-seat--finished .trouduc-seat__name { color: var(--brass-soft); }
+
+.trouduc-seat__name {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trouduc-seat__status {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgba(247, 241, 225, 0.55);
+  margin: 1px 0 4px;
+}
+
+.trouduc-seat__row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 40px;
+}
+
+.trouduc-seat__hand { display: flex; justify-content: center; }
+.trouduc-seat__hand .card--back {
+  width: 20px;
+  height: 29px;
+  margin-left: -12px;
+}
+.trouduc-seat__hand .card--back:first-child { margin-left: 0; }
+
+/* La dernière carte jouée par ce joueur : toujours visible, en petit et estompée
+   dès qu'elle n'est plus le pli actif (elle a alors "glissé" jusqu'à son propriétaire). */
+.trouduc-seat__ghost {
+  display: flex;
+  opacity: 0.55;
+  filter: grayscale(0.4);
+  transition: opacity 0.2s ease;
+}
+.trouduc-seat__ghost .card { width: 26px; height: 38px; }
+.trouduc-seat__ghost .card__pip { font-size: 12px; }
+.trouduc-seat__ghost .card__corner { font-size: 7px; }
+.trouduc-seat__ghost--empty { visibility: hidden; }
+
+.trouduc-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0 4px;
+}
+
+@keyframes trouduc-pile-pop {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.trouduc-pile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 96px;
+  justify-content: center;
+}
+.trouduc-pile__cards {
+  display: flex;
+  animation: trouduc-pile-pop 0.22s ease both;
+}
+.trouduc-pile__cards .card {
+  width: 68px;
+  height: 98px;
+  margin-left: -34px;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.45);
+}
+.trouduc-pile__cards .card:first-child { margin-left: 0; }
+.trouduc-pile__cards .card__pip { font-size: 30px; }
+.trouduc-pile__cards .card__corner { font-size: 12px; }
+.trouduc-pile__label, .trouduc-pile__empty {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: rgba(247, 241, 225, 0.55);
+  margin: 0;
+}
+
+/* Main en éventail : léger arrondi, comme des cartes réellement tenues en main. */
+.trouduc-hand__cards {
+  padding-top: 18px;
+  align-items: flex-end;
+}
+.trouduc-hand__cards .hand-card {
+  transform-origin: bottom center;
+  transform: rotate(var(--fan-rotate, 0deg)) translateY(calc(-1 * var(--fan-rise, 0px)));
+}
+.trouduc-hand__cards .hand-card--selected {
+  transform: rotate(var(--fan-rotate, 0deg)) translateY(calc(-1 * var(--fan-rise, 0px) - 14px));
+}
+
 .hand-card {
   flex-shrink: 0;
   margin-left: -18px;
   cursor: pointer;
-  transition: transform 0.15s ease;
-  touch-action: none;
+  transition: transform 0.15s ease, opacity 0.15s ease;
 }
 .hand-card:first-child { margin-left: 0; }
 .hand-card--selected { transform: translateY(-14px); z-index: 2; }
 .hand-card--selected .card { box-shadow: 0 0 0 2px var(--brass), 0 10px 16px rgba(0,0,0,0.45); }
-.hand-card.is-dragging { box-shadow: 0 12px 24px rgba(0,0,0,0.5); }
+.hand-card--unplayable { opacity: 0.35; cursor: default; }
+.hand-card--unplayable .card { filter: grayscale(0.6); }
 
 .rank-list {
   list-style: decimal;
