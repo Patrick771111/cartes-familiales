@@ -28,7 +28,7 @@ export function initGame(players) {
 
   const initializedPlayers = players.map((p) => {
     const { hand } = discardPairs(hands[p.id]);
-    return { id: p.id, name: p.name, hand };
+    return { id: p.id, name: p.name, hand, isBot: p.isBot || false };
   });
 
   return {
@@ -58,10 +58,12 @@ export function playerToDrawFrom(state) {
 }
 
 /**
- * Applique le tirage : le joueur courant pioche une carte au hasard chez le joueur
- * suivant, défausse les paires formées, puis la main passe. Retourne un nouvel état.
+ * Applique le tirage : le joueur courant pioche la carte de son choix (à l'aveugle,
+ * il ne voit que des dos de cartes — c'est `cardIndex`, la position dans la main du
+ * joueur ciblé, qui détermine laquelle) chez le joueur suivant, défausse les paires
+ * formées, puis la main passe. Retourne un nouvel état.
  */
-export function applyDraw(state, actingPlayerId) {
+export function applyDraw(state, actingPlayerId, cardIndex) {
   if (state.status !== 'playing') throw new Error('La partie est terminée.');
   if (state.currentPlayerId !== actingPlayerId) throw new Error("Ce n'est pas ton tour.");
 
@@ -72,8 +74,11 @@ export function applyDraw(state, actingPlayerId) {
   const current = players.find((p) => p.id === actingPlayerId);
   const target = players.find((p) => p.id === targetId);
 
-  const pickIndex = Math.floor(Math.random() * target.hand.length);
-  const [card] = target.hand.splice(pickIndex, 1);
+  if (typeof cardIndex !== 'number' || cardIndex < 0 || cardIndex >= target.hand.length) {
+    throw new Error('Choix de carte invalide.');
+  }
+
+  const [card] = target.hand.splice(cardIndex, 1);
   current.hand.push(card);
 
   const { hand: newHand, discarded } = discardPairs(current.hand);
@@ -88,7 +93,9 @@ export function applyDraw(state, actingPlayerId) {
     by: actingPlayerId,
     from: targetId,
     card,
-    paired: discarded.length > 0
+    paired: discarded.length > 0,
+    drawerFinished: current.hand.length === 0,
+    targetFinished: target.hand.length === 0
   };
 
   const remainingActive = players.filter((p) => p.hand.length > 0);

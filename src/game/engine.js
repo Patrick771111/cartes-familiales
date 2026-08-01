@@ -6,7 +6,7 @@ import {
   ConflictError
 } from '../supabase/sync.js';
 import { initGame as initPouilleux, applyDraw } from './pouilleux.js';
-import { initGame as initTrouduc, applyPlay as applyTrouducPlay, applyPass as applyTrouducPass } from './trouduc.js';
+import { initGame as initTrouduc, applyPlay as applyTrouducPlay, applyPass as applyTrouducPass, applyExchangeChoice } from './trouduc.js';
 
 const GAME_INITIALIZERS = {
   pouilleux: initPouilleux,
@@ -202,6 +202,30 @@ export async function kickPlayer(room, targetId) {
   throw new Error('Impossible de retirer ce joueur, réessaie.');
 }
 
+/** Ajoute un bot à la table (hôte uniquement, en salle d'attente). Limité à 4 joueurs au total. */
+export async function addBot(room) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const fresh = await fetchRoomById(room.id);
+    if (fresh.state.status === 'playing') throw new Error("Impossible d'ajouter un bot en pleine partie.");
+    if (fresh.state.players.length >= 4) throw new Error('Table complète (4 joueurs maximum).');
+
+    const botNumber = fresh.state.players.filter((p) => p.isBot).length + 1;
+    const botName = `Bot ${botNumber}`;
+    const newState = {
+      ...fresh.state,
+      players: [...fresh.state.players, { id: `bot-${uuid()}`, name: botName, isBot: true, hand: [] }],
+      log: [...fresh.state.log, { ts: Date.now(), message: `${botName} rejoint la table.` }]
+    };
+
+    try {
+      return await updateRoomState(fresh.id, fresh.version, newState);
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+    }
+  }
+  throw new Error("Impossible d'ajouter un bot, réessaie.");
+}
+
 export async function startGame(room, gameType = 'pouilleux') {
   const initializer = GAME_INITIALIZERS[gameType];
   if (!initializer) throw new Error('Jeu inconnu.');
@@ -211,7 +235,7 @@ export async function startGame(room, gameType = 'pouilleux') {
       throw new Error('Le Trou du Cul se joue à 4 joueurs exactement.');
     }
     const gameState = initializer(
-      room.state.players.map(({ id, name }) => ({ id, name })),
+      room.state.players.map(({ id, name, isBot }) => ({ id, name, isBot })),
       room.state.previousTrouducRanking || null
     );
     const newState = { ...room.state, ...gameState, hostId: room.state.hostId };
@@ -219,18 +243,25 @@ export async function startGame(room, gameType = 'pouilleux') {
   }
 
   if (room.state.players.length < 2) throw new Error('Il faut au moins 2 joueurs.');
-  const gameState = initializer(room.state.players.map(({ id, name }) => ({ id, name })));
+  const gameState = initializer(room.state.players.map(({ id, name, isBot }) => ({ id, name, isBot })));
   const newState = { ...room.state, ...gameState, hostId: room.state.hostId };
   return updateRoomState(room.id, room.version, newState, { game: gameType });
 }
 
 /**
- * Fait piocher le joueur courant au Pouilleux. On laisse l'appelant gérer
- * ConflictError : il resynchronisera via l'abonnement realtime (watchRoom)
- * plutôt que de rejouer l'action à l'aveugle.
+ * Fait piocher le joueur courant au Pouilleux, à l'index de carte qu'il a choisi
+ * (à l'aveugle) chez le joueur ciblé. On laisse l'appelant gérer ConflictError :
+ * il resynchronisera via l'abonnement realtime (watchRoom) plutôt que de rejouer
+ * l'action à l'aveugle.
  */
-export async function drawForCurrentPlayer(room, playerId) {
-  const newState = applyDraw(room.state, playerId);
+export async function drawForCurrentPlayer(room, playerId, cardIndex) {
+  const newState = applyDraw(room.state, playerId, cardIndex);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Le Président ou le Vice-Président choisit les cartes qu'il rend lors de l'échange privé. */
+export async function submitExchangeGift(room, playerId, cardIds) {
+  const newState = applyExchangeChoice(room.state, playerId, cardIds);
   return updateRoomState(room.id, room.version, newState);
 }
 
@@ -248,7 +279,7 @@ export async function passTurn(room, playerId) {
 
 /** Remet la table en salle d'attente pour relancer une manche du même jeu, en gardant les mêmes joueurs. */
 export async function playAgain(room) {
-  const players = room.state.players.map((p) => ({ id: p.id, name: p.name }));
+  const players = room.state.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false }));
 
   const justFinishedTrouduc = room.game === 'trouduc' && room.state.status === 'finished';
   const previousTrouducRanking = justFinishedTrouduc

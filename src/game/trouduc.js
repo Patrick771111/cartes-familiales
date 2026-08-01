@@ -58,28 +58,25 @@ function assignRoleOrder(players, previousRanking) {
 }
 
 /**
- * Déplace `count` cartes du haut de la main de `fromId` vers `toId`, et lui rend
- * `count` cartes du bas de sa main en échange. Retourne le détail (pour l'affichage).
+ * Déplace les `count` meilleures cartes de la main de `fromId` vers celle de
+ * `toId` (don forcé, automatique — c'est la seule partie de l'échange qui ne
+ * demande pas de choix). Retourne les cartes données, pour le journal.
  */
-function exchangeCards(hands, fromId, toId, count) {
+function takeBestCards(hands, fromId, toId, count) {
   const fromHand = sortHand(hands[fromId]);
   const given = fromHand.slice(fromHand.length - count);
-  const fromRemainder = fromHand.slice(0, fromHand.length - count);
-
-  const toHand = sortHand(hands[toId]);
-  const returned = toHand.slice(0, count);
-  const toRemainder = toHand.slice(count);
-
-  hands[fromId] = [...fromRemainder, ...returned];
-  hands[toId] = [...toRemainder, ...given];
-
-  return { fromId, toId, given, returned };
+  hands[fromId] = fromHand.slice(0, fromHand.length - count);
+  hands[toId] = sortHand([...hands[toId], ...given]);
+  return given;
 }
 
 /**
  * Crée l'état initial d'une manche à 4 joueurs : rôles (aléatoires ou hérités du
- * classement précédent via `previousRanking`), distribution, puis échange forcé
- * de cartes selon les rôles. Le Trou du Cul entame le premier pli.
+ * classement précédent via `previousRanking`), distribution, puis don forcé
+ * (Trou du Cul → Président, Secrétaire → Vice-Président). Le retour de cartes
+ * n'est PAS automatique : c'est un choix privé du Président/Vice-Président,
+ * fait via `applyExchangeChoice`. Personne d'autre ne voit les cartes précises
+ * qui circulent — seul le fait qu'un don a eu lieu apparaît dans le journal.
  */
 export function initGame(players, previousRanking = null) {
   if (players.length !== REQUIRED_PLAYERS) {
@@ -91,8 +88,8 @@ export function initGame(players, previousRanking = null) {
   const deck = shuffle(buildStandardDeck());
   const hands = deal(deck, players.map((p) => p.id));
 
-  const exchange1 = exchangeCards(hands, trouDuCulId, presidentId, 2);
-  const exchange2 = exchangeCards(hands, secretaireId, vicePresidentId, 1);
+  takeBestCards(hands, trouDuCulId, presidentId, 2);
+  takeBestCards(hands, secretaireId, vicePresidentId, 1);
 
   const roleById = {
     [presidentId]: 'Président',
@@ -107,16 +104,17 @@ export function initGame(players, previousRanking = null) {
     hand: sortHand(hands[p.id]),
     finished: false,
     rank: null,
-    role: roleById[p.id]
+    role: roleById[p.id],
+    isBot: p.isBot || false
   }));
 
   const nameOf = (id) => players.find((p) => p.id === id)?.name || '?';
 
   return {
-    status: 'playing',
+    status: 'exchange',
     players: gamePlayers,
     turnOrder: players.map((p) => p.id),
-    currentPlayerId: trouDuCulId,
+    currentPlayerId: null,
     pile: [],
     pileRank: null,
     pileCount: 0,
@@ -125,17 +123,87 @@ export function initGame(players, previousRanking = null) {
     finishedOrder: [],
     loserId: null,
     lastMove: null,
-    cardExchange: {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      pairs: [exchange1, exchange2]
+    exchange: {
+      presidentId,
+      vicePresidentId,
+      secretaireId,
+      trouDuCulId,
+      presidentGiftCount: 2,
+      vicePresidentGiftCount: 1,
+      presidentGiven: false,
+      vicePresidentGiven: false
     },
     log: [
       { ts: Date.now(), message: 'Nouvelle manche : les rôles sont distribués.' },
-      { ts: Date.now(), message: `${nameOf(trouDuCulId)} (Trou du Cul) donne ses 2 meilleures cartes à ${nameOf(presidentId)} (Président), qui lui rend 2 cartes.` },
-      { ts: Date.now(), message: `${nameOf(secretaireId)} (Secrétaire) donne sa meilleure carte à ${nameOf(vicePresidentId)} (Vice-Président), qui lui rend une carte.` },
-      { ts: Date.now(), message: `${nameOf(trouDuCulId)} entame le premier pli.` }
+      { ts: Date.now(), message: `${nameOf(trouDuCulId)} (Trou du Cul) donne ses 2 meilleures cartes à ${nameOf(presidentId)} (Président).` },
+      { ts: Date.now(), message: `${nameOf(secretaireId)} (Secrétaire) donne sa meilleure carte à ${nameOf(vicePresidentId)} (Vice-Président).` }
     ]
   };
+}
+
+/**
+ * Le Président (2 cartes) ou le Vice-Président (1 carte) choisit ce qu'il rend
+ * en retour. Dès que les deux retours ont eu lieu, la partie démarre vraiment
+ * (le Trou du Cul entame le premier pli).
+ */
+export function applyExchangeChoice(state, playerId, cardIds) {
+  if (state.status !== 'exchange') throw new Error("Ce n'est pas le moment de choisir.");
+  const ex = state.exchange;
+
+  let role;
+  let expectedCount;
+  let recipientId;
+  if (playerId === ex.presidentId) {
+    role = 'president';
+    expectedCount = ex.presidentGiftCount;
+    recipientId = ex.trouDuCulId;
+  } else if (playerId === ex.vicePresidentId) {
+    role = 'vicePresident';
+    expectedCount = ex.vicePresidentGiftCount;
+    recipientId = ex.secretaireId;
+  } else {
+    throw new Error("Tu n'as rien à donner pour cet échange.");
+  }
+
+  const alreadyGiven = role === 'president' ? ex.presidentGiven : ex.vicePresidentGiven;
+  if (alreadyGiven) throw new Error('Tu as déjà fait ton choix pour cet échange.');
+
+  if (!Array.isArray(cardIds) || cardIds.length !== expectedCount) {
+    throw new Error(`Choisis exactement ${expectedCount} carte${expectedCount > 1 ? 's' : ''}.`);
+  }
+
+  const players = state.players.map((p) => ({ ...p, hand: p.hand.slice() }));
+  const giver = players.find((p) => p.id === playerId);
+  const recipient = players.find((p) => p.id === recipientId);
+
+  const cards = cardIds.map((id) => giver.hand.find((c) => c.id === id)).filter(Boolean);
+  if (cards.length !== expectedCount) throw new Error('Sélection invalide.');
+
+  giver.hand = giver.hand.filter((c) => !cardIds.includes(c.id));
+  recipient.hand = sortHand([...recipient.hand, ...cards]);
+
+  const newExchange = {
+    ...ex,
+    presidentGiven: role === 'president' ? true : ex.presidentGiven,
+    vicePresidentGiven: role === 'vicePresident' ? true : ex.vicePresidentGiven
+  };
+
+  const logMessage = { ts: Date.now(), message: `${giver.name} rend ${expectedCount} carte${expectedCount > 1 ? 's' : ''} à ${recipient.name}.` };
+
+  const bothDone = newExchange.presidentGiven && newExchange.vicePresidentGiven;
+
+  if (bothDone) {
+    return {
+      ...state,
+      players,
+      exchange: newExchange,
+      status: 'playing',
+      currentPlayerId: ex.trouDuCulId,
+      log: [...state.log, logMessage, { ts: Date.now(), message: `${players.find((p) => p.id === ex.trouDuCulId)?.name} entame le premier pli.` }].slice(-40)
+    };
+  }
+
+  return { ...state, players, exchange: newExchange, log: [...state.log, logMessage].slice(-40) };
 }
 
 function finishRoundIfNeeded(state, players) {
