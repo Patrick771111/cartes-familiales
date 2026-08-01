@@ -7,8 +7,11 @@ import { buildStandardDeck, shuffle, deal } from './deck.js';
 export const RANK_ORDER = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2'];
 
 // Règle "8 brûle" : poser un 8 vide immédiatement le pli en cours, et la main continue
-// au même joueur (qui peut relancer sur n'importe quel rang).
-const BURN_RANKS = new Set(['8']);
+// au même joueur (qui peut relancer sur n'importe quel rang). Le 2 fait de même,
+// puisque c'est la carte la plus forte du jeu : personne ne peut de toute façon
+// jamais le battre, autant vider le pli tout de suite plutôt que d'attendre que
+// tout le monde passe.
+const BURN_RANKS = new Set(['8', '2']);
 
 // Jeu à 4 exactement : Président / Vice-Président / Secrétaire / Trou du Cul,
 // avec échange forcé de cartes entre les deux extrêmes (2 cartes) et le binôme
@@ -118,6 +121,7 @@ export function initGame(players, previousRanking = null) {
     pile: [],
     pileRank: null,
     pileCount: 0,
+    rankLocked: false,
     lastPlayerToPlay: null,
     passedSinceLastPlay: [],
     finishedOrder: [],
@@ -229,7 +233,9 @@ function finishRoundIfNeeded(state, players) {
 
 /**
  * Vérifie si un ensemble de cartes (même rang) peut être posé sur le pli courant :
- * même nombre de cartes, rang strictement supérieur (ou pli vide = tout est permis).
+ * même nombre de cartes, et un rang supérieur OU ÉGAL au pli (le pli est vide =
+ * tout est permis). Si le pli est verrouillé (quelqu'un a déjà copié le rang en
+ * cours), seul ce rang exact reste jouable — impossible de relancer plus haut.
  */
 export function isLegalPlay(state, hand, cardIds) {
   if (!cardIds.length) return false;
@@ -240,7 +246,9 @@ export function isLegalPlay(state, hand, cardIds) {
 
   if (state.pileCount === 0) return true;
   if (cards.length !== state.pileCount) return false;
-  return rankValue(rank) > rankValue(state.pileRank);
+
+  if (state.rankLocked) return rankValue(rank) === rankValue(state.pileRank);
+  return rankValue(rank) >= rankValue(state.pileRank);
 }
 
 export function applyPlay(state, playerId, cardIds) {
@@ -263,8 +271,9 @@ export function applyPlay(state, playerId, cardIds) {
 
   const finishedOrder = finishedNow ? [...state.finishedOrder, current.id] : state.finishedOrder;
   const willBurn = BURN_RANKS.has(rank);
+  const isMatch = !willBurn && state.pileCount > 0 && rankValue(rank) === rankValue(state.pileRank);
 
-  const logMessage = `${current.name} pose ${playedCards.length} × ${rank}${willBurn ? ' — le pli brûle !' : ''}${finishedNow ? ` — ${current.name} a fini !` : ''}`;
+  const logMessage = `${current.name} pose ${playedCards.length} × ${rank}${willBurn ? ' — le pli brûle !' : isMatch ? ' — même niveau, le pli se verrouille sur ce rang !' : ''}${finishedNow ? ` — ${current.name} a fini !` : ''}`;
 
   let nextState = {
     ...state,
@@ -272,6 +281,7 @@ export function applyPlay(state, playerId, cardIds) {
     pile: willBurn ? [] : playedCards,
     pileRank: willBurn ? null : rank,
     pileCount: willBurn ? 0 : playedCards.length,
+    rankLocked: willBurn ? false : isMatch || state.rankLocked,
     lastPlayerToPlay: willBurn ? null : current.id,
     passedSinceLastPlay: [],
     finishedOrder,
@@ -324,6 +334,7 @@ export function applyPass(state, playerId) {
       pile: [],
       pileRank: null,
       pileCount: 0,
+      rankLocked: false,
       lastPlayerToPlay: null,
       passedSinceLastPlay: [],
       currentPlayerId: leaderId,
