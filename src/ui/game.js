@@ -1,5 +1,5 @@
 import { cardFaceHtml, cardBackHtml } from './cards.js';
-import { AVAILABLE_GAMES, startGame, drawForCurrentPlayer, playCards, passTurn, playAgain, addBot, submitExchangeGift } from '../game/engine.js';
+import { AVAILABLE_GAMES, startGame, drawForCurrentPlayer, playCards, passTurn, playAgain, addBot, submitExchangeGift, claimHost } from '../game/engine.js';
 import { playerToDrawFrom as computeTarget } from '../game/pouilleux.js';
 import { rankValue as trouducRankValue, rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
@@ -60,6 +60,8 @@ function renderWaitingRoom(container, { room, player, onRename, onLeave, onKick 
   const state = room.state;
   const isHost = state.hostId === player.id;
   const me = state.players.find((p) => p.id === player.id);
+  const currentHost = state.players.find((p) => p.id === state.hostId);
+  const hostIsBot = currentHost?.isBot === true;
 
   container.innerHTML = `
     <div class="screen screen--waiting">
@@ -67,7 +69,13 @@ function renderWaitingRoom(container, { room, player, onRename, onLeave, onKick 
         <p class="eyebrow">Cartes en famille</p>
         <h1>Table ouverte</h1>
         <p class="lobby-card__intro">
-          ${isHost ? "Attends que les autres arrivent, choisis le jeu, puis lance la partie." : "En attente que l'hôte lance la partie…"}
+          ${
+            hostIsBot
+              ? "L'hôte est un bot — quelqu'un doit reprendre la main pour lancer la partie."
+              : isHost
+                ? "Attends que les autres arrivent, choisis le jeu, puis lance la partie."
+                : "En attente que l'hôte lance la partie…"
+          }
         </p>
 
         <ul class="player-list">
@@ -81,6 +89,8 @@ function renderWaitingRoom(container, { room, player, onRename, onLeave, onKick 
             )
             .join('')}
         </ul>
+
+        ${hostIsBot && !isHost ? `<button class="btn btn--ghost btn--small" id="btn-claim-host">Devenir l'hôte</button>` : ''}
 
         ${
           isHost && state.players.length < 4
@@ -122,6 +132,16 @@ function renderWaitingRoom(container, { room, player, onRename, onLeave, onKick 
     } catch (err) {
       e.target.disabled = false;
       alert(err.message || 'Impossible de lancer la partie.');
+    }
+  });
+
+  container.querySelector('#btn-claim-host')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await claimHost(room, player);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || "Impossible de devenir l'hôte.");
     }
   });
 
