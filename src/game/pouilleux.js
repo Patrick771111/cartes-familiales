@@ -83,6 +83,14 @@ export function applyDraw(state, actingPlayerId) {
     ? { ts: Date.now(), message: `${current.name} pioche chez ${target.name} et défausse une paire.` }
     : { ts: Date.now(), message: `${current.name} pioche chez ${target.name}.` };
 
+  const lastDraw = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    by: actingPlayerId,
+    from: targetId,
+    card,
+    paired: discarded.length > 0
+  };
+
   const remainingActive = players.filter((p) => p.hand.length > 0);
 
   let status = state.status;
@@ -101,6 +109,7 @@ export function applyDraw(state, actingPlayerId) {
     status,
     loserId,
     currentPlayerId: nextCurrentId,
+    lastDraw,
     log: [...state.log, logEntry].slice(-40)
   };
 }
