@@ -165,6 +165,7 @@ h1 {
 }
 
 .btn--small { width: auto; padding: 10px 14px; font-size: 13px; }
+#btn-add-bot { display: block; margin: 0 auto 20px; }
 
 .btn--link {
   background: none;
@@ -266,6 +267,7 @@ h1 {
 /* ---------- Table de jeu ---------- */
 
 .screen--table { padding: 16px 12px 12px; justify-content: flex-start; min-height: 100dvh; }
+.screen--table > .btn--link { max-width: 320px; margin: 14px auto 0; }
 
 .table-felt {
   width: 100%;
@@ -299,6 +301,29 @@ h1 {
   margin-left: -14px;
 }
 .opponent__hand .card--back:first-child { margin-left: 0; }
+
+.opponent__hand--pickable {
+  height: auto;
+  overflow-x: auto;
+  padding: 6px 4px;
+  justify-content: flex-start;
+}
+.opponent-card--pickable {
+  all: unset;
+  box-sizing: border-box;
+  width: 34px;
+  height: 50px;
+  margin-left: -10px;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.opponent-card--pickable:first-child { margin-left: 0; }
+.opponent-card--pickable:hover, .opponent-card--pickable:focus-visible {
+  transform: translateY(-6px);
+  box-shadow: 0 0 0 2px var(--brass);
+}
+.opponent-card--pickable:disabled { opacity: 0.6; cursor: default; }
 
 .opponent__count {
   align-self: center;
@@ -361,10 +386,12 @@ h1 {
   margin-left: -18px;
   cursor: pointer;
   transition: transform 0.15s ease;
+  touch-action: none;
 }
 .hand-card:first-child { margin-left: 0; }
 .hand-card--selected { transform: translateY(-14px); z-index: 2; }
 .hand-card--selected .card { box-shadow: 0 0 0 2px var(--brass), 0 10px 16px rgba(0,0,0,0.45); }
+.hand-card.is-dragging { box-shadow: 0 12px 24px rgba(0,0,0,0.5); }
 
 .rank-list {
   list-style: decimal;
@@ -378,47 +405,27 @@ h1 {
   gap: 6px;
 }
 
-/* ---------- Trou du Cul : écran de révélation de l'échange ---------- */
+/* ---------- Trou du Cul : phase d'échange privée ---------- */
 
-.lobby-card--exchange { max-width: 460px; text-align: center; }
-
-.exchange-pair {
-  background: var(--felt-900);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 14px;
-  margin-bottom: 14px;
+.exchange-title {
+  font-size: clamp(24px, 6vw, 30px);
+  margin: 6px 0 12px;
+  text-align: center;
 }
-
-.exchange-pair__label {
-  font-size: 14px;
-  margin: 0 0 12px;
-  color: rgba(247, 241, 225, 0.85);
+.exchange-status {
+  color: rgba(247, 241, 225, 0.8);
+  font-size: 15px;
+  line-height: 1.5;
+  max-width: 380px;
+  margin: 0 auto 16px;
+  text-align: center;
 }
-.exchange-pair__role {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--brass-soft);
+.screen--table .table-felt #btn-give,
+.screen--table .table-felt .exchange-status + .btn {
+  display: block;
+  margin: 0 auto;
+  max-width: 260px;
 }
-
-.exchange-pair__row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-}
-
-.exchange-pair__side { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.exchange-pair__side-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: rgba(247, 241, 225, 0.5);
-  margin: 0;
-}
-.exchange-pair__cards { display: flex; gap: 4px; }
-.exchange-pair__arrow { font-size: 18px; color: var(--brass); flex-shrink: 0; }
 
 /* ---------- Révélation de la carte piochée ---------- */
 
@@ -461,6 +468,51 @@ h1 {
   margin: 0;
 }
 
+.draw-reveal__extra {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 17px;
+  text-align: center;
+  margin: 0;
+  padding: 0 20px;
+}
+.draw-reveal__extra--big { font-size: 22px; }
+
+/* Carte du Pouilleux : tremblement + flash rouge sur tout l'overlay */
+@keyframes flash-danger-bg {
+  0%, 100% { background: rgba(15, 46, 33, 0.72); }
+  25% { background: rgba(150, 30, 30, 0.6); }
+}
+@keyframes danger-shake {
+  0%, 100% { transform: scale(1) rotate(0); }
+  20% { transform: scale(1) translateX(-10px) rotate(-4deg); }
+  40% { transform: scale(1) translateX(10px) rotate(4deg); }
+  60% { transform: scale(1) translateX(-7px) rotate(-2deg); }
+  80% { transform: scale(1) translateX(7px) rotate(2deg); }
+}
+.draw-reveal--danger { animation: flash-danger-bg 0.9s ease-in-out; }
+.draw-reveal--danger .draw-reveal__card {
+  animation: draw-reveal-in 0.28s cubic-bezier(0.2, 0.8, 0.3, 1) both, danger-shake 0.6s ease-in-out 0.28s 2;
+}
+.draw-reveal--danger .draw-reveal__extra { color: #ff9a9a; }
+
+/* Joueur à l'abri (main vide) ou nouveau Président : pulsation verte */
+@keyframes flash-safe-bg {
+  0%, 100% { background: rgba(15, 46, 33, 0.72); }
+  30% { background: rgba(60, 150, 95, 0.55); }
+}
+@keyframes safe-pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+.draw-reveal--safe { animation: flash-safe-bg 0.7s ease-in-out; }
+.draw-reveal--safe .draw-reveal__card { box-shadow: 0 0 26px 6px rgba(120, 210, 150, 0.55); }
+.draw-reveal--safe .draw-reveal__extra { color: #a8ecc0; animation: safe-pulse 0.5s ease-in-out; }
+
+/* Variante brève et non bloquante, utilisée pour la célébration du Président au Trou du Cul */
+.draw-reveal--brief { pointer-events: none; }
+
 .my-hand { width: 100%; max-width: 480px; margin-top: 18px; }
 .my-hand__label {
   font-family: var(--font-mono);
@@ -470,14 +522,20 @@ h1 {
   color: rgba(247, 241, 225, 0.5);
   margin: 0 0 8px 4px;
 }
+.my-hand__label small {
+  text-transform: none;
+  letter-spacing: 0;
+  color: rgba(247, 241, 225, 0.35);
+}
 .my-hand__cards {
   display: flex;
   overflow-x: auto;
   padding: 4px;
   gap: 0;
 }
-.my-hand__cards .card { margin-left: -18px; flex-shrink: 0; }
+.my-hand__cards .card { margin-left: -18px; flex-shrink: 0; touch-action: none; cursor: grab; }
 .my-hand__cards .card:first-child { margin-left: 0; }
+.my-hand__cards .card.is-dragging { cursor: grabbing; box-shadow: 0 12px 24px rgba(0,0,0,0.5); }
 .my-hand__empty { color: rgba(247, 241, 225, 0.6); font-size: 14px; padding: 20px; text-align: center; }
 
 .log {
@@ -553,4 +611,40 @@ h1 {
 @media (max-width: 360px) {
   .card { width: 48px; height: 70px; }
   .card__pip { font-size: 22px; }
+}
+
+/* ---------- Mode paysage : table et main côte à côte plutôt qu'empilées,
+   pour profiter de la largeur plutôt que de scroller verticalement. ---------- */
+
+@media (orientation: landscape) and (max-height: 620px) {
+  .screen--table {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 14px;
+    padding: 10px 14px;
+    min-height: 100dvh;
+  }
+
+  .table-felt {
+    flex: 1 1 52%;
+    min-width: 280px;
+    max-width: 520px;
+    padding: 12px 10px 16px;
+  }
+
+  .my-hand {
+    flex: 1 1 38%;
+    min-width: 220px;
+    max-width: 340px;
+    margin-top: 0;
+  }
+
+  .my-hand__cards { max-height: 60vh; flex-wrap: wrap; }
+
+  .log { flex-basis: 100%; max-width: 860px; }
+
+  .opponents { gap: 10px; }
+  .turn-banner { margin-bottom: 8px; }
 }
