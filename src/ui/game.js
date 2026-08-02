@@ -1,5 +1,5 @@
 import { cardFaceHtml, cardBackHtml } from './cards.js';
-import { AVAILABLE_GAMES, startGame, drawForCurrentPlayer, playCards, passTurn, playAgain, addBot, submitExchangeGift, claimHost } from '../game/engine.js';
+import { AVAILABLE_GAMES, startGame, drawForCurrentPlayer, playCards, passTurn, playAgain, addBot, submitExchangeGift, claimHost, HOST_STALE_MS } from '../game/engine.js';
 import { playerToDrawFrom as computeTarget } from '../game/pouilleux.js';
 import { rankValue as trouducRankValue, rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
@@ -61,6 +61,8 @@ function renderWaitingRoom(container, { room, player, onRename, onLeave, onKick 
   const me = state.players.find((p) => p.id === player.id);
   const currentHost = state.players.find((p) => p.id === state.hostId);
   const hostIsBot = currentHost?.isBot === true;
+  const hostIsStale = !hostIsBot && Date.now() - (state.hostLastSeen || 0) > HOST_STALE_MS;
+  const hostUnavailable = hostIsBot || hostIsStale;
 
   container.innerHTML = `
     <div class="screen screen--waiting">
@@ -71,9 +73,11 @@ function renderWaitingRoom(container, { room, player, onRename, onLeave, onKick 
           ${
             hostIsBot
               ? "L'hôte est un bot — quelqu'un doit reprendre la main pour lancer la partie."
-              : isHost
-                ? "Attends que les autres arrivent, choisis le jeu, puis lance la partie."
-                : "En attente que l'hôte lance la partie…"
+              : hostIsStale
+                ? "L'hôte semble inactif depuis un moment — tu peux reprendre la main."
+                : isHost
+                  ? "Attends que les autres arrivent, choisis le jeu, puis lance la partie."
+                  : "En attente que l'hôte lance la partie…"
           }
         </p>
 
@@ -89,7 +93,7 @@ function renderWaitingRoom(container, { room, player, onRename, onLeave, onKick 
             .join('')}
         </ul>
 
-        ${hostIsBot && !isHost ? `<button class="btn btn--ghost btn--small" id="btn-claim-host">Devenir l'hôte</button>` : ''}
+        ${hostUnavailable && !isHost ? `<button class="btn btn--ghost btn--small" id="btn-claim-host">Devenir l'hôte</button>` : ''}
 
         ${
           isHost && state.players.length < 4
@@ -490,18 +494,68 @@ function renderTrouducTable(container, { room, player, state }) {
     return state.rankLocked ? rv === pileRv : rv >= pileRv;
   };
 
-  // Éventail : les cartes du milieu restent basses, celles vers les bords remontent
-  // légèrement et pivotent — comme un vrai jeu tenu en main.
-  const handFanStyle = (index, total) => {
-    if (total <= 1) return '';
-    const mid = (total - 1) / 2;
-    const offset = index - mid;
-    const maxAngle = 14;
-    const rotate = ((offset / mid) * maxAngle).toFixed(1);
-    const maxRise = 20;
-    const rise = (maxRise * (1 - Math.abs(offset) / mid)).toFixed(1);
-    return `--fan-rotate: ${rotate}deg; --fan-rise: ${rise}px;`;
+  // Regroupe les cartes consécutives de même rang (la main est déjà triée par rang
+  // par le serveur), puis répartit les groupes sur deux rangées sans jamais couper
+  // un groupe en deux. L'espacement entre groupes est calculé pour que chaque
+  // rangée tienne toujours dans la largeur de l'écran, même dans le pire des cas
+  // (aucune paire en main : autant de groupes que de cartes).
+  const CARD_W = 56;
+  const TIGHT_STEP = 22; // largeur visible d'une carte "empilée" dans le même groupe
+  // Largeur dispo estimée pour une rangée : s'adapte à l'écran réel (mobile étroit
+  // comme desktop plus large), avec une marge de sécurité pour le cadre autour.
+  const ROW_WIDTH_BUDGET = Math.min(window.innerWidth - 64, 600);
+
+  const groupHand = (hand) => {
+    const groups = [];
+    for (const card of hand) {
+      const last = groups[groups.length - 1];
+      if (last && last[0].rank === card.rank) last.push(card);
+      else groups.push([card]);
+    }
+    return groups;
   };
+
+  const splitIntoRows = (groups, total) => {
+    const targetRow1 = Math.ceil(total / 2);
+    const rows = [[], []];
+    let count = 0;
+    let rowIndex = 0;
+    for (const group of groups) {
+      if (rowIndex === 0 && count >= targetRow1 && count > 0) rowIndex = 1;
+      rows[rowIndex].push(group);
+      count += group.length;
+    }
+    return rows;
+  };
+
+  const renderRow = (rowGroups) => {
+    if (!rowGroups.length) return '';
+    const n = rowGroups.reduce((s, g) => s + g.length, 0);
+    const nGroupStarts = rowGroups.length - 1; // hors tout premier groupe de la rangée
+    const nContinuations = n - rowGroups.length; // cartes qui prolongent un groupe existant
+    const remaining = ROW_WIDTH_BUDGET - CARD_W - nContinuations * TIGHT_STEP;
+    const lightStep = nGroupStarts > 0 ? Math.max(TIGHT_STEP, Math.min(CARD_W - 4, remaining / nGroupStarts)) : 0;
+
+    let html = '';
+    let cardPos = 0;
+    rowGroups.forEach((group) => {
+      group.forEach((c, iInGroup) => {
+        const isFirstInRow = cardPos === 0;
+        const isFirstInGroup = iInGroup === 0;
+        let marginLeft;
+        if (isFirstInRow) marginLeft = 0;
+        else if (isFirstInGroup) marginLeft = -(CARD_W - lightStep);
+        else marginLeft = -(CARD_W - TIGHT_STEP);
+        const playable = !isMyTurn || isRankPlayable(c.rank);
+        html += `<div class="hand-card ${selectedCardIds.has(c.id) ? 'hand-card--selected' : ''} ${playable ? '' : 'hand-card--unplayable'}" data-card-id="${c.id}" style="margin-left:${marginLeft}px">${cardFaceHtml(c)}</div>`;
+        cardPos++;
+      });
+    });
+    return html;
+  };
+
+  const handGroups = groupHand(me.hand);
+  const handRows = splitIntoRows(handGroups, me.hand.length);
 
   container.innerHTML = `
     <div class="screen screen--table">
@@ -563,16 +617,14 @@ function renderTrouducTable(container, { room, player, state }) {
 
       <div class="my-hand trouduc-hand">
         <p class="my-hand__label">${me.role ? `${me.role} · ` : ''}Ta main (${me.hand.length})</p>
-        <div class="my-hand__cards trouduc-hand__cards">
-          ${
-            me.hand
-              .map((c, i) => {
-                const playable = !isMyTurn || isRankPlayable(c.rank);
-                return `<div class="hand-card ${selectedCardIds.has(c.id) ? 'hand-card--selected' : ''} ${playable ? '' : 'hand-card--unplayable'}" data-card-id="${c.id}" style="${handFanStyle(i, me.hand.length)}">${cardFaceHtml(c)}</div>`;
-              })
-              .join('') || '<p class="my-hand__empty">Tu as fini, bravo !</p>'
-          }
-        </div>
+        ${
+          me.hand.length
+            ? `<div class="trouduc-hand-rows">
+                 <div class="trouduc-hand-row">${renderRow(handRows[0])}</div>
+                 <div class="trouduc-hand-row trouduc-hand-row--2">${renderRow(handRows[1])}</div>
+               </div>`
+            : '<p class="my-hand__empty">Tu as fini, bravo !</p>'
+        }
       </div>
 
       <details class="log">

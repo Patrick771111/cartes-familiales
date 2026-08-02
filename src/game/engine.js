@@ -60,6 +60,7 @@ function emptyLobbyState() {
     status: 'lobby',
     players: [],
     hostId: null,
+    hostLastSeen: null,
     turnOrder: [],
     currentPlayerId: null,
     oddCardId: null,
@@ -67,6 +68,15 @@ function emptyLobbyState() {
     lastDraw: null,
     log: [{ ts: Date.now(), message: 'Table ouverte.' }]
   };
+}
+
+// Au bout de ce délai sans nouvelles de l'hôte (en salle d'attente), n'importe
+// qui peut reprendre la main automatiquement au prochain chargement de l'appli.
+export const HOST_STALE_MS = 2 * 60 * 1000;
+
+function isHostStale(state) {
+  if (!state.hostId) return false;
+  return Date.now() - (state.hostLastSeen || 0) > HOST_STALE_MS;
 }
 
 /** Récupère la table familiale, la crée si c'est la toute première connexion. */
@@ -92,9 +102,11 @@ export async function ensureMembership(room, profile) {
       return fresh;
     }
 
+    const becomesHost = !fresh.state.hostId;
     const newState = {
       ...fresh.state,
       hostId: fresh.state.hostId || profile.id,
+      hostLastSeen: becomesHost ? Date.now() : fresh.state.hostLastSeen,
       players: [...fresh.state.players, { id: profile.id, name: profile.name, hand: [] }],
       log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} a rejoint la table.` }]
     };
@@ -160,11 +172,13 @@ export async function leaveTable(room, profile) {
     }
 
     const remainingPlayers = fresh.state.players.filter((p) => p.id !== profile.id);
-    const newHostId = fresh.state.hostId === profile.id ? pickNewHost(remainingPlayers) : fresh.state.hostId;
+    const hostChanged = fresh.state.hostId === profile.id;
+    const newHostId = hostChanged ? pickNewHost(remainingPlayers) : fresh.state.hostId;
     const newState = {
       ...fresh.state,
       players: remainingPlayers,
       hostId: newHostId,
+      hostLastSeen: hostChanged ? Date.now() : fresh.state.hostLastSeen,
       log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} a quitté la table.` }]
     };
 
@@ -191,11 +205,13 @@ export async function kickPlayer(room, targetId) {
     }
 
     const remainingPlayers = fresh.state.players.filter((p) => p.id !== targetId);
-    const newHostId = fresh.state.hostId === targetId ? pickNewHost(remainingPlayers) : fresh.state.hostId;
+    const hostChanged = fresh.state.hostId === targetId;
+    const newHostId = hostChanged ? pickNewHost(remainingPlayers) : fresh.state.hostId;
     const newState = {
       ...fresh.state,
       players: remainingPlayers,
       hostId: newHostId,
+      hostLastSeen: hostChanged ? Date.now() : fresh.state.hostLastSeen,
       log: [...fresh.state.log, { ts: Date.now(), message: `${target.name} a été retiré de la table.` }]
     };
 
@@ -234,8 +250,8 @@ export async function addBot(room) {
 
 /**
  * Permet à un humain de reprendre le rôle d'hôte si celui-ci est actuellement
- * un bot (ex: après le départ de l'hôte humain). Porte de sortie pour ne pas
- * rester bloqué, personne ne pouvant retirer un bot hôte sans être hôte soi-même.
+ * un bot, ou un humain inactif depuis plus de 2 minutes. Porte de sortie pour
+ * ne pas rester bloqué si l'hôte a disparu sans prévenir.
  */
 export async function claimHost(room, profile) {
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -244,13 +260,14 @@ export async function claimHost(room, profile) {
     if (!fresh.state.players.some((p) => p.id === profile.id)) throw new Error("Tu n'es pas (encore) à cette table.");
 
     const currentHost = fresh.state.players.find((p) => p.id === fresh.state.hostId);
-    if (currentHost && !currentHost.isBot) {
-      throw new Error('Il y a déjà un hôte humain à la table.');
+    if (currentHost && !currentHost.isBot && !isHostStale(fresh.state)) {
+      throw new Error('Il y a déjà un hôte actif à la table.');
     }
 
     const newState = {
       ...fresh.state,
       hostId: profile.id,
+      hostLastSeen: Date.now(),
       log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} devient l'hôte.` }]
     };
 
@@ -261,6 +278,54 @@ export async function claimHost(room, profile) {
     }
   }
   throw new Error("Impossible de devenir l'hôte, réessaie.");
+}
+
+/**
+ * Reprise automatique et silencieuse : appelée à chaque chargement/reconnexion.
+ * Si l'hôte est un bot ou n'a plus donné signe de vie depuis plus de 2 minutes,
+ * la première personne qui charge l'appli devient hôte sans avoir à cliquer sur
+ * quoi que ce soit. Ne fait rien si l'hôte est déjà cette personne, ou actif.
+ */
+export async function reclaimStaleHost(room, profile) {
+  if (room.state.status !== 'lobby') return room;
+  if (room.state.hostId === profile.id) return room;
+  if (!room.state.players.some((p) => p.id === profile.id)) return room;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const fresh = await fetchRoomById(room.id);
+    if (fresh.state.status !== 'lobby') return fresh;
+    if (fresh.state.hostId === profile.id) return fresh;
+
+    const currentHost = fresh.state.players.find((p) => p.id === fresh.state.hostId);
+    const shouldReclaim = !currentHost || currentHost.isBot || isHostStale(fresh.state);
+    if (!shouldReclaim) return fresh;
+
+    const newState = {
+      ...fresh.state,
+      hostId: profile.id,
+      hostLastSeen: Date.now(),
+      log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} devient l'hôte (ancien hôte inactif).` }]
+    };
+
+    try {
+      return await updateRoomState(fresh.id, fresh.version, newState);
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+    }
+  }
+  return room; // pas grave si ça échoue, ça retentera au prochain chargement
+}
+
+/** Battement de cœur : l'hôte signale sa présence pendant qu'il est en salle d'attente. */
+export async function pingHostPresence(room, profile) {
+  if (room.state.hostId !== profile.id) return room;
+  if (room.state.status !== 'lobby') return room;
+  try {
+    return await updateRoomState(room.id, room.version, { ...room.state, hostLastSeen: Date.now() });
+  } catch (e) {
+    if (e instanceof ConflictError) return room;
+    throw e;
+  }
 }
 
 export async function startGame(room, gameType = 'pouilleux') {
@@ -327,6 +392,7 @@ export async function playAgain(room) {
     status: 'lobby',
     players: players.map((p) => ({ ...p, hand: [] })),
     hostId: room.state.hostId,
+    hostLastSeen: Date.now(),
     turnOrder: [],
     currentPlayerId: null,
     previousTrouducRanking,

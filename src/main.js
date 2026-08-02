@@ -13,6 +13,8 @@ import {
   playCards,
   passTurn,
   submitExchangeGift,
+  reclaimStaleHost,
+  pingHostPresence,
   fetchRoomById,
   watchRoom
 } from './game/engine.js';
@@ -161,7 +163,18 @@ function maybeScheduleTrouducExchangeBot(room) {
   });
 }
 
+const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul' };
+
+function updateDocumentTitle(room) {
+  const gameLabel = GAME_TITLES[room.game];
+  document.title = gameLabel ? `${gameLabel} — Cartes en famille` : 'Cartes en famille';
+}
+
+let currentRoomRef = null;
+
 function draw(room) {
+  currentRoomRef = room;
+  updateDocumentTitle(room);
   maybeScheduleBotMove(room);
   maybeScheduleTrouducExchangeBot(room);
   maybeScheduleTrouducBotMove(room);
@@ -175,8 +188,9 @@ function draw(room) {
       name: currentPlayer.name,
       onRejoin: async () => {
         const rejoined = await ensureMembership(room, currentPlayer);
+        const reclaimed = await reclaimStaleHost(rejoined, currentPlayer);
         hasLeftTable = false;
-        draw(rejoined);
+        draw(reclaimed);
       }
     });
     return;
@@ -239,14 +253,28 @@ async function boot() {
     renderNamePrompt(app, {
       onSubmit: async (name) => {
         const { room: joinedRoom, player } = await createIdentityAndJoin(room, name);
-        enterRoom(joinedRoom, player);
+        const reclaimed = await reclaimStaleHost(joinedRoom, player);
+        enterRoom(reclaimed, player);
       }
     });
     return;
   }
 
   const joinedRoom = await ensureMembership(room, profile);
-  enterRoom(joinedRoom, profile);
+  const reclaimed = await reclaimStaleHost(joinedRoom, profile);
+  enterRoom(reclaimed, profile);
 }
+
+// Battement de cœur : tant que cet appareil est ouvert et que son utilisateur
+// est hôte d'une table en salle d'attente, on signale régulièrement sa présence
+// pour éviter qu'un autre appareil ne le remplace par erreur au bout de 2 minutes.
+window.setInterval(async () => {
+  if (!currentRoomRef || !currentPlayer) return;
+  try {
+    currentRoomRef = await pingHostPresence(currentRoomRef, currentPlayer);
+  } catch (err) {
+    // Pas grave, on retentera au prochain battement.
+  }
+}, 45000);
 
 boot();
