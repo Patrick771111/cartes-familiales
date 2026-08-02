@@ -57,9 +57,11 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
   même rang en quantité égale ou supérieure au pli, sinon on passe. Poser un 8
   **ou un 2** brûle le pli et permet de rejouer immédiatement (le 2 ne peut de
   toute façon jamais être battu). On peut aussi **copier** le rang du pli au
-  lieu de le dépasser (ex : 4 → 6 → 6) — dans ce cas le pli se **verrouille**
-  sur ce rang pour le reste du tour : seul ce rang exact reste jouable, plus
-  moyen de relancer plus haut, jusqu'à ce que le pli soit ramassé ou brûlé. À la toute première manche,
+  lieu de le dépasser (ex : 4 → 6 → 6) — dans ce cas seul le joueur **suivant**
+  est verrouillé sur ce rang (un seul tour, pas plus) : il doit soit copier à
+  son tour (ce qui reverrouille alors la personne d'après, et ainsi de suite
+  tant que la chaîne de copies continue), soit passer — et dans ce cas la
+  liberté revient totalement à la personne suivante (copier ou dépasser). À la toute première manche,
   les 4 rôles (Président, Vice-Président, Secrétaire, Trou du Cul) sont tirés
   au sort ; ensuite ils sont reconduits selon le classement de la manche
   précédente. Avant chaque donne : le Trou du Cul donne ses 2 meilleures
@@ -102,6 +104,10 @@ total). Les bots jouent tout seuls après un court délai :
 ## Déroulé d'une partie
 
 1. Chacun ouvre l'appli sur son téléphone. Premier arrivé = hôte.
+   Si l'hôte quitte l'appli sans prévenir (batterie morte, oubli...), la
+   première personne qui recharge la page après 2 minutes d'inactivité de
+   l'hôte reprend automatiquement la main — pas besoin d'attendre qu'il
+   revienne. Ça marche aussi immédiatement si l'hôte est un bot.
 2. La salle d'attente affiche la liste des joueurs déjà connectés en temps réel.
 3. L'hôte clique sur "Lancer la partie" quand tout le monde est là (pas besoin
    d'attendre exactement 4 joueurs, ça marche dès 2).
