@@ -1,6 +1,6 @@
 import './style.css';
 import { renderNamePrompt, renderLeftTable } from './ui/lobby.js';
-import { renderGame } from './ui/game.js';
+import { renderGame, renderSpectatorGame } from './ui/game.js';
 import {
   getLocalProfile,
   ensureFamilyRoom,
@@ -15,6 +15,7 @@ import {
   submitExchangeGift,
   reclaimStaleHost,
   pingHostPresence,
+  playAgain,
   fetchRoomById,
   watchRoom
 } from './game/engine.js';
@@ -26,6 +27,10 @@ let unsubscribe = null;
 let currentPlayer = null;
 let currentRoomId = null;
 let hasLeftTable = false;
+// Pourquoi on affiche l'écran "pas à la table" : un départ volontaire, ou juste
+// une attente pendant qu'une partie tournait sans nous. Fixé une fois à l'entrée
+// sur cet écran, pour ne pas changer de message à chaque re-rendu.
+let leftScreenIsWaiting = false;
 
 // Évite que ce même appareil ne programme deux fois le coup d'un bot pour le
 // même état de partie (plusieurs appareils peuvent chacun tenter le coup ;
@@ -67,6 +72,7 @@ function maybeScheduleBotMove(room) {
 // fois qu'une copie a eu lieu. Aucune anticipation plus poussée — basique assumé.
 function chooseTrouducMove(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
+  if (!bot) return { type: 'pass' };
   const groups = new Map();
   for (const card of bot.hand) {
     if (!groups.has(card.rank)) groups.set(card.rank, []);
@@ -149,6 +155,7 @@ function maybeScheduleTrouducExchangeBot(room) {
         if (alreadyGiven) return;
 
         const bot = fresh.state.players.find((p) => p.id === id);
+        if (!bot) return;
         const worstCardIds = bot.hand
           .slice()
           .sort((a, b) => trouducRankValue(a.rank) - trouducRankValue(b.rank))
@@ -172,6 +179,31 @@ function updateDocumentTitle(room) {
 
 let currentRoomRef = null;
 
+function renderCrashRecovery(container, { onReset }) {
+  container.innerHTML = `
+    <div class="screen screen--lobby">
+      <div class="lobby-card">
+        <p class="eyebrow">Cartes en famille</p>
+        <h1>Petit accroc</h1>
+        <p class="lobby-card__intro">
+          Quelque chose s'est mal passé avec cette partie (probablement un état incohérent
+          après un départ au mauvais moment). Tu peux réinitialiser la table sans perdre les joueurs.
+        </p>
+        <button id="btn-crash-reset" class="btn btn--primary">Réinitialiser la table</button>
+      </div>
+    </div>
+  `;
+  container.querySelector('#btn-crash-reset').addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await onReset();
+    } catch (err) {
+      e.target.disabled = false;
+      alert("Impossible de réinitialiser — essaie de recharger complètement la page.");
+    }
+  });
+}
+
 function draw(room) {
   currentRoomRef = room;
   updateDocumentTitle(room);
@@ -180,51 +212,75 @@ function draw(room) {
   maybeScheduleTrouducBotMove(room);
 
   const stillMember = room.state.players.some((p) => p.id === currentPlayer.id);
+
+  // Une partie est en cours et je n'en fais pas partie (ex: quelqu'un d'autre a lancé
+  // une manche avant que je ne rejoigne) : on affiche un écran d'attente qui se
+  // met à jour tout seul, plutôt que de tomber dans le rendu normal (qui suppose
+  // toujours que le joueur local fait partie de la partie, et plante sinon).
+  if (!stillMember && room.state.status === 'playing') {
+    renderSpectatorGame(app, { room, gameLabel: GAME_TITLES[room.game] });
+    return;
+  }
+
   const shouldShowLeftScreen = hasLeftTable || (!stillMember && room.state.status !== 'playing');
 
   if (shouldShowLeftScreen) {
+    if (!hasLeftTable) leftScreenIsWaiting = true; // première entrée sur cet écran sans départ explicite
     hasLeftTable = true;
     renderLeftTable(app, {
       name: currentPlayer.name,
+      wasWaiting: leftScreenIsWaiting,
       onRejoin: async () => {
         const rejoined = await ensureMembership(room, currentPlayer);
         const reclaimed = await reclaimStaleHost(rejoined, currentPlayer);
         hasLeftTable = false;
+        leftScreenIsWaiting = false;
         draw(reclaimed);
       }
     });
     return;
   }
 
-  renderGame(app, {
-    room,
-    player: currentPlayer,
-    onRename: async (newName) => {
-      try {
-        const { room: updatedRoom, player: updatedProfile } = await renameLocalPlayer(room, currentPlayer, newName);
-        currentPlayer = updatedProfile;
-        draw(updatedRoom);
-      } catch (err) {
-        alert(err.message || 'Impossible de changer le prénom.');
+  try {
+    renderGame(app, {
+      room,
+      player: currentPlayer,
+      onRename: async (newName) => {
+        try {
+          const { room: updatedRoom, player: updatedProfile } = await renameLocalPlayer(room, currentPlayer, newName);
+          currentPlayer = updatedProfile;
+          draw(updatedRoom);
+        } catch (err) {
+          alert(err.message || 'Impossible de changer le prénom.');
+        }
+      },
+      onLeave: async () => {
+        try {
+          await leaveTable(room, currentPlayer);
+          hasLeftTable = true;
+          leftScreenIsWaiting = false;
+          draw(room);
+        } catch (err) {
+          alert(err.message || 'Impossible de quitter la table.');
+        }
+      },
+      onKick: async (targetId) => {
+        try {
+          await kickPlayer(room, targetId);
+        } catch (err) {
+          alert(err.message || 'Impossible de retirer ce joueur.');
+        }
       }
-    },
-    onLeave: async () => {
-      try {
-        await leaveTable(room, currentPlayer);
-        hasLeftTable = true;
-        draw(room);
-      } catch (err) {
-        alert(err.message || 'Impossible de quitter la table.');
+    });
+  } catch (err) {
+    console.error('Erreur de rendu, affichage de l\'écran de récupération :', err);
+    renderCrashRecovery(app, {
+      onReset: async () => {
+        const reset = await playAgain(room);
+        draw(reset);
       }
-    },
-    onKick: async (targetId) => {
-      try {
-        await kickPlayer(room, targetId);
-      } catch (err) {
-        alert(err.message || 'Impossible de retirer ce joueur.');
-      }
-    }
-  });
+    });
+  }
 }
 
 function enterRoom(room, player) {
