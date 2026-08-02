@@ -935,7 +935,10 @@ h1 {
 .pouilleux-zone--target .pouilleux-target__hand .card__corner { font-size: 11px; }
 
 .target-card--pickable {
-  all: unset;
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0;
+  margin: 0;
   box-sizing: border-box;
   cursor: pointer;
   transition: transform 0.12s ease;
