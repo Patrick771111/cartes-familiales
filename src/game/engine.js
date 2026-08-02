@@ -14,7 +14,7 @@ const GAME_INITIALIZERS = {
 };
 
 export const AVAILABLE_GAMES = [
-  { id: 'pouilleux', label: 'Le Pouilleux', hint: '2 à 4 joueurs' },
+  { id: 'pouilleux', label: 'Le Pouilleux', hint: '2 à 6 joueurs' },
   { id: 'trouduc', label: 'Le Trou du Cul', hint: 'exactement 4 joueurs' }
 ];
 
@@ -167,7 +167,7 @@ export async function leaveTable(room, profile) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const fresh = await fetchRoomById(room.id);
     if (!fresh.state.players.some((p) => p.id === profile.id)) return fresh; // déjà parti
-    if (fresh.state.status === 'playing') {
+    if (fresh.state.status === 'playing' || fresh.state.status === 'exchange') {
       throw new Error('Impossible de quitter en pleine partie — attends la fin de la manche.');
     }
 
@@ -200,7 +200,7 @@ export async function kickPlayer(room, targetId) {
     const fresh = await fetchRoomById(room.id);
     const target = fresh.state.players.find((p) => p.id === targetId);
     if (!target) return fresh; // déjà parti
-    if (fresh.state.status === 'playing') {
+    if (fresh.state.status === 'playing' || fresh.state.status === 'exchange') {
       throw new Error('Impossible de retirer un joueur en pleine partie.');
     }
 
@@ -229,7 +229,7 @@ export async function addBot(room) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const fresh = await fetchRoomById(room.id);
     if (fresh.state.status === 'playing') throw new Error("Impossible d'ajouter un bot en pleine partie.");
-    if (fresh.state.players.length >= 4) throw new Error('Table complète (4 joueurs maximum).');
+    if (fresh.state.players.length >= 6) throw new Error('Table complète (6 joueurs maximum).');
 
     const botNumber = fresh.state.players.filter((p) => p.isBot).length + 1;
     const botName = `Bot ${botNumber}`;
