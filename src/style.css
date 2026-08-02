@@ -433,14 +433,14 @@ h1 {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: 40px;
+  min-height: 52px;
 }
 
 .trouduc-seat__hand { display: flex; justify-content: center; }
 .trouduc-seat__hand .card--back {
-  width: 20px;
-  height: 29px;
-  margin-left: -12px;
+  width: 28px;
+  height: 41px;
+  margin-left: -16px;
 }
 .trouduc-seat__hand .card--back:first-child { margin-left: 0; }
 
@@ -500,21 +500,25 @@ h1 {
 /* Main en deux rangées superposées, groupées par rang (ce qui compte au Trou du
    Cul) : jamais de défilement horizontal nécessaire — tout est calculé pour
    tenir dans la largeur de l'écran, y compris dans le pire des cas (aucune paire
-   en main). La deuxième rangée chevauche la première à mi-hauteur. */
+   en main). La deuxième rangée ne chevauche que légèrement la première, pour que
+   chaque carte reste facile à toucher individuellement. */
 .trouduc-hand-rows {
   display: flex;
   flex-direction: column;
-  padding: 4px 4px 4px 4px;
+  padding: 8px 4px;
 }
 .trouduc-hand-row {
   display: flex;
   align-items: flex-end;
 }
 .trouduc-hand-row--2 {
-  margin-top: -40px;
+  margin-top: -20px;
   position: relative;
   z-index: 1;
 }
+.trouduc-hand-rows .card { width: 64px; height: 92px; }
+.trouduc-hand-rows .card__pip { font-size: 30px; }
+.trouduc-hand-rows .card__corner { font-size: 12px; }
 
 .hand-card {
   flex-shrink: 0;
@@ -796,7 +800,7 @@ h1 {
   .trouduc-pile__cards .card__pip { font-size: 36px; }
   .trouduc-pile__cards .card__corner { font-size: 14px; }
 
-  .trouduc-seat__hand .card--back { width: 24px; height: 35px; }
+  .trouduc-seat__hand .card--back { width: 34px; height: 50px; margin-left: -18px; }
   .trouduc-seat__ghost .card { width: 32px; height: 46px; }
   .trouduc-seat__ghost .card__pip { font-size: 15px; }
   .trouduc-seat__name { font-size: 13px; }

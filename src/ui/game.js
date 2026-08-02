@@ -535,11 +535,11 @@ function renderTrouducTable(container, { room, player, state }) {
   // un groupe en deux. L'espacement entre groupes est calculé pour que chaque
   // rangée tienne toujours dans la largeur de l'écran, même dans le pire des cas
   // (aucune paire en main : autant de groupes que de cartes).
-  const CARD_W = 56;
-  const TIGHT_STEP = 22; // largeur visible d'une carte "empilée" dans le même groupe
+  const CARD_W = 64;
+  const TIGHT_STEP = 26; // largeur visible d'une carte "empilée" dans le même groupe
   // Largeur dispo estimée pour une rangée : s'adapte à l'écran réel (mobile étroit
   // comme desktop plus large), avec une marge de sécurité pour le cadre autour.
-  const ROW_WIDTH_BUDGET = Math.min(window.innerWidth - 64, 600);
+  const ROW_WIDTH_BUDGET = Math.min(window.innerWidth - 40, 620);
 
   const groupHand = (hand) => {
     const groups = [];
@@ -696,8 +696,18 @@ function renderTrouducTable(container, { room, player, state }) {
     container.querySelectorAll('.hand-card:not(.hand-card--unplayable)').forEach((el) => {
       el.addEventListener('click', () => {
         const id = el.dataset.cardId;
-        if (selectedCardIds.has(id)) selectedCardIds.delete(id);
-        else selectedCardIds.add(id);
+        const card = me.hand.find((c) => c.id === id);
+        if (selectedCardIds.has(id)) {
+          selectedCardIds.delete(id);
+        } else if (state.pileCount > 0 && isRankPlayable(card.rank)) {
+          // Le pli en cours impose un nombre de cartes précis (paire, triple, carré) :
+          // un seul clic sur une carte du bon rang suffit à sélectionner tout le lot.
+          selectedCardIds = new Set(
+            me.hand.filter((c) => c.rank === card.rank).slice(0, state.pileCount).map((c) => c.id)
+          );
+        } else {
+          selectedCardIds.add(id);
+        }
         renderTrouducTable(container, { room, player, state });
       });
     });
