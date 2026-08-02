@@ -1,14 +1,38 @@
 /**
- * Affiché après qu'un joueur ait quitté la table : lui permet d'y revenir
- * facilement, sans re-saisir son prénom (déjà mémorisé sur l'appareil).
+ * Affiché quand quelqu'un arrive (ou revient) alors qu'une partie est déjà en
+ * cours et qu'il n'en fait pas partie : on ne peut pas le faire rejoindre au
+ * milieu, donc on attend la fin de la manche. Se met à jour tout seul (appelé à
+ * chaque changement d'état via l'abonnement temps réel), pas besoin de bouton.
  */
-export function renderLeftTable(container, { name, onRejoin } = {}) {
+export function renderSpectatorWait(container, { room, gameLabel } = {}) {
+  const state = room.state;
+  const playerNames = state.players.map((p) => p.name).join(', ');
+
   container.innerHTML = `
     <div class="screen screen--lobby">
       <div class="lobby-card">
         <p class="eyebrow">Cartes en famille</p>
-        <h1>À plus, ${name} !</h1>
-        <p class="lobby-card__intro">Tu as quitté la table. Reviens quand tu veux.</p>
+        <h1>Partie en cours</h1>
+        <p class="lobby-card__intro">
+          ${gameLabel || 'Une partie'} est en cours (${state.players.length} joueur${state.players.length > 1 ? 's' : ''}${playerNames ? ` : ${playerNames}` : ''}).
+          Tu pourras rejoindre dès la fin de cette manche — cette page se met à jour toute seule, pas besoin de recharger.
+        </p>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Affiché après qu'un joueur ait quitté la table : lui permet d'y revenir
+ * facilement, sans re-saisir son prénom (déjà mémorisé sur l'appareil).
+ */
+export function renderLeftTable(container, { name, onRejoin, wasWaiting = false } = {}) {
+  container.innerHTML = `
+    <div class="screen screen--lobby">
+      <div class="lobby-card">
+        <p class="eyebrow">Cartes en famille</p>
+        <h1>${wasWaiting ? 'Manche terminée !' : `À plus, ${name} !`}</h1>
+        <p class="lobby-card__intro">${wasWaiting ? 'Tu peux rejoindre la table pour la suite.' : 'Tu as quitté la table. Reviens quand tu veux.'}</p>
         <button id="btn-rejoin" class="btn btn--primary">Revenir à la table</button>
         <p id="rejoin-error" class="lobby-error" hidden></p>
       </div>

@@ -26,6 +26,7 @@ export function renderGame(container, { room, player, onRename, onLeave, onKick 
     lastRenderedState = null;
     lastCelebratedMoveId = null;
     resetHandOrder('pouilleux');
+    revealHands = false;
     return renderWaitingRoom(container, { room, player, onRename, onLeave, onKick });
   }
 
@@ -96,7 +97,7 @@ function renderWaitingRoom(container, { room, player, onRename, onLeave, onKick 
         ${hostUnavailable && !isHost ? `<button class="btn btn--ghost btn--small" id="btn-claim-host">Devenir l'hôte</button>` : ''}
 
         ${
-          isHost && state.players.length < 4
+          isHost && state.players.length < 6
             ? `<button class="btn btn--ghost btn--small" id="btn-add-bot">+ Ajouter un bot</button>`
             : ''
         }
@@ -218,7 +219,7 @@ function renderDrawReveal(container, { previousState, newState, player, room, on
     </p>
     ${extraMessages.map((m) => `<p class="draw-reveal__extra">${m}</p>`).join('')}
   `;
-  container.querySelector('.table-felt')?.appendChild(overlay);
+  container.querySelector('.pouilleux-screen')?.appendChild(overlay);
 
   if (isFinalReveal) {
     vibrate([150, 80, 150, 80, 300]);
@@ -241,63 +242,93 @@ function renderDrawReveal(container, { previousState, newState, player, room, on
 
 function renderTableNow(container, { room, player, state }) {
   const me = state.players.find((p) => p.id === player.id);
-  const others = state.players.filter((p) => p.id !== player.id);
   const isMyTurn = state.currentPlayerId === player.id;
-  const targetId = isMyTurn ? computeTarget(state) : null;
+  // La cible (chez qui on pioche ce tour-ci) est toujours calculable, pas
+  // seulement quand c'est mon tour — ça permet de la mettre en avant même en
+  // train de regarder jouer quelqu'un d'autre.
+  const targetId = computeTarget(state);
   const targetName = state.players.find((p) => p.id === targetId)?.name || '';
   const currentPlayerName = state.players.find((p) => p.id === state.currentPlayerId)?.name || '';
   const orderedHand = getOrderedHand('pouilleux', me.hand, sortedHand);
+  const isSafe = me.hand.length === 0;
+  const showFaces = isSafe && revealHands;
+
+  const target = state.players.find((p) => p.id === targetId) || null;
+  const restOthers = state.players.filter((p) => p.id !== player.id && p.id !== targetId);
+
+  const targetPickable = isMyTurn && target && target.hand.length > 0;
+  const targetHandHtml = !target
+    ? ''
+    : targetPickable
+      ? Array.from({ length: target.hand.length })
+          .map(
+            (_, i) =>
+              `<button type="button" class="card card--back target-card--pickable" data-pick-index="${i}"><span class="card__back-pattern"></span></button>`
+          )
+          .join('')
+      : target.hand.length === 0
+        ? ''
+        : showFaces
+          ? target.hand.map(cardFaceHtml).join('')
+          : Array.from({ length: target.hand.length }).map(() => cardBackHtml()).join('');
+
+  const restHtml = restOthers
+    .map((p) => {
+      const isTurn = p.id === state.currentPlayerId;
+      const status = p.hand.length === 0 ? 'sorti·e' : `${p.hand.length} carte${p.hand.length > 1 ? 's' : ''}`;
+      const handHtml = p.hand.length === 0
+        ? ''
+        : showFaces
+          ? p.hand.map(cardFaceHtml).join('')
+          : Array.from({ length: Math.min(p.hand.length, 6) }).map(() => cardBackHtml()).join('') +
+            (p.hand.length > 6 ? `<span class="opponent__count">+${p.hand.length - 5}</span>` : '');
+      return `
+        <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
+          <div class="opponent__hand ${showFaces ? 'opponent__hand--revealed' : ''}">${handHtml}</div>
+          <p class="opponent__name">${p.name}${p.hand.length === 0 ? ' — sorti·e' : ` · ${status}`}</p>
+        </div>`;
+    })
+    .join('');
 
   container.innerHTML = `
-    <div class="screen screen--table">
-      <div class="table-felt">
-        <div class="opponents">
-          ${others
-            .map((p) => {
-              const isTarget = p.id === targetId;
-              const isTurn = p.id === state.currentPlayerId;
-              const pickable = isMyTurn && isTarget && p.hand.length > 0;
-              const handHtml = pickable
-                ? Array.from({ length: p.hand.length })
-                    .map(
-                      (_, i) =>
-                        `<button type="button" class="card card--back opponent-card--pickable" data-pick-index="${i}"><span class="card__back-pattern"></span></button>`
-                    )
-                    .join('')
-                : p.hand.length === 0
-                  ? ''
-                  : Array.from({ length: Math.min(p.hand.length, 7) }).map(() => cardBackHtml()).join('') +
-                    (p.hand.length > 7 ? `<span class="opponent__count">+${p.hand.length - 6}</span>` : '');
-              return `
-                <div class="opponent ${isTurn ? 'opponent--turn' : ''} ${isTarget ? 'opponent--target' : ''}">
-                  <div class="opponent__hand ${pickable ? 'opponent__hand--pickable' : ''}">${handHtml}</div>
-                  <p class="opponent__name">${p.name}${p.hand.length === 0 ? ' — sorti·e' : ` · ${p.hand.length} carte${p.hand.length > 1 ? 's' : ''}`}</p>
-                </div>`;
-            })
-            .join('')}
-        </div>
+    <div class="screen screen--table pouilleux-screen">
+      <div class="pouilleux-zone pouilleux-zone--others">
+        ${restHtml || '<p class="pouilleux-zone__empty">—</p>'}
+      </div>
 
+      <div class="pouilleux-zone pouilleux-zone--target">
         <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
           ${isMyTurn ? `Touche une carte chez ${targetName}` : `Tour de ${currentPlayerName}`}
         </div>
-      </div>
-
-      <div class="my-hand">
-        <p class="my-hand__label">Ta main (${me.hand.length}) <small>— glisse pour réordonner</small></p>
-        <div class="my-hand__cards">
-          ${orderedHand.map(cardFaceHtml).join('') || '<p class="my-hand__empty">Tu es sorti·e, bravo !</p>'}
+        ${target ? `<p class="pouilleux-target__name">${target.name}${target.hand.length === 0 ? ' — sorti·e' : ` · ${target.hand.length} carte${target.hand.length > 1 ? 's' : ''}`}</p>` : ''}
+        <div class="pouilleux-target__hand ${targetPickable ? 'pouilleux-target__hand--pickable' : ''} ${showFaces ? 'opponent__hand--revealed' : ''}">
+          ${targetHandHtml}
         </div>
+        ${isSafe ? `<button id="btn-toggle-reveal" class="btn btn--ghost btn--small">${revealHands ? 'Masquer les mains' : 'Afficher les mains'}</button>` : ''}
       </div>
 
-      <details class="log">
-        <summary>Journal de la partie</summary>
-        <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
-      </details>
+      <div class="pouilleux-zone pouilleux-zone--mine">
+        <div class="my-hand">
+          <p class="my-hand__label">Ta main (${me.hand.length}) <small>— glisse pour réordonner</small></p>
+          <div class="my-hand__cards">
+            ${orderedHand.map(cardFaceHtml).join('') || '<p class="my-hand__empty">Tu es sorti·e, bravo ! Suis la suite de la partie ci-dessus.</p>'}
+          </div>
+        </div>
 
-      <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+        <details class="log">
+          <summary>Journal de la partie</summary>
+          <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
+        </details>
+
+        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+      </div>
     </div>
   `;
 
+  container.querySelector('#btn-toggle-reveal')?.addEventListener('click', () => {
+    revealHands = !revealHands;
+    renderTableNow(container, { room, player, state });
+  });
   container.querySelector('#btn-abandon')?.addEventListener('click', () => {
     if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
       playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
@@ -315,15 +346,15 @@ function renderTableNow(container, { room, player, state }) {
   }
 
   if (isMyTurn) {
-    container.querySelectorAll('.opponent-card--pickable').forEach((btn) => {
+    container.querySelectorAll('.target-card--pickable').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const cardIndex = Number(btn.dataset.pickIndex);
-        container.querySelectorAll('.opponent-card--pickable').forEach((b) => (b.disabled = true));
+        container.querySelectorAll('.target-card--pickable').forEach((b) => (b.disabled = true));
         try {
           await drawForCurrentPlayer(room, player.id, cardIndex);
         } catch (err) {
           // Un conflit ou une action hors-tour se résorbe via la resynchro realtime.
-          container.querySelectorAll('.opponent-card--pickable').forEach((b) => (b.disabled = false));
+          container.querySelectorAll('.target-card--pickable').forEach((b) => (b.disabled = false));
         }
       });
     });
@@ -367,6 +398,11 @@ function renderEndScreen(container, { room, player, onLeave }) {
 // Sélection de cartes en cours pour le joueur local (remise à zéro dès que ce
 // n'est plus son tour). Vit en dehors du DOM pour survivre aux re-rendus.
 let selectedCardIds = new Set();
+
+// Bouton "Afficher les mains" : uniquement proposé à quelqu'un qui ne peut plus
+// jouer (à l'abri, fini, ou simple spectateur) — aucun souci d'équité puisqu'il
+// ne peut plus agir sur la partie en cours.
+let revealHands = false;
 
 // Sélection en cours pendant la phase d'échange (distincte de la sélection de
 // jeu ci-dessus, remise à zéro dès que ce n'est plus à cette personne de choisir).
@@ -556,6 +592,8 @@ function renderTrouducTable(container, { room, player, state }) {
 
   const handGroups = groupHand(me.hand);
   const handRows = splitIntoRows(handGroups, me.hand.length);
+  const isSafe = me.finished;
+  const showFaces = isSafe && revealHands;
 
   container.innerHTML = `
     <div class="screen screen--table">
@@ -571,14 +609,19 @@ function renderTrouducTable(container, { room, player, state }) {
               const label = p.role ? `${p.role} · ${status}` : status;
               const ghost = state.lastPlayedByPlayer?.[p.id];
               const showGhost = ghost && !isCurrentPileOwner;
+              const previewCount = Math.min(p.hand.length, 5);
+              const handPreview = p.finished
+                ? ''
+                : showFaces
+                  ? p.hand.slice(0, previewCount).map(cardFaceHtml).join('') +
+                    (p.hand.length > previewCount ? `<span class="opponent__count">+${p.hand.length - previewCount}</span>` : '')
+                  : Array.from({ length: previewCount }).map(() => cardBackHtml()).join('');
               return `
                 <div class="trouduc-seat trouduc-seat--${i} ${isTurn ? 'trouduc-seat--turn' : ''} ${p.finished ? 'trouduc-seat--finished' : ''}">
                   <p class="trouduc-seat__name">${p.name}</p>
                   <p class="trouduc-seat__status">${label}</p>
                   <div class="trouduc-seat__row">
-                    <div class="trouduc-seat__hand">
-                      ${p.finished ? '' : Array.from({ length: Math.min(p.hand.length, 5) }).map(() => cardBackHtml()).join('')}
-                    </div>
+                    <div class="trouduc-seat__hand ${showFaces ? 'trouduc-seat__hand--revealed' : ''}">${handPreview}</div>
                     <div class="trouduc-seat__ghost ${showGhost ? '' : 'trouduc-seat__ghost--empty'}">
                       ${showGhost ? ghost.cards.map(cardFaceHtml).join('') : ''}
                     </div>
@@ -612,6 +655,8 @@ function renderTrouducTable(container, { room, player, state }) {
                  </div>`
               : ''
           }
+
+          ${isSafe ? `<button id="btn-toggle-reveal" class="btn btn--ghost btn--small">${revealHands ? 'Masquer les mains' : 'Afficher les mains'}</button>` : ''}
         </div>
       </div>
 
@@ -623,7 +668,7 @@ function renderTrouducTable(container, { room, player, state }) {
                  <div class="trouduc-hand-row">${renderRow(handRows[0])}</div>
                  <div class="trouduc-hand-row trouduc-hand-row--2">${renderRow(handRows[1])}</div>
                </div>`
-            : '<p class="my-hand__empty">Tu as fini, bravo !</p>'
+            : '<p class="my-hand__empty">Tu as fini, bravo ! Suis la suite de la partie ci-dessus.</p>'
         }
       </div>
 
@@ -640,6 +685,11 @@ function renderTrouducTable(container, { room, player, state }) {
     if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
       playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
     }
+  });
+
+  container.querySelector('#btn-toggle-reveal')?.addEventListener('click', () => {
+    revealHands = !revealHands;
+    renderTrouducTable(container, { room, player, state });
   });
 
   if (isMyTurn) {
@@ -719,5 +769,73 @@ function renderTrouducEnd(container, { room, player, state, onLeave }) {
 
   container.querySelector('#btn-leave')?.addEventListener('click', () => {
     if (window.confirm('Quitter la table ?')) onLeave?.();
+  });
+}
+
+/**
+ * Vue lecture seule d'une partie en cours, pour quelqu'un qui n'y participe pas
+ * (arrivé après le lancement, ou en attente de la manche suivante). Volontairement
+ * simplifiée par rapport à la table "joueur" (pas de main perso à afficher, pas
+ * besoin de gérer les cas où le spectateur ne fait pas partie de `state.players`).
+ */
+export function renderSpectatorGame(container, { room, gameLabel }) {
+  const state = room.state;
+  const isTrouduc = room.game === 'trouduc';
+  const currentName = state.players.find((p) => p.id === state.currentPlayerId)?.name;
+
+  const pileHtml = isTrouduc
+    ? state.pileCount > 0
+      ? `<div class="trouduc-pile trouduc-pile--active">
+           <div class="trouduc-pile__cards">${state.pile.map(cardFaceHtml).join('')}</div>
+           <p class="trouduc-pile__label">${state.pileCount} × ${state.pileRank}${state.rankLocked ? ' <span class="pile__locked">🔒</span>' : ''}</p>
+         </div>`
+      : `<p class="trouduc-pile__empty">Pli libre</p>`
+    : '';
+
+  container.innerHTML = `
+    <div class="screen screen--table">
+      <div class="table-felt">
+        <p class="eyebrow">Tu regardes — ${gameLabel || 'partie'} en cours</p>
+
+        <ul class="spectator-players">
+          ${state.players
+            .map((p) => {
+              const isTurn = p.id === state.currentPlayerId;
+              const status = p.finished
+                ? isTrouduc
+                  ? trouducRankLabel(p.rank)
+                  : 'sorti·e'
+                : `${p.hand.length} carte${p.hand.length > 1 ? 's' : ''}`;
+              const roleLabel = p.role ? `${p.role} · ` : '';
+              const handHtml = revealHands && p.hand.length ? `<div class="spectator-player__hand">${p.hand.map(cardFaceHtml).join('')}</div>` : '';
+              return `
+                <li class="spectator-player ${isTurn ? 'spectator-player--turn' : ''}">
+                  <div class="spectator-player__row">
+                    <span class="spectator-player__name">${p.name}${p.isBot ? ' 🤖' : ''}</span>
+                    <span class="spectator-player__status">${roleLabel}${status}</span>
+                  </div>
+                  ${handHtml}
+                </li>`;
+            })
+            .join('')}
+        </ul>
+
+        <button id="btn-toggle-reveal" class="btn btn--ghost btn--small">${revealHands ? 'Masquer les mains' : 'Afficher les mains'}</button>
+
+        ${pileHtml}
+
+        <div class="turn-banner">${currentName ? `Tour de ${currentName}` : 'En attente…'}</div>
+      </div>
+
+      <details class="log" open>
+        <summary>Journal de la partie</summary>
+        <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
+      </details>
+    </div>
+  `;
+
+  container.querySelector('#btn-toggle-reveal')?.addEventListener('click', () => {
+    revealHands = !revealHands;
+    renderSpectatorGame(container, { room, gameLabel });
   });
 }
