@@ -23,6 +23,10 @@ import {
   drawSkyjoFromDiscard,
   placeSkyjoCard,
   discardSkyjoAndReveal,
+  drawSuiteInfernale,
+  playSuiteInfernaleNumber,
+  playSuiteInfernaleSpecial,
+  passSuiteInfernale,
   submitExchangeGift,
   reclaimStaleHost,
   pingHostPresence,
@@ -346,6 +350,60 @@ function maybeScheduleSkyjoBotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
+// Politique du bot à la Suite Infernale : joue son numéro suivant dès qu'il
+// l'a en main ; sinon joue une carte spéciale au hasard (cible : un adversaire
+// choisi au hasard, hors "rejoue" qui n'en a pas besoin) ; sinon passe. Ne
+// garde jamais une carte spéciale "au cas où", ne priorise pas un type
+// d'attaque plutôt qu'un autre.
+function chooseSuiteInfernaleMove(state, botId) {
+  const bot = state.players.find((p) => p.id === botId);
+  const needed = bot.sequence.length + 1;
+  const numberCard = bot.hand.find((c) => c.kind === 'number' && c.value === needed);
+  if (numberCard) return { type: 'number', cardId: numberCard.id };
+
+  const specialCard = bot.hand.find((c) => c.kind === 'special');
+  if (specialCard) {
+    const opponents = state.players.filter((p) => p.id !== botId);
+    const targetId = opponents[Math.floor(Math.random() * opponents.length)]?.id;
+    return { type: 'special', cardId: specialCard.id, targetId };
+  }
+
+  return { type: 'pass' };
+}
+
+let scheduledSuiteInfernaleBotMove = null;
+
+function maybeScheduleSuiteInfernaleBotMove(room) {
+  if (room.game !== 'suiteinfernale' || room.state.status !== 'playing') return;
+
+  const currentId = room.state.currentPlayerId;
+  const bot = room.state.players.find((p) => p.id === currentId && p.isBot);
+  if (!bot) return;
+
+  const signature = `${room.id}:${room.version}`;
+  if (scheduledSuiteInfernaleBotMove === signature) return;
+  scheduledSuiteInfernaleBotMove = signature;
+
+  window.setTimeout(async () => {
+    try {
+      const fresh = await fetchRoomById(room.id);
+      if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId) return;
+
+      if (!fresh.state.hasDrawnThisTurn) {
+        await drawSuiteInfernale(fresh, currentId);
+        return;
+      }
+
+      const move = chooseSuiteInfernaleMove(fresh.state, currentId);
+      if (move.type === 'number') await playSuiteInfernaleNumber(fresh, currentId, move.cardId);
+      else if (move.type === 'special') await playSuiteInfernaleSpecial(fresh, currentId, move.cardId, move.targetId);
+      else await passSuiteInfernale(fresh, currentId);
+    } catch (err) {
+      // Idem : un autre appareil a probablement déjà joué, la resynchro realtime prend le relais.
+    }
+  }, 900 + Math.random() * 700);
+}
+
 let scheduledTrouducExchangeBot = null;
 
 /** Pendant la phase d'échange, un bot Président/Vice-Président rend toujours ses cartes les plus faibles. */
@@ -389,7 +447,7 @@ function maybeScheduleTrouducExchangeBot(room) {
   });
 }
 
-const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain', blackjack: 'Blackjack', flip7: 'Flip 7', skyjo: 'Skyjo' };
+const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain', blackjack: 'Blackjack', flip7: 'Flip 7', skyjo: 'Skyjo', suiteinfernale: 'La Suite Infernale' };
 
 function updateDocumentTitle(room) {
   const gameLabel = GAME_TITLES[room.game];
@@ -443,6 +501,7 @@ function draw(room) {
   maybeScheduleBlackjackBotMove(room);
   maybeScheduleFlip7BotMove(room);
   maybeScheduleSkyjoBotMove(room);
+  maybeScheduleSuiteInfernaleBotMove(room);
 
   const stillMember = room.state.players.some((p) => p.id === currentPlayer.id);
 

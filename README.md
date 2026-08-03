@@ -102,9 +102,12 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
   "peek" — même si la banque a un blackjack naturel caché dès la donne, ça ne
   se révèle qu'à la toute fin comme n'importe quelle autre main ; pas de
   double/split non plus, pour rester simple)*. Chacun démarre avec
-  `STARTING_MONEY` (500) et joue une mise fixe `BET` (25) par manche — gagné :
-  `+BET`, perdu : `-BET`, égalité : inchangé. Le solde peut devenir négatif :
-  pas d'élimination, seul un retour au lobby le remet à zéro (voir plus bas).
+  `STARTING_MONEY` (500) et règle sa **propre** mise indépendamment des autres
+  (`p.bet`, slider `MIN_BET` 5 à `MAX_BET` 100, pas de 5, `DEFAULT_BET` 25 par
+  défaut) — gagné : `+p.bet`, perdu : `-p.bet`, égalité : inchangé. Le solde
+  peut devenir négatif : pas d'élimination, seul un retour au lobby le remet
+  à zéro (voir plus bas). `setBlackjackBet` (engine.js) permet à chacun
+  d'ajuster sa mise sur l'écran de fin de manche, avant de relancer.
 - **Flip 7** (`src/game/flip7.js`) : 2 à 6 joueurs, reconstitution du jeu
   physique du même nom *(hypothèse — décomptes de cartes et bonus approximés
   de mémoire, à ajuster dans `flip7.js` si votre exemplaire diffère)*. À son
@@ -135,6 +138,19 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
   pour celui qui a terminé en premier s'il n'a pas le score le plus bas de la
   manche. Score cumulé sur plusieurs manches ; `TARGET_SCORE` (100) atteint =
   victoire de partie pour le score cumulé le plus bas.
+- **La Suite Infernale** (`src/game/suiteinfernale.js`) : 2 à 6 joueurs
+  *(hypothèse — la présentation publique du jeu physique ne détaille pas le
+  déroulé exact d'un tour ni l'effet précis de chacune des 45 cartes
+  spéciales ; règles reconstituées ici de façon simplifiée, à ajuster dans
+  `suiteinfernale.js` si votre exemplaire diffère)*. But : être le premier à
+  construire, dans sa suite personnelle (`p.sequence`), les nombres 1 à 10
+  dans l'ordre. 8 cartes en main au départ ; paquet commun de 65 cartes
+  numéros (1 à 10) et 45 cartes spéciales. À son tour : **piocher** une carte
+  (obligatoire), puis poser une carte numéro qui prolonge sa suite d'exactement
+  1, ou jouer une carte spéciale (🫳 vol / 💣 sabotage / 🔀 échange de suites /
+  📥 pioche forcée / ⚡ rejoue immédiatement), ou passer. `SEQUENCE_TARGET`
+  (10) atteint = victoire immédiate et définitive de la partie ("Continuer"
+  relance donc toujours une suite neuve, sans contexte à conserver).
 
 L'hôte choisit le jeu dans la salle d'attente juste avant de lancer la partie.
 Si vous n'êtes que 2 ou 3, l'hôte peut ajouter 1 ou 2 bots pour compléter la

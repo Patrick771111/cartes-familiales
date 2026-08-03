@@ -1,10 +1,20 @@
 import { buildStandardDeck, shuffle } from './deck.js';
 
-// Solde de départ et mise fixe (pas de mise ajustable, pour rester simple) —
-// le solde peut devenir négatif, le jeu continue quand même tant que la table
-// ne retourne pas au lobby (voir engine.js : continueGame vs playAgain).
+// Solde de départ, et mise réglable via un slider (5 à 100, par pas de 5) côté
+// UI — chaque joueur règle sa propre mise indépendamment (stockée sur son
+// entrée `players[i].bet`), pas de mise commune à la table. Le solde peut
+// devenir négatif, le jeu continue quand même tant que la table ne retourne
+// pas au lobby (voir engine.js : continueGame vs playAgain).
 export const STARTING_MONEY = 500;
-export const BET = 25;
+export const DEFAULT_BET = 25;
+export const MIN_BET = 5;
+export const MAX_BET = 100;
+
+export function clampBet(bet) {
+  const n = Number(bet);
+  if (!Number.isFinite(n)) return DEFAULT_BET;
+  return Math.min(MAX_BET, Math.max(MIN_BET, Math.round(n)));
+}
 
 /** Valeur d'une carte : figures = 10, As = 11 (ramené à 1 si besoin dans `handTotal`). */
 function cardValue(card) {
@@ -61,11 +71,11 @@ function finishRound(state) {
     else results[p.id] = 'push';
   }
 
-  // La mise est fixe et s'applique au solde de chacun (négatif autorisé) —
-  // pas de mise ajustable ni de bonus 3:2 pour un blackjack naturel, pour
-  // rester simple.
+  // Chaque joueur a sa propre mise, appliquée à son solde (négatif autorisé) —
+  // pas de bonus 3:2 pour un blackjack naturel, pour rester simple.
   const players = state.players.map((p) => {
-    const delta = results[p.id] === 'win' ? BET : results[p.id] === 'lose' ? -BET : 0;
+    const bet = p.bet ?? DEFAULT_BET;
+    const delta = results[p.id] === 'win' ? bet : results[p.id] === 'lose' ? -bet : 0;
     return { ...p, money: (p.money ?? STARTING_MONEY) + delta };
   });
 
@@ -91,13 +101,14 @@ function finishRound(state) {
  * et n'est jamais contrôlée par un humain, toujours jouée automatiquement une fois
  * que tout le monde a fini *(hypothèse : pas de "peek" — si la banque a un
  * blackjack naturel avec une carte cachée, ça ne se révèle qu'à la toute fin,
- * comme pour n'importe quelle autre main)*. Mise fixe (`BET`), pas de mise
- * ajustable, pour rester simple.
+ * comme pour n'importe quelle autre main)*.
  *
  * `previousMoney` (optionnel) = `{ [playerId]: solde }` de la manche précédente,
  * fourni par `continueGame` (engine.js) quand on enchaîne une manche sans
  * repasser par le lobby — sinon (première manche, ou retour au lobby entre
- * temps) tout le monde repart de `STARTING_MONEY`.
+ * temps) tout le monde repart de `STARTING_MONEY`. Chaque joueur a sa propre
+ * mise (`p.bet`, réglée via son propre slider côté UI, indépendamment des
+ * autres), déjà présente sur les entrées de `players` fournies par engine.js.
  */
 export function initGame(players, previousMoney = null) {
   if (players.length < 1) {
@@ -111,8 +122,9 @@ export function initGame(players, previousMoney = null) {
     const hand = [deck[cursor], deck[cursor + 1]];
     cursor += 2;
     const money = previousMoney?.[p.id] ?? STARTING_MONEY;
+    const bet = clampBet(p.bet ?? DEFAULT_BET);
     const status = handTotal(hand) === 21 ? 'stood' : 'playing';
-    return { id: p.id, name: p.name, hand, status, money, isBot: p.isBot || false };
+    return { id: p.id, name: p.name, hand, status, money, bet, isBot: p.isBot || false };
   });
 
   const dealerHand = [deck[cursor], deck[cursor + 1]];
@@ -129,7 +141,7 @@ export function initGame(players, previousMoney = null) {
     dealer: { hand: dealerHand, hidden: true },
     deck: deck.slice(cursor),
     results: null,
-    log: [{ ts: Date.now(), message: `La banque distribue 2 cartes à chacun (mise fixe : ${BET}).` }]
+    log: [{ ts: Date.now(), message: 'La banque distribue 2 cartes à chacun.' }]
   };
 
   // Tout le monde a un blackjack naturel dès la donne : personne à faire jouer,

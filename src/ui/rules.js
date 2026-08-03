@@ -58,8 +58,8 @@ const RULES = {
         <li>Si ton total dépasse 21, tu as sauté — perdu d'office pour cette manche, quel que soit le score final de la banque.</li>
         <li>Une fois que tout le monde a fini (resté ou sauté), la banque révèle sa carte cachée et tire automatiquement tant que son total est inférieur à 17.</li>
         <li>Résultat : tu gagnes si la banque saute ou si ton total est plus proche de 21 que le sien (sans dépasser) ; égalité si vous êtes à égalité ; perdu sinon.</li>
-        <li>Chacun démarre avec 500 💰 et joue une mise fixe de 25 💰 par manche (gagné : +25, perdu : -25, égalité : inchangé). Le solde peut devenir négatif — pas d'élimination, la partie continue tant que la table ne retourne pas au lobby.</li>
-        <li>"Continuer" à la fin d'une manche enchaîne directement la suivante en gardant les mêmes soldes ; "Retour au lobby" remet tout le monde à 500 💰.</li>
+        <li>Chacun démarre avec 500 💰 et règle sa <strong>propre</strong> mise (slider de 5 à 100 💰, indépendant des autres joueurs) — gagné : +ta mise, perdu : -ta mise, égalité : inchangé. Le solde peut devenir négatif — pas d'élimination, la partie continue tant que la table ne retourne pas au lobby.</li>
+        <li>"Continuer" à la fin d'une manche enchaîne directement la suivante en gardant les mêmes soldes ; chacun peut ajuster sa mise sur l'écran de fin de manche avant de relancer. "Retour au lobby" remet tout le monde à 500 💰.</li>
       </ul>
     `
   },
@@ -91,6 +91,19 @@ const RULES = {
         <li>Score de la manche : somme des cartes encore en jeu (de -2 à 12). Si tu es celui qui a terminé sa grille en premier <strong>sans avoir le score le plus bas</strong> de la manche, ton score est doublé !</li>
         <li>"Continuer" garde les scores cumulés d'une manche à l'autre ; "Retour au lobby" remet tout le monde à 0. Premier à atteindre 100 points cumulés : la partie s'arrête, et c'est celui qui a le score cumulé <strong>le plus bas</strong> qui gagne.</li>
       </ul>
+    `
+  },
+  suiteinfernale: {
+    title: 'La Suite Infernale',
+    html: `
+      <p>2 à 6 joueurs. But : être le premier à construire sa suite personnelle de <strong>1 à 10</strong>, dans l'ordre.</p>
+      <ul>
+        <li>8 cartes en main au départ. À ton tour : <strong>pioche</strong> une carte, puis joue une carte (ou passe).</li>
+        <li>Une carte <strong>numéro</strong> ne peut être posée que si elle prolonge ta suite d'exactement 1 (il te faut d'abord le 1, puis le 2, etc.).</li>
+        <li>Une carte <strong>spéciale</strong> a un effet immédiat, sur toi ou sur un adversaire au choix : 🫳 Vol (tu voles la dernière carte de sa suite), 💣 Sabotage (tu la détruis), 🔀 Échange (tu échanges ta suite entière avec la sienne), 📥 Pioche forcée (il pioche 2 cartes), ⚡ Rejoue (tu piocheras et rejoueras aussitôt).</li>
+        <li>Premier à atteindre 10 cartes dans sa suite (1 à 10 dans l'ordre) : gagné, la partie s'arrête aussitôt !</li>
+      </ul>
+      <p><em>Hypothèse : règles reconstituées à partir de la présentation publique du jeu, simplifiées pour ce portage numérique.</em></p>
     `
   }
 };

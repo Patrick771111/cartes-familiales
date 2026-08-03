@@ -1112,6 +1112,10 @@ h1 {
 .blackjack-actions { display: flex; gap: 10px; justify-content: center; margin-top: 10px; }
 .blackjack-actions .btn { flex: 1; max-width: 160px; }
 
+.blackjack-bet-picker { text-align: center; margin: 10px 0; }
+.blackjack-bet-picker label { display: block; font-size: 13px; color: rgba(247, 241, 225, 0.75); margin-bottom: 6px; }
+.blackjack-bet-picker input[type="range"] { width: 100%; accent-color: var(--brass); }
+
 /* ---------- Modale des règles (réutilise l'habillage de settings-modal) ---------- */
 
 .rules-modal { max-width: 520px; }
@@ -1264,6 +1268,87 @@ h1 {
 .skyjo-pending__label { font-family: var(--font-mono); font-size: 12px; color: rgba(247, 241, 225, 0.75); margin: 0; }
 .skyjo-pending .skyjo-cell { width: 48px; height: 48px; font-size: 20px; }
 .skyjo-pending__hint { font-size: 13px; color: var(--brass-soft); margin: 0; text-align: center; }
+
+/* ---------- La Suite Infernale ---------- */
+
+.suiteinfernale-felt { padding: 18px 14px; text-align: center; }
+
+.suiteinfernale-deck-count { font-family: var(--font-mono); font-size: 12px; color: rgba(247, 241, 225, 0.65); margin: 0 0 8px; }
+
+.suiteinfernale-sequence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  margin: 6px 0;
+}
+.suiteinfernale-slot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(247, 241, 225, 0.5);
+}
+.suiteinfernale-slot--filled {
+  border: none;
+  background: var(--brass-soft);
+  color: var(--felt-900);
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.opponent--compact .suiteinfernale-slot { width: 14px; height: 14px; font-size: 8px; }
+
+.suiteinfernale-card {
+  width: 44px;
+  height: 60px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-weight: 700;
+  flex-shrink: 0;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.35);
+}
+.suiteinfernale-card--number {
+  background: var(--cream);
+  color: var(--dark-suit);
+  font-family: var(--font-mono);
+  font-size: 22px;
+}
+.suiteinfernale-card--special {
+  background: var(--felt-500);
+  border: 1.5px solid var(--brass);
+  color: var(--cream);
+  font-size: 10px;
+  line-height: 1.2;
+  padding: 4px;
+}
+.hand-card--selected .suiteinfernale-card { box-shadow: 0 0 0 2px var(--brass), 0 10px 16px rgba(0,0,0,0.45); }
+.hand-card--unplayable .suiteinfernale-card { filter: grayscale(0.6); }
+
+.suiteinfernale-actions { display: flex; gap: 10px; justify-content: center; margin: 10px 0; }
+.suiteinfernale-actions .btn { flex: 1; max-width: 160px; }
+
+.suiteinfernale-target-picker { margin-top: 14px; text-align: center; }
+.suiteinfernale-target-picker__label {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: rgba(247, 241, 225, 0.8);
+  margin: 0 0 10px;
+}
+.suiteinfernale-target-picker__options {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
 
 /* ---------- Écran de fin ---------- */
 

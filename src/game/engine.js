@@ -8,7 +8,7 @@ import {
 import { initGame as initPouilleux, applyDraw } from './pouilleux.js';
 import { initGame as initTrouduc, applyPlay as applyTrouducPlay, applyPass as applyTrouducPass, applyExchangeChoice } from './trouduc.js';
 import { initGame as initAmericain, applyPlay as applyAmericainPlay, applyDraw as applyAmericainDraw } from './americain.js';
-import { initGame as initBlackjack, applyHit as applyBlackjackHit, applyStand as applyBlackjackStand } from './blackjack.js';
+import { initGame as initBlackjack, applyHit as applyBlackjackHit, applyStand as applyBlackjackStand, clampBet as clampBlackjackBet } from './blackjack.js';
 import { initGame as initFlip7, applyHit as applyFlip7Hit, applyStay as applyFlip7Stay } from './flip7.js';
 import {
   initGame as initSkyjo,
@@ -17,6 +17,13 @@ import {
   applyPlaceCard as applySkyjoPlaceCard,
   applyDiscardAndReveal as applySkyjoDiscardAndReveal
 } from './skyjo.js';
+import {
+  initGame as initSuiteInfernale,
+  applyDraw as applySuiteInfernaleDraw,
+  applyPlayNumber as applySuiteInfernalePlayNumber,
+  applyPlaySpecial as applySuiteInfernalePlaySpecial,
+  applyPass as applySuiteInfernalePass
+} from './suiteinfernale.js';
 
 const GAME_INITIALIZERS = {
   pouilleux: initPouilleux,
@@ -24,7 +31,8 @@ const GAME_INITIALIZERS = {
   americain: initAmericain,
   blackjack: initBlackjack,
   flip7: initFlip7,
-  skyjo: initSkyjo
+  skyjo: initSkyjo,
+  suiteinfernale: initSuiteInfernale
 };
 
 export const AVAILABLE_GAMES = [
@@ -33,7 +41,8 @@ export const AVAILABLE_GAMES = [
   { id: 'americain', label: 'Le 8 américain', hint: '2 à 6 joueurs', minPlayers: 2 },
   { id: 'blackjack', label: 'Blackjack', hint: '1 à 6 joueurs, banque tenue par un bot', minPlayers: 1 },
   { id: 'flip7', label: 'Flip 7', hint: '2 à 6 joueurs, score cumulé', minPlayers: 2 },
-  { id: 'skyjo', label: 'Skyjo', hint: '2 à 6 joueurs, moins de points c\'est mieux', minPlayers: 2 }
+  { id: 'skyjo', label: 'Skyjo', hint: '2 à 6 joueurs, moins de points c\'est mieux', minPlayers: 2 },
+  { id: 'suiteinfernale', label: 'La Suite Infernale', hint: '2 à 6 joueurs, construis ta suite de 1 à 10', minPlayers: 2 }
 ];
 
 // Code fixe de la table familiale : personne n'a besoin de le saisir ni de le
@@ -242,6 +251,19 @@ export async function kickPlayer(room, targetId) {
   throw new Error('Impossible de retirer ce joueur, réessaie.');
 }
 
+const BOT_FIRST_NAMES = [
+  'Camille', 'Léo', 'Manon', 'Hugo', 'Chloé', 'Nathan', 'Louise', 'Théo',
+  'Emma', 'Lucas', 'Jade', 'Gabriel', 'Alice', 'Raphaël', 'Inès', 'Adam'
+];
+
+function pickBotName(existingPlayers) {
+  const takenNames = new Set(existingPlayers.map((p) => p.name));
+  const free = BOT_FIRST_NAMES.filter((n) => !takenNames.has(n));
+  if (free.length) return free[Math.floor(Math.random() * free.length)];
+  const botNumber = existingPlayers.filter((p) => p.isBot).length + 1;
+  return `Bot ${botNumber}`;
+}
+
 /** Ajoute un bot à la table (hôte uniquement, en salle d'attente). Limité à 4 joueurs au total. */
 export async function addBot(room) {
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -249,8 +271,7 @@ export async function addBot(room) {
     if (fresh.state.status === 'playing') throw new Error("Impossible d'ajouter un bot en pleine partie.");
     if (fresh.state.players.length >= 6) throw new Error('Table complète (6 joueurs maximum).');
 
-    const botNumber = fresh.state.players.filter((p) => p.isBot).length + 1;
-    const botName = `Bot ${botNumber}`;
+    const botName = pickBotName(fresh.state.players);
     const newState = {
       ...fresh.state,
       players: [...fresh.state.players, { id: `bot-${uuid()}`, name: botName, isBot: true, hand: [] }],
@@ -367,9 +388,20 @@ export async function startGame(room, gameType = 'pouilleux') {
   if (room.state.players.length < minPlayers) {
     throw new Error(`Il faut au moins ${minPlayers} joueur${minPlayers > 1 ? 's' : ''}.`);
   }
-  const gameState = initializer(room.state.players.map(({ id, name, isBot }) => ({ id, name, isBot })));
+  // `bet` (Blackjack) est réglé par chacun dans le lobby via setBlackjackBet, et
+  // déjà présent sur l'entrée du joueur — on le transmet, ignoré par les autres jeux.
+  const playersList = room.state.players.map(({ id, name, isBot, bet }) => ({ id, name, isBot, bet }));
+  const gameState = initializer(playersList);
   const newState = { ...room.state, ...gameState, hostId: room.state.hostId };
   return updateRoomState(room.id, room.version, newState, { game: gameType });
+}
+
+/** Règle sa propre mise au Blackjack (lobby ou écran de fin de manche — jamais en pleine manche). */
+export async function setBlackjackBet(room, playerId, bet) {
+  if (room.state.status === 'playing') throw new Error('Impossible de changer sa mise en pleine manche.');
+  const clamped = clampBlackjackBet(bet);
+  const players = room.state.players.map((p) => (p.id === playerId ? { ...p, bet: clamped } : p));
+  return updateRoomState(room.id, room.version, { ...room.state, players });
 }
 
 /**
@@ -461,6 +493,30 @@ export async function discardSkyjoAndReveal(room, playerId, gridIndex) {
   return updateRoomState(room.id, room.version, newState);
 }
 
+/** Pioche 1 carte à la Suite Infernale (obligatoire avant de jouer ou de passer). */
+export async function drawSuiteInfernale(room, playerId) {
+  const newState = applySuiteInfernaleDraw(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Pose une carte numéro à la Suite Infernale (doit prolonger sa suite d'exactement 1). */
+export async function playSuiteInfernaleNumber(room, playerId, cardId) {
+  const newState = applySuiteInfernalePlayNumber(room.state, playerId, cardId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Joue une carte spéciale à la Suite Infernale (`targetPlayerId` ignoré pour "rejoue"). */
+export async function playSuiteInfernaleSpecial(room, playerId, cardId, targetPlayerId) {
+  const newState = applySuiteInfernalePlaySpecial(room.state, playerId, cardId, targetPlayerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Passe son tour à la Suite Infernale sans jouer de carte (après avoir pioché). */
+export async function passSuiteInfernale(room, playerId) {
+  const newState = applySuiteInfernalePass(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
 /**
  * Remet la table en salle d'attente — **réinitialise le contexte de la partie**
  * (rôles du Trou du Cul retirés au sort à la prochaine donne, argent du
@@ -498,7 +554,10 @@ export async function continueGame(room) {
   const initializer = GAME_INITIALIZERS[gameType];
   if (!initializer) throw new Error('Jeu inconnu.');
 
-  const playersList = room.state.players.map(({ id, name, isBot }) => ({ id, name, isBot }));
+  // `bet` (Blackjack) est déjà porté par chaque entrée de `room.state.players`
+  // (réglable indépendamment par chacun via setBlackjackBet) — on le transmet
+  // tel quel, ignoré par les autres jeux.
+  const playersList = room.state.players.map(({ id, name, isBot, bet }) => ({ id, name, isBot, bet }));
 
   let gameState;
   if (gameType === 'trouduc') {
@@ -507,7 +566,12 @@ export async function continueGame(room) {
     const previousMoney = Object.fromEntries(room.state.players.map((p) => [p.id, p.money]));
     gameState = initializer(playersList, previousMoney);
   } else if (gameType === 'flip7' || gameType === 'skyjo') {
-    const previousScores = Object.fromEntries(room.state.players.map((p) => [p.id, p.score]));
+    // Si la PARTIE (pas juste la manche) vient d'être gagnée par quelqu'un,
+    // "Continuer" démarre une partie neuve — les scores repartent à 0, sinon
+    // ils resteraient gonflés depuis une partie déjà remportée.
+    const previousScores = room.state.gameWinnerId
+      ? null
+      : Object.fromEntries(room.state.players.map((p) => [p.id, p.score]));
     gameState = initializer(playersList, previousScores);
   } else {
     gameState = initializer(playersList);

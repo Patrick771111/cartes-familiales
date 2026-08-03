@@ -15,9 +15,14 @@ import {
   drawSkyjoFromDiscard,
   placeSkyjoCard,
   discardSkyjoAndReveal,
+  drawSuiteInfernale,
+  playSuiteInfernaleNumber,
+  playSuiteInfernaleSpecial,
+  passSuiteInfernale,
   playAgain,
   continueGame,
   addBot,
+  setBlackjackBet,
   submitExchangeGift,
   claimHost,
   HOST_STALE_MS
@@ -25,9 +30,10 @@ import {
 import { playerToDrawFrom as computeTarget } from '../game/pouilleux.js';
 import { rankValue as trouducRankValue, rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { isLegalCard, hasLegalMove } from '../game/americain.js';
-import { handTotal, BET as BLACKJACK_BET } from '../game/blackjack.js';
+import { handTotal, DEFAULT_BET as BLACKJACK_DEFAULT_BET, MIN_BET as BLACKJACK_MIN_BET, MAX_BET as BLACKJACK_MAX_BET } from '../game/blackjack.js';
 import { TARGET_SCORE as FLIP7_TARGET_SCORE } from '../game/flip7.js';
 import { TARGET_SCORE as SKYJO_TARGET_SCORE } from '../game/skyjo.js';
+import { SEQUENCE_TARGET as SUITE_INFERNALE_TARGET, SPECIAL_TYPES as SUITE_INFERNALE_SPECIAL_TYPES } from '../game/suiteinfernale.js';
 import { suitInfo } from '../game/deck.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
 import { enableHandDrag } from './dragReorder.js';
@@ -94,6 +100,7 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
     pileClearTimerFor = null;
     pendingEightCardId = null;
     skyjoRevealMode = false;
+    pendingSuiteInfernaleCardId = null;
     resetHandOrder('pouilleux');
     revealHands = false;
     return renderWaitingRoom(container, { room, player, onLeave, onKick });
@@ -117,9 +124,10 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   const isBlackjack = room.game === 'blackjack';
   const isFlip7 = room.game === 'flip7';
   const isSkyjo = room.game === 'skyjo';
-  // Le Blackjack, Flip 7 et Skyjo n'ont pas d'écran de fin séparé : la table
-  // (banque, ou mains/grilles de tout le monde) reste affichée telle quelle,
-  // seuls les résultats s'y ajoutent.
+  const isSuiteInfernale = room.game === 'suiteinfernale';
+  // Le Blackjack, Flip 7, Skyjo et la Suite Infernale n'ont pas d'écran de fin
+  // séparé : la table (banque, mains/grilles/suites de tout le monde) reste
+  // affichée telle quelle, seuls les résultats s'y ajoutent.
   if (isBlackjack && (state.status === 'playing' || state.status === 'finished')) {
     return renderBlackjackTable(container, { room, player, state, onLeave });
   }
@@ -128,6 +136,9 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   }
   if (isSkyjo && (state.status === 'playing' || state.status === 'finished')) {
     return renderSkyjoTable(container, { room, player, state, onLeave });
+  }
+  if (isSuiteInfernale && (state.status === 'playing' || state.status === 'finished')) {
+    return renderSuiteInfernaleTable(container, { room, player, state, onLeave });
   }
   if (state.status === 'playing') {
     if (isTrouduc) return renderTrouducTable(container, { room, player, state });
@@ -141,8 +152,15 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   }
 }
 
+// Le lobby est entièrement redessiné (innerHTML) à chaque mise à jour de la salle
+// (ex : ajout d'un bot via Realtime), ce qui réinitialiserait la sélection du jeu
+// si elle n'était pas mémorisée en dehors de la fonction de rendu.
+let selectedGameIdByRoom = null;
+
 function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   const state = room.state;
+  if (selectedGameIdByRoom?.roomId !== room.id) selectedGameIdByRoom = null;
+  const selectedGameId = selectedGameIdByRoom?.gameId || AVAILABLE_GAMES[0].id;
   const isHost = state.hostId === player.id;
   const me = state.players.find((p) => p.id === player.id);
   const currentHost = state.players.find((p) => p.id === state.hostId);
@@ -194,9 +212,9 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
                 <p class="game-picker__label">Quel jeu ?</p>
                 <div class="game-picker__options">
                   ${AVAILABLE_GAMES.map(
-                    (g, i) => `
+                    (g) => `
                       <label class="game-picker__option">
-                        <input type="radio" name="game" value="${g.id}" ${i === 0 ? 'checked' : ''} />
+                        <input type="radio" name="game" value="${g.id}" ${g.id === selectedGameId ? 'checked' : ''} />
                         <span>${g.label}<br/><small>${g.hint}</small></span>
                       </label>`
                   ).join('')}
@@ -223,7 +241,12 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
       : `En attente (minimum ${game.minPlayers} joueur${game.minPlayers > 1 ? 's' : ''})`;
   };
   updateStartButton();
-  container.querySelectorAll('input[name="game"]').forEach((r) => r.addEventListener('change', updateStartButton));
+  container.querySelectorAll('input[name="game"]').forEach((r) =>
+    r.addEventListener('change', () => {
+      selectedGameIdByRoom = { roomId: room.id, gameId: r.value };
+      updateStartButton();
+    })
+  );
 
   container.querySelector('#btn-start')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
@@ -263,8 +286,8 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   container.querySelectorAll('.player-list__kick').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.kickId;
-      const name = state.players.find((p) => p.id === id)?.name || 'ce joueur';
-      if (window.confirm(`Retirer ${name} de la table ?`)) onKick?.(id);
+      const target = state.players.find((p) => p.id === id);
+      if (target?.isBot || window.confirm(`Retirer ${target?.name || 'ce joueur'} de la table ?`)) onKick?.(id);
     });
   });
 }
@@ -1194,12 +1217,15 @@ function renderBlackjackTable(container, { room, player, state, onLeave }) {
     : state.dealer.hand.map(cardFaceHtml).join('');
   const dealerTotalLabel = state.dealer.hidden ? '' : ` (${handTotal(state.dealer.hand)})`;
 
+  const betFor = (p) => p.bet ?? BLACKJACK_DEFAULT_BET;
   const moneyDeltaFor = (id) => {
     const r = state.results?.[id];
-    return r === 'win' ? BLACKJACK_BET : r === 'lose' ? -BLACKJACK_BET : 0;
+    const target = state.players.find((p) => p.id === id);
+    const bet = betFor(target || {});
+    return r === 'win' ? bet : r === 'lose' ? -bet : 0;
   };
   const moneyLabelFor = (p) => {
-    if (!finished) return `${p.money} 💰`;
+    if (!finished) return `${p.money} 💰 (mise : ${betFor(p)})`;
     const delta = moneyDeltaFor(p.id);
     const deltaLabel = delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : '±0';
     return `${p.money} 💰 (${deltaLabel})`;
@@ -1260,6 +1286,15 @@ function renderBlackjackTable(container, { room, player, state, onLeave }) {
             : ''
         }
 
+        ${
+          finished
+            ? `<div class="blackjack-bet-picker">
+                 <label for="bet-slider">Ta mise pour la prochaine manche : <strong id="bet-slider-value">${betFor(me)}</strong> 💰</label>
+                 <input type="range" id="bet-slider" min="${BLACKJACK_MIN_BET}" max="${BLACKJACK_MAX_BET}" step="5" value="${betFor(me)}" />
+               </div>`
+            : ''
+        }
+
         ${finished ? endGameActionsHtml() : ''}
 
         <details class="log">
@@ -1290,6 +1325,18 @@ function renderBlackjackTable(container, { room, player, state, onLeave }) {
     } catch (err) {
       e.target.disabled = false;
       alert(err.message || 'Impossible de rester.');
+    }
+  });
+
+  const betSlider = container.querySelector('#bet-slider');
+  betSlider?.addEventListener('input', (e) => {
+    container.querySelector('#bet-slider-value').textContent = e.target.value;
+  });
+  betSlider?.addEventListener('change', async (e) => {
+    try {
+      await setBlackjackBet(room, player.id, Number(e.target.value));
+    } catch (err) {
+      alert(err.message || 'Impossible de changer la mise.');
     }
   });
 
@@ -1605,6 +1652,202 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
         } catch (err) {
           alert(err.message || 'Coup impossible.');
         }
+      });
+    });
+  }
+
+  wireEndGameActions(container, room);
+
+  container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
+  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
+    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
+      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
+    }
+  });
+}
+
+/* ========================== La Suite Infernale ========================== */
+
+function suiteInfernaleCardHtml(card) {
+  if (card.kind === 'number') return `<div class="suiteinfernale-card suiteinfernale-card--number">${card.value}</div>`;
+  const label = SUITE_INFERNALE_SPECIAL_TYPES[card.type]?.label || card.type;
+  return `<div class="suiteinfernale-card suiteinfernale-card--special">${label}</div>`;
+}
+
+function suiteInfernaleSequenceHtml(sequence) {
+  return `<div class="suiteinfernale-sequence">
+    ${Array.from({ length: SUITE_INFERNALE_TARGET }, (_, i) => i + 1)
+      .map((n) => `<div class="suiteinfernale-slot ${n <= sequence.length ? 'suiteinfernale-slot--filled' : ''}">${n}</div>`)
+      .join('')}
+  </div>`;
+}
+
+// Carte spéciale en attente d'un adversaire cible (toutes sauf "rejoue", qui
+// n'en a pas besoin) — mémorisée en dehors du rendu, sur le même principe que
+// `pendingEightCardId` au 8 américain.
+let pendingSuiteInfernaleCardId = null;
+
+function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) {
+  const me = state.players.find((p) => p.id === player.id);
+  const others = state.players.filter((p) => p.id !== player.id);
+  const isMyTurn = state.currentPlayerId === player.id;
+  const finished = state.status === 'finished';
+  if (!isMyTurn) pendingSuiteInfernaleCardId = null;
+
+  const canDraw = isMyTurn && !state.hasDrawnThisTurn && !finished;
+  const canAct = isMyTurn && state.hasDrawnThisTurn && !finished;
+
+  const restHtml = others
+    .map((p) => {
+      const isTurn = p.id === state.currentPlayerId;
+      return `
+        <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
+          ${suiteInfernaleSequenceHtml(p.sequence)}
+          <p class="opponent__name">${p.name} · ${p.sequence.length}/${SUITE_INFERNALE_TARGET} · ${p.hand.length} carte${p.hand.length > 1 ? 's' : ''}</p>
+        </div>`;
+    })
+    .join('');
+
+  container.innerHTML = `
+    <div class="screen screen--table suiteinfernale-screen">
+      <div class="pouilleux-zone pouilleux-zone--others">
+        ${restHtml || '<p class="pouilleux-zone__empty">—</p>'}
+      </div>
+
+      <div class="table-felt suiteinfernale-felt">
+        ${
+          state.winnerId
+            ? `<p class="flip7-banner flip7-banner--winner">🏆 ${state.players.find((p) => p.id === state.winnerId)?.name || '?'} termine sa suite et gagne la partie !</p>`
+            : ''
+        }
+        <p class="suiteinfernale-deck-count">Pioche : ${state.deck.length} carte${state.deck.length > 1 ? 's' : ''}</p>
+
+        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
+          ${
+            finished
+              ? 'Partie terminée'
+              : isMyTurn
+                ? canDraw
+                  ? 'Pioche une carte'
+                  : 'Joue une carte, ou passe'
+                : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`
+          }
+        </div>
+
+        ${
+          pendingSuiteInfernaleCardId
+            ? `<div class="suiteinfernale-target-picker">
+                 <p class="suiteinfernale-target-picker__label">Choisis la cible :</p>
+                 <div class="suiteinfernale-target-picker__options">
+                   ${others.map((p) => `<button type="button" class="btn btn--ghost btn--small suiteinfernale-target-picker__option" data-target-id="${p.id}">${p.name}</button>`).join('')}
+                 </div>
+                 <button type="button" class="btn btn--link btn--small" id="btn-cancel-special">Annuler</button>
+               </div>`
+            : ''
+        }
+      </div>
+
+      <div class="my-hand">
+        <p class="my-hand__label">Ta suite (${me.sequence.length}/${SUITE_INFERNALE_TARGET})</p>
+        ${suiteInfernaleSequenceHtml(me.sequence)}
+
+        ${
+          canDraw
+            ? `<div class="suiteinfernale-actions"><button id="btn-draw" class="btn btn--primary">Piocher</button></div>`
+            : ''
+        }
+        ${
+          canAct
+            ? `<div class="suiteinfernale-actions"><button id="btn-pass" class="btn btn--ghost">Passer</button></div>`
+            : ''
+        }
+
+        <p class="my-hand__label">Ta main (${me.hand.length})</p>
+        <div class="my-hand__cards">
+          ${me.hand
+            .map((c) => {
+              const playable = canAct && (c.kind === 'number' ? c.value === me.sequence.length + 1 : true);
+              return `<div class="hand-card ${playable ? '' : 'hand-card--unplayable'} ${pendingSuiteInfernaleCardId === c.id ? 'hand-card--selected' : ''}" data-card-id="${c.id}">${suiteInfernaleCardHtml(c)}</div>`;
+            })
+            .join('') || '<p class="my-hand__empty">Main vide.</p>'}
+        </div>
+
+        ${finished ? endGameActionsHtml() : ''}
+
+        <details class="log">
+          <summary>Journal de la partie</summary>
+          <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
+        </details>
+
+        <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
+        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+      </div>
+    </div>
+  `;
+
+  container.querySelector('#btn-draw')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await drawSuiteInfernale(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de piocher.');
+    }
+  });
+
+  container.querySelector('#btn-pass')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await passSuiteInfernale(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de passer.');
+    }
+  });
+
+  container.querySelector('#btn-cancel-special')?.addEventListener('click', () => {
+    pendingSuiteInfernaleCardId = null;
+    renderSuiteInfernaleTable(container, { room, player, state, onLeave });
+  });
+
+  container.querySelectorAll('.suiteinfernale-target-picker__option').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const targetId = btn.dataset.targetId;
+      const cardId = pendingSuiteInfernaleCardId;
+      container.querySelectorAll('.suiteinfernale-target-picker__option').forEach((b) => (b.disabled = true));
+      try {
+        await playSuiteInfernaleSpecial(room, player.id, cardId, targetId);
+        pendingSuiteInfernaleCardId = null;
+      } catch (err) {
+        container.querySelectorAll('.suiteinfernale-target-picker__option').forEach((b) => (b.disabled = false));
+        alert(err.message || 'Impossible de jouer cette carte.');
+      }
+    });
+  });
+
+  if (canAct) {
+    container.querySelectorAll('.my-hand .hand-card:not(.hand-card--unplayable)').forEach((el) => {
+      el.addEventListener('click', async () => {
+        const id = el.dataset.cardId;
+        const card = me.hand.find((c) => c.id === id);
+        if (card.kind === 'number') {
+          try {
+            await playSuiteInfernaleNumber(room, player.id, id);
+          } catch (err) {
+            alert(err.message || 'Impossible de jouer cette carte.');
+          }
+          return;
+        }
+        if (card.type === 'rejoue') {
+          try {
+            await playSuiteInfernaleSpecial(room, player.id, id, null);
+          } catch (err) {
+            alert(err.message || 'Impossible de jouer cette carte.');
+          }
+          return;
+        }
+        pendingSuiteInfernaleCardId = id;
+        renderSuiteInfernaleTable(container, { room, player, state, onLeave });
       });
     });
   }
