@@ -25,6 +25,8 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   if (state.status === 'lobby') {
     lastRenderedState = null;
     lastCelebratedMoveId = null;
+    expiredPileClearedId = null;
+    pileClearTimerFor = null;
     resetHandOrder('pouilleux');
     revealHands = false;
     return renderWaitingRoom(container, { room, player, onLeave, onKick });
@@ -525,26 +527,51 @@ function renderTrouducExchange(container, { room, player, state }) {
 // pas répéter l'effet à chaque re-rendu.
 let lastCelebratedMoveId = null;
 
+// Suivi du dernier pli "effacé visuellement" côté client (voir pileClearedId
+// dans trouduc.js) : le pli reste affiché ~1s après avoir brûlé/été ramassé,
+// avant que ces variables ne le fassent disparaître à l'écran.
+let expiredPileClearedId = null;
+let pileClearTimerFor = null;
+
 function renderTrouducTable(container, { room, player, state }) {
   const me = state.players.find((p) => p.id === player.id);
   const others = state.players.filter((p) => p.id !== player.id);
   const isMyTurn = state.currentPlayerId === player.id;
   if (!isMyTurn) selectedCardIds = new Set();
 
-  // Décale légèrement le pli vers le siège de celui qui vient de poser (gauche,
+  // Décale légèrement chaque pose vers le siège de celui qui l'a posée (gauche,
   // milieu/en face, droite, ou vers toi en bas), pour un rendu plus vivant qu'un
   // pli toujours parfaitement centré — sans jamais s'éloigner beaucoup du centre.
-  let pileShiftX = 0;
-  let pileShiftY = 0;
-  if (state.pileCount > 0 && state.lastPlayerToPlay) {
-    if (state.lastPlayerToPlay === player.id) {
-      pileShiftY = 12;
-    } else {
-      const seatIndex = others.findIndex((p) => p.id === state.lastPlayerToPlay);
-      if (seatIndex === 0) { pileShiftX = -20; pileShiftY = -6; }
-      else if (seatIndex === 2) { pileShiftX = 20; pileShiftY = -6; }
-      else if (seatIndex === 1) { pileShiftY = -14; }
-    }
+  const seatShiftFor = (playerId) => {
+    if (playerId === player.id) return { x: 0, y: 12 };
+    const seatIndex = others.findIndex((p) => p.id === playerId);
+    if (seatIndex === 0) return { x: -20, y: -6 };
+    if (seatIndex === 2) return { x: 20, y: -6 };
+    if (seatIndex === 1) return { x: 0, y: -14 };
+    return { x: 0, y: 0 };
+  };
+
+  // Le pli en cours (historique complet des poses depuis son ouverture) reste
+  // affiché, empilé, tant qu'il n'a pas été explicitement "effacé" côté client
+  // (voir plus bas) : ça laisse le temps de voir une carte qui vient de brûler
+  // le pli, ou le dernier pli avant qu'il soit ramassé, au lieu qu'il disparaisse
+  // instantanément dès que le serveur repasse pileCount à 0.
+  const pileVisuallyCleared = state.pileCount === 0 && state.pileClearedId && state.pileClearedId === expiredPileClearedId;
+  const pileHistoryForDisplay = pileVisuallyCleared ? [] : state.pileHistory || [];
+
+  if (
+    state.pileCount === 0 &&
+    state.pileClearedId &&
+    state.pileClearedId !== expiredPileClearedId &&
+    state.pileClearedId !== pileClearTimerFor
+  ) {
+    pileClearTimerFor = state.pileClearedId;
+    const idToExpire = state.pileClearedId;
+    window.setTimeout(() => {
+      expiredPileClearedId = idToExpire;
+      pileClearTimerFor = null;
+      renderTrouducTable(container, { room, player, state });
+    }, 1000);
   }
 
   // Pendant le tout premier pli de la manche, entoure de doré les cartes que
@@ -676,13 +703,27 @@ function renderTrouducTable(container, { room, player, state }) {
         </div>
 
         <div class="trouduc-center">
-          <div class="trouduc-pile ${state.pileCount > 0 ? 'trouduc-pile--active' : ''}">
+          <div class="trouduc-pile ${pileHistoryForDisplay.length ? 'trouduc-pile--active' : ''}">
             ${
-              state.pileCount > 0
-                ? `<div class="trouduc-pile__shift" style="transform: translate(${pileShiftX}px, ${pileShiftY}px)">
-                     <div class="trouduc-pile__cards">${state.pile.map(cardFaceHtml).join('')}</div>
+              pileHistoryForDisplay.length
+                ? `<div class="trouduc-pile__stack">
+                     ${pileHistoryForDisplay
+                       .map((entry, i) => {
+                         const shift = seatShiftFor(entry.by);
+                         const stackOffset = i * 4;
+                         return `<div class="trouduc-pile__shift" style="transform: translate(${shift.x + stackOffset}px, ${shift.y + stackOffset}px); z-index: ${i}">
+                                    <div class="trouduc-pile__cards">${entry.cards.map(cardFaceHtml).join('')}</div>
+                                  </div>`;
+                       })
+                       .join('')}
                    </div>
-                   <p class="trouduc-pile__label">${state.pileCount} × ${state.pileRank}${state.rankLocked ? ' <span class="pile__locked">🔒</span>' : ''}</p>`
+                   <p class="trouduc-pile__label">
+                     ${
+                       state.pileCount > 0
+                         ? `${state.pileCount} × ${state.pileRank}${state.rankLocked ? ' <span class="pile__locked">🔒</span>' : ''}`
+                         : 'Pli terminé'
+                     }
+                   </p>`
                 : `<p class="trouduc-pile__empty">Pli libre — pose ce que tu veux</p>`
             }
           </div>

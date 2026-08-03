@@ -132,6 +132,11 @@ export function initGame(players, previousRanking = null) {
     pileRank: null,
     pileCount: 0,
     rankLocked: false,
+    // Historique complet des poses du pli en cours (une entrée par joueur qui a
+    // posé depuis le dernier "pli neuf"), pour un affichage empilé côté UI — vidé
+    // dès que le pli brûle ou est ramassé (voir applyPlay / applyPass).
+    pileHistory: [],
+    pileClearedId: null,
     lastPlayerToPlay: null,
     passedSinceLastPlay: [],
     finishedOrder: [],
@@ -305,12 +310,28 @@ export function applyPlay(state, playerId, cardIds) {
 
   const logMessage = `${current.name} pose ${playedCards.length} × ${rank}${willBurn ? ' — le pli brûle !' : isMatch ? ' — même niveau, le pli se verrouille sur ce rang !' : ''}${finishedNow ? ` — ${current.name} a fini !` : ''}`;
 
+  // Le pli en cours démarre "propre" si le pli précédent était déjà libre
+  // (pileCount 0 : soit c'est la toute première pose, soit on relance juste
+  // après avoir brûlé) ; sinon la pose s'ajoute à l'historique déjà en cours.
+  // Le pli est TOUJOURS ajouté à l'historique, même s'il brûle : c'est ce qui
+  // permet à l'UI de montrer un instant la carte qui vient de brûler le pli,
+  // au lieu qu'elle disparaisse instantanément.
+  const startingFreshPli = state.pileCount === 0;
+  const pileHistory = startingFreshPli
+    ? [{ by: current.id, cards: playedCards }]
+    : [...(state.pileHistory || []), { by: current.id, cards: playedCards }];
+
   let nextState = {
     ...state,
     players,
-    pile: willBurn ? [] : playedCards,
+    pile: playedCards,
     pileRank: willBurn ? null : rank,
     pileCount: willBurn ? 0 : playedCards.length,
+    pileHistory,
+    // Change à chaque fois qu'un pli se termine (brûlé ici, ou ramassé dans
+    // applyPass) : signale à l'UI de laisser le pli affiché un instant avant
+    // de basculer visuellement sur "pli libre".
+    pileClearedId: willBurn ? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` : state.pileClearedId,
     rankLocked: willBurn ? false : isMatch,
     lastPlayerToPlay: willBurn ? null : current.id,
     passedSinceLastPlay: [],
@@ -365,9 +386,12 @@ export function applyPass(state, playerId) {
     const leaderId = leaderStillIn ? leaderStillIn.id : nextActivePlayerId(state.turnOrder, state.players, state.lastPlayerToPlay);
     nextState = {
       ...nextState,
-      pile: [],
+      // pile/pileHistory ne sont volontairement PAS vidés ici : l'UI les
+      // affiche encore un court instant (voir pileClearedId) avant de montrer
+      // "pli libre" — le prochain applyPlay les remettra à zéro proprement.
       pileRank: null,
       pileCount: 0,
+      pileClearedId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       rankLocked: false,
       lastPlayerToPlay: null,
       passedSinceLastPlay: [],

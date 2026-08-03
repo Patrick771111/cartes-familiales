@@ -439,14 +439,14 @@ h1 {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: 52px;
+  min-height: 66px;
 }
 
 .trouduc-seat__hand { display: flex; justify-content: center; }
 .trouduc-seat__hand .card--back {
-  width: 28px;
-  height: 41px;
-  margin-left: -16px;
+  width: 36px;
+  height: 53px;
+  margin-left: -20px;
 }
 .trouduc-seat__hand .card--back:first-child { margin-left: 0; }
 
@@ -483,7 +483,21 @@ h1 {
   min-height: 96px;
   justify-content: center;
 }
+/* Empile les poses successives du pli en cours les unes sur les autres : chaque
+   pose est un enfant positionné en absolu dans ce même espace, puis décalée via
+   son propre transform (trouduc-pile__shift) — l'ordre du DOM (une pose plus
+   récente vient après) fait qu'elle recouvre naturellement les précédentes. */
+.trouduc-pile__stack {
+  position: relative;
+  width: 100%;
+  min-height: 110px;
+}
 .trouduc-pile__shift {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: transform 0.25s ease;
 }
 .trouduc-pile__cards {
@@ -1030,8 +1044,9 @@ h1 {
   .trouduc-pile__cards .card { width: 84px; height: 122px; }
   .trouduc-pile__cards .card__pip { font-size: 36px; }
   .trouduc-pile__cards .card__corner { font-size: 14px; }
+  .trouduc-pile__stack { min-height: 140px; }
 
-  .trouduc-seat__hand .card--back { width: 34px; height: 50px; margin-left: -18px; }
+  .trouduc-seat__hand .card--back { width: 44px; height: 64px; margin-left: -22px; }
   .trouduc-seat__ghost .card { width: 32px; height: 46px; }
   .trouduc-seat__ghost .card__pip { font-size: 15px; }
   .trouduc-seat__name { font-size: 13px; }
@@ -1088,10 +1103,10 @@ h1 {
 .opponent__hand--revealed .card__pip { font-size: 14px; }
 .opponent__hand--revealed .card__corner { font-size: 8px; }
 
-.trouduc-seat__hand--revealed .card { width: 30px; height: 44px; margin-left: -14px; }
+.trouduc-seat__hand--revealed .card { width: 36px; height: 53px; margin-left: -18px; }
 .trouduc-seat__hand--revealed .card:first-child { margin-left: 0; }
-.trouduc-seat__hand--revealed .card__pip { font-size: 14px; }
-.trouduc-seat__hand--revealed .card__corner { font-size: 8px; }
+.trouduc-seat__hand--revealed .card__pip { font-size: 16px; }
+.trouduc-seat__hand--revealed .card__corner { font-size: 9px; }
 
 /* ---------- Pouilleux : écran en trois zones (autres joueurs / cible de la
    pioche, agrandie / ma main), pensé pour rester lisible jusqu'à 6 joueurs. ---------- */
