@@ -11,6 +11,10 @@ import {
   standBlackjack,
   hitFlip7,
   stayFlip7,
+  drawSkyjoFromDeck,
+  drawSkyjoFromDiscard,
+  placeSkyjoCard,
+  discardSkyjoAndReveal,
   playAgain,
   continueGame,
   addBot,
@@ -23,6 +27,7 @@ import { rankValue as trouducRankValue, rankLabel as trouducRankLabel } from '..
 import { isLegalCard, hasLegalMove } from '../game/americain.js';
 import { handTotal, BET as BLACKJACK_BET } from '../game/blackjack.js';
 import { TARGET_SCORE as FLIP7_TARGET_SCORE } from '../game/flip7.js';
+import { TARGET_SCORE as SKYJO_TARGET_SCORE } from '../game/skyjo.js';
 import { suitInfo } from '../game/deck.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
 import { enableHandDrag } from './dragReorder.js';
@@ -88,6 +93,7 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
     expiredPileClearedId = null;
     pileClearTimerFor = null;
     pendingEightCardId = null;
+    skyjoRevealMode = false;
     resetHandOrder('pouilleux');
     revealHands = false;
     return renderWaitingRoom(container, { room, player, onLeave, onKick });
@@ -110,14 +116,18 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   const isAmericain = room.game === 'americain';
   const isBlackjack = room.game === 'blackjack';
   const isFlip7 = room.game === 'flip7';
-  // Le Blackjack et Flip 7 n'ont pas d'écran de fin séparé : la table (banque
-  // ou mains de tout le monde) reste affichée telle quelle, seuls les
-  // résultats s'y ajoutent.
+  const isSkyjo = room.game === 'skyjo';
+  // Le Blackjack, Flip 7 et Skyjo n'ont pas d'écran de fin séparé : la table
+  // (banque, ou mains/grilles de tout le monde) reste affichée telle quelle,
+  // seuls les résultats s'y ajoutent.
   if (isBlackjack && (state.status === 'playing' || state.status === 'finished')) {
     return renderBlackjackTable(container, { room, player, state, onLeave });
   }
   if (isFlip7 && (state.status === 'playing' || state.status === 'finished')) {
     return renderFlip7Table(container, { room, player, state, onLeave });
+  }
+  if (isSkyjo && (state.status === 'playing' || state.status === 'finished')) {
+    return renderSkyjoTable(container, { room, player, state, onLeave });
   }
   if (state.status === 'playing') {
     if (isTrouduc) return renderTrouducTable(container, { room, player, state });
@@ -1401,6 +1411,203 @@ function renderFlip7Table(container, { room, player, state, onLeave }) {
       alert(err.message || 'Impossible de rester.');
     }
   });
+
+  wireEndGameActions(container, room);
+
+  container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
+  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
+    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
+      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
+    }
+  });
+}
+
+/* ============================== Skyjo ============================== */
+
+// Après une pioche du sabot, le joueur choisit entre poser la carte ou la
+// défausser en retournant une case cachée — ce drapeau bascule l'affichage
+// entre les deux modes de clic sur sa propre grille. Remis à zéro dès que ce
+// n'est plus son tour ou que la carte en attente change.
+let skyjoRevealMode = false;
+
+function skyjoValueClass(v) {
+  if (v <= -1) return 'skyjo-cell--neg';
+  if (v === 0) return 'skyjo-cell--zero';
+  if (v <= 4) return 'skyjo-cell--low';
+  if (v <= 8) return 'skyjo-cell--mid';
+  return 'skyjo-cell--high';
+}
+
+function skyjoGridHtml(grid, clickableClassFor) {
+  return `<div class="skyjo-grid">
+    ${grid
+      .map((cell, i) => {
+        let classes = 'skyjo-cell';
+        let content = '';
+        if (!cell) {
+          classes += ' skyjo-cell--empty';
+        } else if (!cell.faceUp) {
+          classes += ' skyjo-cell--facedown';
+        } else {
+          classes += ` skyjo-cell--faceup ${skyjoValueClass(cell.card.value)}`;
+          content = cell.card.value;
+        }
+        if (clickableClassFor) classes += ` ${clickableClassFor(cell, i) || ''}`;
+        return `<div class="${classes}" data-index="${i}">${content}</div>`;
+      })
+      .join('')}
+  </div>`;
+}
+
+function renderSkyjoTable(container, { room, player, state, onLeave }) {
+  const me = state.players.find((p) => p.id === player.id);
+  const others = state.players.filter((p) => p.id !== player.id);
+  const isMyTurn = state.currentPlayerId === player.id;
+  const finished = state.status === 'finished';
+  if (!isMyTurn || !state.drawnCard) skyjoRevealMode = false;
+
+  const canDraw = isMyTurn && !state.drawnCard && !finished;
+  const canAct = isMyTurn && !!state.drawnCard && !finished;
+  const topDiscard = state.discard[state.discard.length - 1];
+
+  const restHtml = others
+    .map((p) => {
+      const isTurn = p.id === state.currentPlayerId;
+      const roundLabel = finished ? ` · ${p.roundScore ?? 0} pt${(p.roundScore ?? 0) > 1 ? 's' : ''} cette manche` : '';
+      return `
+        <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
+          ${skyjoGridHtml(p.grid)}
+          <p class="opponent__name">${p.name} · ${p.score}${p.id === state.gameWinnerId ? ' 🏆' : ''}${roundLabel}</p>
+        </div>`;
+    })
+    .join('');
+
+  const myClickableClassFor = (cell, i) => {
+    if (!canAct || !cell) return '';
+    if (skyjoRevealMode) return cell.faceUp ? '' : 'skyjo-cell--revealable';
+    return 'skyjo-cell--placeable';
+  };
+
+  container.innerHTML = `
+    <div class="screen screen--table skyjo-screen">
+      <div class="pouilleux-zone pouilleux-zone--others">
+        ${restHtml || '<p class="pouilleux-zone__empty">—</p>'}
+      </div>
+
+      <div class="table-felt skyjo-felt">
+        ${
+          state.gameWinnerId
+            ? `<p class="flip7-banner flip7-banner--winner">🏆 ${state.players.find((p) => p.id === state.gameWinnerId)?.name || '?'} termine sous ${SKYJO_TARGET_SCORE} points cumulés et gagne la partie !</p>`
+            : ''
+        }
+        <div class="skyjo-draw-area">
+          <button type="button" class="skyjo-pile skyjo-pile--discard ${canDraw ? 'skyjo-pile--pickable' : ''}" id="btn-draw-discard" ${canDraw ? '' : 'disabled'}>
+            ${topDiscard ? `<div class="skyjo-cell skyjo-cell--faceup ${skyjoValueClass(topDiscard.value)}">${topDiscard.value}</div>` : ''}
+            <span class="skyjo-pile__label">Défausse</span>
+          </button>
+          <button type="button" class="skyjo-pile skyjo-pile--deck ${canDraw ? 'skyjo-pile--pickable' : ''}" id="btn-draw-deck" ${canDraw ? '' : 'disabled'}>
+            <div class="skyjo-cell skyjo-cell--facedown"></div>
+            <span class="skyjo-pile__label">Pioche (${state.deck.length})</span>
+          </button>
+        </div>
+
+        ${
+          canAct
+            ? `<div class="skyjo-pending">
+                 <p class="skyjo-pending__label">Carte piochée :</p>
+                 <div class="skyjo-cell skyjo-cell--faceup ${skyjoValueClass(state.drawnCard.card.value)}">${state.drawnCard.card.value}</div>
+                 ${
+                   skyjoRevealMode
+                     ? `<p class="skyjo-pending__hint">Touche une case cachée de ta grille pour la retourner.</p>
+                        <button type="button" class="btn btn--link btn--small" id="btn-skyjo-cancel">Annuler</button>`
+                     : `<p class="skyjo-pending__hint">Touche une case de ta grille pour la poser.</p>
+                        ${
+                          state.drawnCard.source === 'deck'
+                            ? `<button type="button" class="btn btn--ghost btn--small" id="btn-skyjo-discard-mode">Défausser plutôt, et retourner une case cachée</button>`
+                            : ''
+                        }`
+                 }
+               </div>`
+            : ''
+        }
+
+        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
+          ${
+            finished
+              ? 'Manche terminée'
+              : isMyTurn
+                ? canDraw
+                  ? 'Pioche la défausse ou le sabot'
+                  : 'Place ta carte'
+                : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`
+          }
+        </div>
+      </div>
+
+      <div class="my-hand">
+        <p class="my-hand__label">Ta grille · Score total : ${me.score}${me.id === state.gameWinnerId ? ' 🏆' : ''}${finished ? ` · ${me.roundScore ?? 0} pts cette manche` : ''}</p>
+        ${skyjoGridHtml(me.grid, myClickableClassFor)}
+
+        ${finished ? endGameActionsHtml() : ''}
+
+        <details class="log">
+          <summary>Journal de la partie</summary>
+          <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
+        </details>
+
+        <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
+        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+      </div>
+    </div>
+  `;
+
+  container.querySelector('#btn-draw-deck')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await drawSkyjoFromDeck(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de piocher.');
+    }
+  });
+
+  container.querySelector('#btn-draw-discard')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await drawSkyjoFromDiscard(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de prendre la défausse.');
+    }
+  });
+
+  container.querySelector('#btn-skyjo-discard-mode')?.addEventListener('click', () => {
+    skyjoRevealMode = true;
+    renderSkyjoTable(container, { room, player, state, onLeave });
+  });
+
+  container.querySelector('#btn-skyjo-cancel')?.addEventListener('click', () => {
+    skyjoRevealMode = false;
+    renderSkyjoTable(container, { room, player, state, onLeave });
+  });
+
+  if (canAct) {
+    container.querySelectorAll('.my-hand .skyjo-cell--placeable, .my-hand .skyjo-cell--revealable').forEach((el) => {
+      el.addEventListener('click', async () => {
+        const index = Number(el.dataset.index);
+        try {
+          if (skyjoRevealMode) {
+            await discardSkyjoAndReveal(room, player.id, index);
+          } else {
+            await placeSkyjoCard(room, player.id, index);
+          }
+          skyjoRevealMode = false;
+        } catch (err) {
+          alert(err.message || 'Coup impossible.');
+        }
+      });
+    });
+  }
 
   wireEndGameActions(container, room);
 

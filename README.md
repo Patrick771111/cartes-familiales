@@ -120,6 +120,21 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
   Chance (sauve d'un doublon, une seule à la fois). Score cumulé sur
   plusieurs manches ; `TARGET_SCORE` (200) atteint = victoire de partie,
   affichée mais n'empêche pas de continuer à jouer si le groupe le souhaite.
+- **Skyjo** (`src/game/skyjo.js`) : 2 à 6 joueurs, reconstitution du jeu
+  physique du même nom *(hypothèse — décomptes de cartes approximés de
+  mémoire, à ajuster dans `skyjo.js` si votre exemplaire diffère)*. Seul jeu
+  ici où **moins de points c'est mieux**. Chacun a une grille de 12 cartes
+  cachées (3×4), dont 2 révélées au hasard au départ *(choisir manuellement
+  lesquelles n'apporterait aucune information puisqu'elles sont inconnues
+  avant d'être retournées — simplification volontaire)*. À son tour : prendre
+  la défausse (à poser obligatoirement) ou piocher le sabot (à poser, ou à
+  défausser en retournant une case cachée à la place). Une colonne dont les 3
+  cartes sont face visible et égales est effacée (ne compte plus). Dès qu'une
+  grille est entièrement retournée, chacun des autres joue un dernier tour,
+  puis tout se révèle : score = somme des cartes encore en jeu, **doublé**
+  pour celui qui a terminé en premier s'il n'a pas le score le plus bas de la
+  manche. Score cumulé sur plusieurs manches ; `TARGET_SCORE` (100) atteint =
+  victoire de partie pour le score cumulé le plus bas.
 
 L'hôte choisit le jeu dans la salle d'attente juste avant de lancer la partie.
 Si vous n'êtes que 2 ou 3, l'hôte peut ajouter 1 ou 2 bots pour compléter la
@@ -142,6 +157,13 @@ total). Les bots jouent tout seuls après un court délai :
 - **Flip 7** : flippe tant qu'il a moins de 5 numéros uniques en main, reste
   au-delà — aucune stratégie plus fine (ignore les cartes déjà sorties et son
   score par rapport aux autres).
+- **Skyjo** : prend la défausse si elle vaut 3 ou moins, sinon pioche à
+  l'aveugle. Remplace sa pire carte visible si la carte en main est
+  meilleure ; sinon défausse et retourne une case cachée au hasard (une
+  pioche du sabot seulement, jamais une carte de la défausse) ; à défaut de
+  case cachée, place quand même sur sa pire carte visible. Aucune
+  anticipation plus fine (ignore les cartes déjà vues et les grilles
+  adverses).
 
 ## Comment ça marche
 

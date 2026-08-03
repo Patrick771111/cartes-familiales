@@ -19,6 +19,10 @@ import {
   standBlackjack,
   hitFlip7,
   stayFlip7,
+  drawSkyjoFromDeck,
+  drawSkyjoFromDiscard,
+  placeSkyjoCard,
+  discardSkyjoAndReveal,
   submitExchangeGift,
   reclaimStaleHost,
   pingHostPresence,
@@ -269,6 +273,79 @@ function maybeScheduleFlip7BotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
+// Politique du bot à Skyjo : prend la défausse si elle vaut 3 ou moins (bonne
+// carte connue), sinon pioche à l'aveugle. Pour placer : remplace sa pire
+// carte visible si la carte en main est meilleure ; sinon défausse et
+// retourne une case cachée au hasard (une pioche du sabot seulement — une
+// carte prise à la défausse doit être placée) ; sinon, faute de case cachée,
+// place quand même sur sa pire carte visible. Aucune anticipation plus fine
+// (ne compte pas les cartes déjà vues, ne réagit pas aux grilles adverses).
+function chooseSkyjoDrawSource(state, botId) {
+  const topDiscard = state.discard[state.discard.length - 1];
+  return topDiscard && topDiscard.value <= 3 ? 'discard' : 'deck';
+}
+
+function chooseSkyjoPlacement(state, botId) {
+  const bot = state.players.find((p) => p.id === botId);
+  const drawnValue = state.drawnCard.card.value;
+  const grid = bot.grid;
+
+  let worstIndex = -1;
+  let worstValue = -Infinity;
+  grid.forEach((cell, i) => {
+    if (cell && cell.faceUp && cell.card.value > worstValue) {
+      worstValue = cell.card.value;
+      worstIndex = i;
+    }
+  });
+  const hiddenIndexes = grid.map((c, i) => (c && !c.faceUp ? i : -1)).filter((i) => i !== -1);
+
+  if (worstIndex !== -1 && drawnValue < worstValue) {
+    return { type: 'place', index: worstIndex };
+  }
+  if (state.drawnCard.source === 'deck' && hiddenIndexes.length) {
+    return { type: 'reveal', index: hiddenIndexes[Math.floor(Math.random() * hiddenIndexes.length)] };
+  }
+  if (hiddenIndexes.length) {
+    return { type: 'place', index: hiddenIndexes[Math.floor(Math.random() * hiddenIndexes.length)] };
+  }
+  if (worstIndex !== -1) return { type: 'place', index: worstIndex };
+  return { type: 'place', index: grid.findIndex((c) => c) };
+}
+
+let scheduledSkyjoBotMove = null;
+
+function maybeScheduleSkyjoBotMove(room) {
+  if (room.game !== 'skyjo' || room.state.status !== 'playing') return;
+
+  const currentId = room.state.currentPlayerId;
+  const bot = room.state.players.find((p) => p.id === currentId && p.isBot);
+  if (!bot) return;
+
+  const signature = `${room.id}:${room.version}`;
+  if (scheduledSkyjoBotMove === signature) return;
+  scheduledSkyjoBotMove = signature;
+
+  window.setTimeout(async () => {
+    try {
+      const fresh = await fetchRoomById(room.id);
+      if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId) return;
+
+      if (!fresh.state.drawnCard) {
+        const source = chooseSkyjoDrawSource(fresh.state, currentId);
+        if (source === 'discard') await drawSkyjoFromDiscard(fresh, currentId);
+        else await drawSkyjoFromDeck(fresh, currentId);
+      } else {
+        const move = chooseSkyjoPlacement(fresh.state, currentId);
+        if (move.type === 'place') await placeSkyjoCard(fresh, currentId, move.index);
+        else await discardSkyjoAndReveal(fresh, currentId, move.index);
+      }
+    } catch (err) {
+      // Idem : un autre appareil a probablement déjà joué, la resynchro realtime prend le relais.
+    }
+  }, 900 + Math.random() * 700);
+}
+
 let scheduledTrouducExchangeBot = null;
 
 /** Pendant la phase d'échange, un bot Président/Vice-Président rend toujours ses cartes les plus faibles. */
@@ -312,7 +389,7 @@ function maybeScheduleTrouducExchangeBot(room) {
   });
 }
 
-const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain', blackjack: 'Blackjack', flip7: 'Flip 7' };
+const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain', blackjack: 'Blackjack', flip7: 'Flip 7', skyjo: 'Skyjo' };
 
 function updateDocumentTitle(room) {
   const gameLabel = GAME_TITLES[room.game];
@@ -365,6 +442,7 @@ function draw(room) {
   maybeScheduleAmericainBotMove(room);
   maybeScheduleBlackjackBotMove(room);
   maybeScheduleFlip7BotMove(room);
+  maybeScheduleSkyjoBotMove(room);
 
   const stillMember = room.state.players.some((p) => p.id === currentPlayer.id);
 

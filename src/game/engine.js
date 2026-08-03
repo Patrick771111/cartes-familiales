@@ -10,13 +10,21 @@ import { initGame as initTrouduc, applyPlay as applyTrouducPlay, applyPass as ap
 import { initGame as initAmericain, applyPlay as applyAmericainPlay, applyDraw as applyAmericainDraw } from './americain.js';
 import { initGame as initBlackjack, applyHit as applyBlackjackHit, applyStand as applyBlackjackStand } from './blackjack.js';
 import { initGame as initFlip7, applyHit as applyFlip7Hit, applyStay as applyFlip7Stay } from './flip7.js';
+import {
+  initGame as initSkyjo,
+  applyDrawFromDeck as applySkyjoDrawDeck,
+  applyDrawFromDiscard as applySkyjoDrawDiscard,
+  applyPlaceCard as applySkyjoPlaceCard,
+  applyDiscardAndReveal as applySkyjoDiscardAndReveal
+} from './skyjo.js';
 
 const GAME_INITIALIZERS = {
   pouilleux: initPouilleux,
   trouduc: initTrouduc,
   americain: initAmericain,
   blackjack: initBlackjack,
-  flip7: initFlip7
+  flip7: initFlip7,
+  skyjo: initSkyjo
 };
 
 export const AVAILABLE_GAMES = [
@@ -24,7 +32,8 @@ export const AVAILABLE_GAMES = [
   { id: 'trouduc', label: 'Le Trou du Cul', hint: 'exactement 4 joueurs', minPlayers: 4 },
   { id: 'americain', label: 'Le 8 américain', hint: '2 à 6 joueurs', minPlayers: 2 },
   { id: 'blackjack', label: 'Blackjack', hint: '1 à 6 joueurs, banque tenue par un bot', minPlayers: 1 },
-  { id: 'flip7', label: 'Flip 7', hint: '2 à 6 joueurs, score cumulé', minPlayers: 2 }
+  { id: 'flip7', label: 'Flip 7', hint: '2 à 6 joueurs, score cumulé', minPlayers: 2 },
+  { id: 'skyjo', label: 'Skyjo', hint: '2 à 6 joueurs, moins de points c\'est mieux', minPlayers: 2 }
 ];
 
 // Code fixe de la table familiale : personne n'a besoin de le saisir ni de le
@@ -428,12 +437,36 @@ export async function stayFlip7(room, playerId) {
   return updateRoomState(room.id, room.version, newState);
 }
 
+/** Pioche la carte du dessus de la pioche à Skyjo (à placer, ou à défausser en retournant une case, ensuite). */
+export async function drawSkyjoFromDeck(room, playerId) {
+  const newState = applySkyjoDrawDeck(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Prend la carte visible de la défausse à Skyjo (doit obligatoirement être placée sur la grille ensuite). */
+export async function drawSkyjoFromDiscard(room, playerId) {
+  const newState = applySkyjoDrawDiscard(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Place la carte piochée à Skyjo sur une case de sa grille. */
+export async function placeSkyjoCard(room, playerId, gridIndex) {
+  const newState = applySkyjoPlaceCard(room.state, playerId, gridIndex);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Défausse la carte piochée du sabot à Skyjo (jamais celle de la défausse) et retourne une case cachée à la place. */
+export async function discardSkyjoAndReveal(room, playerId, gridIndex) {
+  const newState = applySkyjoDiscardAndReveal(room.state, playerId, gridIndex);
+  return updateRoomState(room.id, room.version, newState);
+}
+
 /**
  * Remet la table en salle d'attente — **réinitialise le contexte de la partie**
  * (rôles du Trou du Cul retirés au sort à la prochaine donne, argent du
- * Blackjack remis à `STARTING_MONEY`, score de Flip 7 remis à 0) puisqu'on
- * quitte volontairement la partie en cours. Pour enchaîner une manche en
- * conservant ce contexte, voir `continueGame`.
+ * Blackjack remis à `STARTING_MONEY`, score de Flip 7/Skyjo remis à 0)
+ * puisqu'on quitte volontairement la partie en cours. Pour enchaîner une
+ * manche en conservant ce contexte, voir `continueGame`.
  */
 export async function playAgain(room) {
   const players = room.state.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false }));
@@ -473,7 +506,7 @@ export async function continueGame(room) {
   } else if (gameType === 'blackjack') {
     const previousMoney = Object.fromEntries(room.state.players.map((p) => [p.id, p.money]));
     gameState = initializer(playersList, previousMoney);
-  } else if (gameType === 'flip7') {
+  } else if (gameType === 'flip7' || gameType === 'skyjo') {
     const previousScores = Object.fromEntries(room.state.players.map((p) => [p.id, p.score]));
     gameState = initializer(playersList, previousScores);
   } else {
