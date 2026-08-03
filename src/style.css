@@ -980,6 +980,13 @@ h1 {
   gap: 28px;
   margin-bottom: 14px;
 }
+/* La pile empilée (trouduc-pile__stack) est prévue pour prendre toute la largeur
+   dispo dans son contexte d'origine (seule dans une colonne) — ici elle partage
+   la ligne avec la pioche, donc on la borne pour que les cartes décalées ne
+   débordent pas par-dessus le bouton de pioche à droite. */
+.americain-center .trouduc-pile { flex-shrink: 0; }
+.americain-center .trouduc-pile__stack { width: 140px; }
+.americain-stock { margin-left: 12px; }
 
 /* Le sommet de la pile empilée (voir trouduc-pile__stack, réutilisé ici) porte
    le badge de couleur active quand elle diffère de la couleur imprimée (un 8
@@ -1154,6 +1161,7 @@ h1 {
   .trouduc-pile__cards .card__pip { font-size: 36px; }
   .trouduc-pile__cards .card__corner { font-size: 14px; }
   .trouduc-pile__stack { min-height: 220px; }
+  .americain-center .trouduc-pile__stack { width: 170px; }
 
   .trouduc-seat__hand .card--back { width: 44px; height: 64px; margin-left: -22px; }
   .trouduc-seat__name { font-size: 13px; }
