@@ -122,6 +122,8 @@ export function openSettingsModal() {
           ).join('')}
         </div>
       </section>
+
+      <button type="button" id="settings-save-close" class="btn btn--primary settings-modal__save">Enregistrer et fermer</button>
     </div>
   `;
 
@@ -136,8 +138,9 @@ export function openSettingsModal() {
   const nameInput = overlay.querySelector('#settings-name-input');
   const nameSaveBtn = overlay.querySelector('#settings-name-save');
   const nameStatus = overlay.querySelector('#settings-name-status');
+  let trySaveName = async () => {};
   if (nameInput && nameSaveBtn && nameController) {
-    const trySaveName = async () => {
+    trySaveName = async () => {
       const newName = nameInput.value.trim();
       if (!newName || newName === nameController.getName()) return;
       nameSaveBtn.disabled = true;
@@ -156,6 +159,15 @@ export function openSettingsModal() {
       if (e.key === 'Enter') trySaveName();
     });
   }
+
+  // Le tapis et le style de cartes s'appliquent déjà en direct au clic (pour
+  // l'aperçu immédiat) ; ce bouton donne une confirmation explicite, ferme la
+  // modale, et rattrape un prénom tapé mais pas encore validé par Entrée/son
+  // propre bouton.
+  overlay.querySelector('#settings-save-close').addEventListener('click', async () => {
+    await trySaveName();
+    close();
+  });
 
   overlay.querySelectorAll('[data-felt]').forEach((btn) => {
     btn.addEventListener('click', () => {

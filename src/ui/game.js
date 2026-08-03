@@ -483,9 +483,17 @@ function renderTrouducExchange(container, { room, player, state }) {
             )
             .join('')}
         </div>
+
+        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
       </div>
     </div>
   `;
+
+  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
+    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
+      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
+    }
+  });
 
   if (needsToChoose) {
     container.querySelectorAll('.hand-card').forEach((el) => {
