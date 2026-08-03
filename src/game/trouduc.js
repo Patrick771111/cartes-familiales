@@ -142,7 +142,6 @@ export function initGame(players, previousRanking = null) {
     finishedOrder: [],
     loserId: null,
     lastMove: null,
-    lastPlayedByPlayer: {},
     exchange: {
       presidentId,
       vicePresidentId,
@@ -346,7 +345,6 @@ export function applyPlay(state, playerId, cardIds) {
       burned: willBurn,
       finished: finishedNow
     },
-    lastPlayedByPlayer: { ...state.lastPlayedByPlayer, [current.id]: { cards: playedCards, burned: willBurn } },
     log: [...state.log, { ts: Date.now(), message: logMessage }].slice(-40)
   };
 

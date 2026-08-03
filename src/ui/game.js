@@ -543,11 +543,11 @@ function renderTrouducTable(container, { room, player, state }) {
   // milieu/en face, droite, ou vers toi en bas), pour un rendu plus vivant qu'un
   // pli toujours parfaitement centré — sans jamais s'éloigner beaucoup du centre.
   const seatShiftFor = (playerId) => {
-    if (playerId === player.id) return { x: 0, y: 12 };
+    if (playerId === player.id) return { x: 0, y: 30 };
     const seatIndex = others.findIndex((p) => p.id === playerId);
-    if (seatIndex === 0) return { x: -20, y: -6 };
-    if (seatIndex === 2) return { x: 20, y: -6 };
-    if (seatIndex === 1) return { x: 0, y: -14 };
+    if (seatIndex === 0) return { x: -22, y: -10 };
+    if (seatIndex === 2) return { x: 22, y: -10 };
+    if (seatIndex === 1) return { x: 0, y: -30 };
     return { x: 0, y: 0 };
   };
 
@@ -673,13 +673,10 @@ function renderTrouducTable(container, { room, player, state }) {
           ${others
             .map((p, i) => {
               const isTurn = p.id === state.currentPlayerId;
-              const isCurrentPileOwner = p.id === state.lastPlayerToPlay && state.pileCount > 0;
               const status = p.finished
                 ? trouducRankLabel(p.rank)
                 : `${p.hand.length} carte${p.hand.length > 1 ? 's' : ''}`;
               const label = p.role ? `${p.role} · ${status}` : status;
-              const ghost = state.lastPlayedByPlayer?.[p.id];
-              const showGhost = ghost && !isCurrentPileOwner;
               const previewCount = Math.min(p.hand.length, 5);
               const handPreview = p.finished
                 ? ''
@@ -693,9 +690,6 @@ function renderTrouducTable(container, { room, player, state }) {
                   <p class="trouduc-seat__status">${label}</p>
                   <div class="trouduc-seat__row">
                     <div class="trouduc-seat__hand ${showFaces ? 'trouduc-seat__hand--revealed' : ''}">${handPreview}</div>
-                    <div class="trouduc-seat__ghost ${showGhost ? '' : 'trouduc-seat__ghost--empty'}">
-                      ${showGhost ? ghost.cards.map(cardFaceHtml).join('') : ''}
-                    </div>
                   </div>
                 </div>`;
             })

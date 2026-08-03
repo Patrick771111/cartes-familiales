@@ -450,19 +450,6 @@ h1 {
 }
 .trouduc-seat__hand .card--back:first-child { margin-left: 0; }
 
-/* La dernière carte jouée par ce joueur : toujours visible, en petit et estompée
-   dès qu'elle n'est plus le pli actif (elle a alors "glissé" jusqu'à son propriétaire). */
-.trouduc-seat__ghost {
-  display: flex;
-  opacity: 0.55;
-  filter: grayscale(0.4);
-  transition: opacity 0.2s ease;
-}
-.trouduc-seat__ghost .card { width: 26px; height: 38px; }
-.trouduc-seat__ghost .card__pip { font-size: 12px; }
-.trouduc-seat__ghost .card__corner { font-size: 7px; }
-.trouduc-seat__ghost--empty { visibility: hidden; }
-
 .trouduc-center {
   display: flex;
   flex-direction: column;
@@ -490,7 +477,7 @@ h1 {
 .trouduc-pile__stack {
   position: relative;
   width: 100%;
-  min-height: 110px;
+  min-height: 180px;
 }
 .trouduc-pile__shift {
   position: absolute;
@@ -1044,11 +1031,9 @@ h1 {
   .trouduc-pile__cards .card { width: 84px; height: 122px; }
   .trouduc-pile__cards .card__pip { font-size: 36px; }
   .trouduc-pile__cards .card__corner { font-size: 14px; }
-  .trouduc-pile__stack { min-height: 140px; }
+  .trouduc-pile__stack { min-height: 220px; }
 
   .trouduc-seat__hand .card--back { width: 44px; height: 64px; margin-left: -22px; }
-  .trouduc-seat__ghost .card { width: 32px; height: 46px; }
-  .trouduc-seat__ghost .card__pip { font-size: 15px; }
   .trouduc-seat__name { font-size: 13px; }
   .trouduc-seat__status { font-size: 12px; }
 }
