@@ -1302,6 +1302,11 @@ h1 {
   box-shadow: 0 2px 6px rgba(0,0,0,0.3);
 }
 .opponent--compact .suiteinfernale-slot { width: 14px; height: 14px; font-size: 8px; }
+.suiteinfernale-slot--pickable {
+  cursor: pointer;
+  box-shadow: 0 0 0 2px var(--red-suit), 0 2px 6px rgba(0,0,0,0.3);
+}
+.opponent--compact .suiteinfernale-slot--pickable { box-shadow: 0 0 0 1.5px var(--red-suit); }
 
 .suiteinfernale-card {
   width: 44px;
@@ -1349,6 +1354,18 @@ h1 {
   gap: 8px;
   margin-bottom: 8px;
 }
+.suiteinfernale-target-picker__empty { font-size: 13px; color: rgba(247, 241, 225, 0.6); margin: 0 0 8px; }
+
+.suiteinfernale-reaction {
+  background: rgba(217, 105, 95, 0.14);
+  border: 1px solid var(--red-suit);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  text-align: center;
+}
+.suiteinfernale-reaction__label { font-family: var(--font-mono); font-size: 13px; color: var(--cream); margin: 0 0 8px; }
+.suiteinfernale-reaction__options { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 
 /* ---------- Écran de fin ---------- */
 

@@ -138,19 +138,27 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
   pour celui qui a terminé en premier s'il n'a pas le score le plus bas de la
   manche. Score cumulé sur plusieurs manches ; `TARGET_SCORE` (100) atteint =
   victoire de partie pour le score cumulé le plus bas.
-- **La Suite Infernale** (`src/game/suiteinfernale.js`) : 2 à 6 joueurs
-  *(hypothèse — la présentation publique du jeu physique ne détaille pas le
-  déroulé exact d'un tour ni l'effet précis de chacune des 45 cartes
-  spéciales ; règles reconstituées ici de façon simplifiée, à ajuster dans
-  `suiteinfernale.js` si votre exemplaire diffère)*. But : être le premier à
-  construire, dans sa suite personnelle (`p.sequence`), les nombres 1 à 10
-  dans l'ordre. 8 cartes en main au départ ; paquet commun de 65 cartes
-  numéros (1 à 10) et 45 cartes spéciales. À son tour : **piocher** une carte
-  (obligatoire), puis poser une carte numéro qui prolonge sa suite d'exactement
-  1, ou jouer une carte spéciale (🫳 vol / 💣 sabotage / 🔀 échange de suites /
-  📥 pioche forcée / ⚡ rejoue immédiatement), ou passer. `SEQUENCE_TARGET`
-  (10) atteint = victoire immédiate et définitive de la partie ("Continuer"
-  relance donc toujours une suite neuve, sans contexte à conserver).
+- **La Suite Infernale** (`src/game/suiteinfernale.js`) : règles officielles
+  du jeu physique, **mode individuel uniquement** (2 à 4 joueurs) — le mode
+  équipe (4 joueurs 2v2 ou 6 joueurs 3v3, sièges alternés, suites partagées
+  entre partenaires) n'est pas implémenté, pour rester dans le modèle "un
+  joueur = un siège = un état" du reste de l'appli. But : être le premier à
+  compléter, dans sa suite personnelle (`p.sequence`, 10 cases pour les
+  valeurs 1 à 10, potentiellement trouées par une attaque adverse), tous les
+  nombres de 1 à 10. Chacun a toujours 8 cartes en main ; paquet commun de 65
+  cartes numéros (comptes exacts par valeur dans `NUMBER_COUNTS`) et 45
+  cartes spéciales (comptes exacts dans `SPECIAL_TYPES`). À son tour :
+  **piocher** une carte (obligatoire), puis soit poser une carte numéro/Joker
+  +1/Joker +2 dans sa suite, soit jouer "Rejouer 2 coups" (pioche 2, joue 2
+  fois), soit jouer une carte ciblant un adversaire (retirer 1/2 carte(s) de
+  sa suite, voler la dernière/une carte de sa suite, échanger les mains,
+  échanger les places), soit défausser une carte. Les cartes ciblant un
+  adversaire ne se résolvent pas immédiatement : elles restent en attente
+  (`state.pendingAttack`) le temps que la cible réponde via
+  `applyRespondToAttack` — bloque avec une carte STOP (et repioche alors pour
+  revenir à 8 cartes), ou laisse l'effet se résoudre. `SEQUENCE_TARGET` (10)
+  atteint = victoire immédiate et définitive de la partie ("Continuer" relance
+  donc toujours une suite neuve, sans contexte à conserver).
 
 L'hôte choisit le jeu dans la salle d'attente juste avant de lancer la partie.
 Si vous n'êtes que 2 ou 3, l'hôte peut ajouter 1 ou 2 bots pour compléter la

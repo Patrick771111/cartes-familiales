@@ -20,9 +20,11 @@ import {
 import {
   initGame as initSuiteInfernale,
   applyDraw as applySuiteInfernaleDraw,
-  applyPlayNumber as applySuiteInfernalePlayNumber,
-  applyPlaySpecial as applySuiteInfernalePlaySpecial,
-  applyPass as applySuiteInfernalePass
+  applyPlaySequenceCard as applySuiteInfernalePlaySequenceCard,
+  applyPlayRejouer as applySuiteInfernalePlayRejouer,
+  applyPlayAttack as applySuiteInfernalePlayAttack,
+  applyRespondToAttack as applySuiteInfernaleRespondToAttack,
+  applyDiscard as applySuiteInfernaleDiscard
 } from './suiteinfernale.js';
 
 const GAME_INITIALIZERS = {
@@ -42,7 +44,7 @@ export const AVAILABLE_GAMES = [
   { id: 'blackjack', label: 'Blackjack', hint: '1 à 6 joueurs, banque tenue par un bot', minPlayers: 1 },
   { id: 'flip7', label: 'Flip 7', hint: '2 à 6 joueurs, score cumulé', minPlayers: 2 },
   { id: 'skyjo', label: 'Skyjo', hint: '2 à 6 joueurs, moins de points c\'est mieux', minPlayers: 2 },
-  { id: 'suiteinfernale', label: 'La Suite Infernale', hint: '2 à 6 joueurs, construis ta suite de 1 à 10', minPlayers: 2 }
+  { id: 'suiteinfernale', label: 'La Suite Infernale', hint: '2 à 4 joueurs, construis ta suite de 1 à 10', minPlayers: 2 }
 ];
 
 // Code fixe de la table familiale : personne n'a besoin de le saisir ni de le
@@ -493,27 +495,44 @@ export async function discardSkyjoAndReveal(room, playerId, gridIndex) {
   return updateRoomState(room.id, room.version, newState);
 }
 
-/** Pioche 1 carte à la Suite Infernale (obligatoire avant de jouer ou de passer). */
+/** Pioche 1 carte à la Suite Infernale (obligatoire avant de jouer ou de défausser). */
 export async function drawSuiteInfernale(room, playerId) {
   const newState = applySuiteInfernaleDraw(room.state, playerId);
   return updateRoomState(room.id, room.version, newState);
 }
 
-/** Pose une carte numéro à la Suite Infernale (doit prolonger sa suite d'exactement 1). */
-export async function playSuiteInfernaleNumber(room, playerId, cardId) {
-  const newState = applySuiteInfernalePlayNumber(room.state, playerId, cardId);
+/** Pose une carte numéro, Joker +1 ou Joker +2 à la Suite Infernale, dans sa propre suite. */
+export async function playSuiteInfernaleSequenceCard(room, playerId, cardId) {
+  const newState = applySuiteInfernalePlaySequenceCard(room.state, playerId, cardId);
   return updateRoomState(room.id, room.version, newState);
 }
 
-/** Joue une carte spéciale à la Suite Infernale (`targetPlayerId` ignoré pour "rejoue"). */
-export async function playSuiteInfernaleSpecial(room, playerId, cardId, targetPlayerId) {
-  const newState = applySuiteInfernalePlaySpecial(room.state, playerId, cardId, targetPlayerId);
+/** Joue "Rejouer 2 coups" à la Suite Infernale : pioche 2 cartes et rejoue aussitôt. */
+export async function playSuiteInfernaleRejouer(room, playerId, cardId) {
+  const newState = applySuiteInfernalePlayRejouer(room.state, playerId, cardId);
   return updateRoomState(room.id, room.version, newState);
 }
 
-/** Passe son tour à la Suite Infernale sans jouer de carte (après avoir pioché). */
-export async function passSuiteInfernale(room, playerId) {
-  const newState = applySuiteInfernalePass(room.state, playerId);
+/**
+ * Joue une carte ciblant un adversaire à la Suite Infernale (vol, sabotage,
+ * échange de mains ou de place) — reste en attente d'une éventuelle réponse
+ * STOP de la cible, voir `respondToSuiteInfernaleAttack`. `slotIndex`
+ * uniquement pour "retirer 1 carte" / "voler 1 carte".
+ */
+export async function playSuiteInfernaleAttack(room, playerId, cardId, targetPlayerId, slotIndex = null) {
+  const newState = applySuiteInfernalePlayAttack(room.state, playerId, cardId, targetPlayerId, slotIndex);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Réponse de la cible à une attaque en attente à la Suite Infernale : bloque avec un STOP, ou laisse passer. */
+export async function respondToSuiteInfernaleAttack(room, playerId, { block = false, stopCardId = null } = {}) {
+  const newState = applySuiteInfernaleRespondToAttack(room.state, playerId, { block, stopCardId });
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Défausse une carte de sa main à la Suite Infernale (quand aucune carte en main ne convient). */
+export async function discardSuiteInfernale(room, playerId, cardId) {
+  const newState = applySuiteInfernaleDiscard(room.state, playerId, cardId);
   return updateRoomState(room.id, room.version, newState);
 }
 

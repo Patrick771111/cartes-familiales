@@ -96,14 +96,16 @@ const RULES = {
   suiteinfernale: {
     title: 'La Suite Infernale',
     html: `
-      <p>2 à 6 joueurs. But : être le premier à construire sa suite personnelle de <strong>1 à 10</strong>, dans l'ordre.</p>
+      <p>2 à 4 joueurs <em>(mode individuel uniquement — le mode équipe du jeu physique n'est pas proposé ici)</em>. But : être le premier à construire sa suite personnelle de <strong>1 à 10</strong>, dans l'ordre, posée face visible devant soi.</p>
       <ul>
-        <li>8 cartes en main au départ. À ton tour : <strong>pioche</strong> une carte, puis joue une carte (ou passe).</li>
+        <li>8 cartes en main en permanence. À ton tour : <strong>pioche</strong> une carte, puis joue-en une (ou défausses-en une si aucune ne convient).</li>
         <li>Une carte <strong>numéro</strong> ne peut être posée que si elle prolonge ta suite d'exactement 1 (il te faut d'abord le 1, puis le 2, etc.).</li>
-        <li>Une carte <strong>spéciale</strong> a un effet immédiat, sur toi ou sur un adversaire au choix : 🫳 Vol (tu voles la dernière carte de sa suite), 💣 Sabotage (tu la détruis), 🔀 Échange (tu échanges ta suite entière avec la sienne), 📥 Pioche forcée (il pioche 2 cartes), ⚡ Rejoue (tu piocheras et rejoueras aussitôt).</li>
-        <li>Premier à atteindre 10 cartes dans sa suite (1 à 10 dans l'ordre) : gagné, la partie s'arrête aussitôt !</li>
+        <li>🃏 <strong>Joker +1</strong> remplace n'importe quel nombre de ta suite (peut même la démarrer). 🃏🃏 <strong>Joker +2</strong> remplace 2 nombres d'affilée (jamais pour démarrer une suite, ni une fois le 9 atteint).</li>
+        <li>Cartes d'attaque, à jouer sur un adversaire de ton choix : 🗑️ Retirer 1/2 carte(s) de sa suite, 🫳 Voler la dernière/une carte de sa suite (elle rejoint ta main), 🔀 Échanger ta main entière avec la sienne, 💺 Échanger ta place (ordre de jeu) avec la sienne.</li>
+        <li>🛑 <strong>STOP</strong> : à jouer immédiatement pour contrer une attaque dirigée contre toi (même une autre carte STOP) — tu piocheras ensuite pour retrouver 8 cartes en main.</li>
+        <li>⚡ <strong>Rejouer 2 coups</strong> : pioche 2 cartes et joue 2 fois de suite.</li>
+        <li>Premier à compléter sa suite de 1 à 10 : gagné, la partie s'arrête aussitôt !</li>
       </ul>
-      <p><em>Hypothèse : règles reconstituées à partir de la présentation publique du jeu, simplifiées pour ce portage numérique.</em></p>
     `
   }
 };

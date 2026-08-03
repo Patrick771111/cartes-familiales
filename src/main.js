@@ -24,9 +24,11 @@ import {
   placeSkyjoCard,
   discardSkyjoAndReveal,
   drawSuiteInfernale,
-  playSuiteInfernaleNumber,
-  playSuiteInfernaleSpecial,
-  passSuiteInfernale,
+  playSuiteInfernaleSequenceCard,
+  playSuiteInfernaleRejouer,
+  playSuiteInfernaleAttack,
+  respondToSuiteInfernaleAttack,
+  discardSuiteInfernale,
   submitExchangeGift,
   reclaimStaleHost,
   pingHostPresence,
@@ -350,44 +352,127 @@ function maybeScheduleSkyjoBotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
-// Politique du bot à la Suite Infernale : joue son numéro suivant dès qu'il
-// l'a en main ; sinon joue une carte spéciale au hasard (cible : un adversaire
-// choisi au hasard, hors "rejoue" qui n'en a pas besoin) ; sinon passe. Ne
-// garde jamais une carte spéciale "au cas où", ne priorise pas un type
-// d'attaque plutôt qu'un autre.
+const SUITE_INFERNALE_ATTACK_TYPES = ['volerDerniere', 'volerUne', 'retirerUne', 'retirerDeux', 'echangerJeu', 'changerPlace'];
+
+function suiteInfernaleHighestFilledIndex(sequence) {
+  for (let i = sequence.length - 1; i >= 0; i--) {
+    if (sequence[i]) return i;
+  }
+  return -1;
+}
+
+function suiteInfernaleFilledIndexes(sequence) {
+  return sequence.map((c, i) => (c ? i : -1)).filter((i) => i !== -1);
+}
+
+// Politique du bot à la Suite Infernale : pose son numéro/joker suivant dès
+// qu'il l'a en main ; sinon "Rejouer" s'il en a une ; sinon une carte
+// d'attaque au hasard contre un adversaire choisi au hasard parmi les cibles
+// valides (case au hasard pour "retirer/voler 1 carte") ; sinon défausse une
+// carte qui n'est pas un STOP (gardé pour se défendre) si possible. Ne
+// priorise pas un type d'attaque plutôt qu'un autre, ne calcule pas l'impact
+// de ses coups sur les autres joueurs.
 function chooseSuiteInfernaleMove(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
-  const needed = bot.sequence.length + 1;
-  const numberCard = bot.hand.find((c) => c.kind === 'number' && c.value === needed);
-  if (numberCard) return { type: 'number', cardId: numberCard.id };
+  const neededIndex = bot.sequence.findIndex((c) => !c);
+  const filledCount = bot.sequence.filter(Boolean).length;
 
-  const specialCard = bot.hand.find((c) => c.kind === 'special');
-  if (specialCard) {
-    const opponents = state.players.filter((p) => p.id !== botId);
-    const targetId = opponents[Math.floor(Math.random() * opponents.length)]?.id;
-    return { type: 'special', cardId: specialCard.id, targetId };
+  if (neededIndex !== -1) {
+    const numberCard = bot.hand.find((c) => c.kind === 'number' && c.value === neededIndex + 1);
+    if (numberCard) return { type: 'sequence', cardId: numberCard.id };
+
+    const joker1 = bot.hand.find((c) => c.kind === 'special' && c.type === 'jokerPlus1');
+    if (joker1) return { type: 'sequence', cardId: joker1.id };
+
+    const joker2 = bot.hand.find((c) => c.kind === 'special' && c.type === 'jokerPlus2');
+    if (joker2 && filledCount > 0 && neededIndex + 1 < 8) return { type: 'sequence', cardId: joker2.id };
   }
 
-  return { type: 'pass' };
+  const rejouer = bot.hand.find((c) => c.kind === 'special' && c.type === 'rejouer');
+  if (rejouer) return { type: 'rejouer', cardId: rejouer.id };
+
+  const attackCards = bot.hand.filter((c) => c.kind === 'special' && SUITE_INFERNALE_ATTACK_TYPES.includes(c.type));
+  for (const card of shuffleCopy(attackCards)) {
+    const opponents = state.players.filter((p) => p.id !== botId);
+    const validTargets = opponents.filter((o) => {
+      if (card.type === 'volerDerniere') return suiteInfernaleHighestFilledIndex(o.sequence) !== -1;
+      if (card.type === 'retirerDeux') {
+        const h = suiteInfernaleHighestFilledIndex(o.sequence);
+        return h >= 1 && o.sequence[h] && o.sequence[h - 1];
+      }
+      if (card.type === 'volerUne' || card.type === 'retirerUne') return o.sequence.some(Boolean);
+      return true; // echangerJeu, changerPlace
+    });
+    if (!validTargets.length) continue;
+    const target = validTargets[Math.floor(Math.random() * validTargets.length)];
+    let slotIndex = null;
+    if (card.type === 'volerUne' || card.type === 'retirerUne') {
+      const indexes = suiteInfernaleFilledIndexes(target.sequence);
+      slotIndex = indexes[Math.floor(Math.random() * indexes.length)];
+    }
+    return { type: 'attack', cardId: card.id, targetId: target.id, slotIndex };
+  }
+
+  const discardCard = bot.hand.find((c) => !(c.kind === 'special' && c.type === 'stop')) || bot.hand[0];
+  return { type: 'discard', cardId: discardCard.id };
+}
+
+function shuffleCopy(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** Réaction du bot face à une attaque en attente : bloque avec un STOP s'il en a un, sinon laisse passer. */
+function chooseSuiteInfernaleReaction(state, botId) {
+  const bot = state.players.find((p) => p.id === botId);
+  const stopCard = bot.hand.find((c) => c.kind === 'special' && c.type === 'stop');
+  return stopCard ? { block: true, stopCardId: stopCard.id } : { block: false };
 }
 
 let scheduledSuiteInfernaleBotMove = null;
+let scheduledSuiteInfernaleBotReaction = null;
 
 function maybeScheduleSuiteInfernaleBotMove(room) {
   if (room.game !== 'suiteinfernale' || room.state.status !== 'playing') return;
+
+  if (room.state.pendingAttack) {
+    const targetId = room.state.pendingAttack.targetId;
+    const targetBot = room.state.players.find((p) => p.id === targetId && p.isBot);
+    if (!targetBot) return;
+
+    const signature = `${room.id}:${room.version}:reaction`;
+    if (scheduledSuiteInfernaleBotReaction === signature) return;
+    scheduledSuiteInfernaleBotReaction = signature;
+
+    window.setTimeout(async () => {
+      try {
+        const fresh = await fetchRoomById(room.id);
+        if (!fresh.state.pendingAttack || fresh.state.pendingAttack.targetId !== targetId) return;
+        const reaction = chooseSuiteInfernaleReaction(fresh.state, targetId);
+        await respondToSuiteInfernaleAttack(fresh, targetId, reaction);
+      } catch (err) {
+        // Idem : un autre appareil a probablement déjà joué, la resynchro realtime prend le relais.
+      }
+    }, 900 + Math.random() * 700);
+    return;
+  }
 
   const currentId = room.state.currentPlayerId;
   const bot = room.state.players.find((p) => p.id === currentId && p.isBot);
   if (!bot) return;
 
-  const signature = `${room.id}:${room.version}`;
+  const signature = `${room.id}:${room.version}:turn`;
   if (scheduledSuiteInfernaleBotMove === signature) return;
   scheduledSuiteInfernaleBotMove = signature;
 
   window.setTimeout(async () => {
     try {
       const fresh = await fetchRoomById(room.id);
-      if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId) return;
+      if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId || fresh.state.pendingAttack) return;
 
       if (!fresh.state.hasDrawnThisTurn) {
         await drawSuiteInfernale(fresh, currentId);
@@ -395,9 +480,10 @@ function maybeScheduleSuiteInfernaleBotMove(room) {
       }
 
       const move = chooseSuiteInfernaleMove(fresh.state, currentId);
-      if (move.type === 'number') await playSuiteInfernaleNumber(fresh, currentId, move.cardId);
-      else if (move.type === 'special') await playSuiteInfernaleSpecial(fresh, currentId, move.cardId, move.targetId);
-      else await passSuiteInfernale(fresh, currentId);
+      if (move.type === 'sequence') await playSuiteInfernaleSequenceCard(fresh, currentId, move.cardId);
+      else if (move.type === 'rejouer') await playSuiteInfernaleRejouer(fresh, currentId, move.cardId);
+      else if (move.type === 'attack') await playSuiteInfernaleAttack(fresh, currentId, move.cardId, move.targetId, move.slotIndex);
+      else await discardSuiteInfernale(fresh, currentId, move.cardId);
     } catch (err) {
       // Idem : un autre appareil a probablement déjà joué, la resynchro realtime prend le relais.
     }
