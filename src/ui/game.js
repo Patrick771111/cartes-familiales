@@ -508,6 +508,22 @@ function renderTrouducTable(container, { room, player, state }) {
   const isMyTurn = state.currentPlayerId === player.id;
   if (!isMyTurn) selectedCardIds = new Set();
 
+  // Décale légèrement le pli vers le siège de celui qui vient de poser (gauche,
+  // milieu/en face, droite, ou vers toi en bas), pour un rendu plus vivant qu'un
+  // pli toujours parfaitement centré — sans jamais s'éloigner beaucoup du centre.
+  let pileShiftX = 0;
+  let pileShiftY = 0;
+  if (state.pileCount > 0 && state.lastPlayerToPlay) {
+    if (state.lastPlayerToPlay === player.id) {
+      pileShiftY = 12;
+    } else {
+      const seatIndex = others.findIndex((p) => p.id === state.lastPlayerToPlay);
+      if (seatIndex === 0) { pileShiftX = -20; pileShiftY = -6; }
+      else if (seatIndex === 2) { pileShiftX = 20; pileShiftY = -6; }
+      else if (seatIndex === 1) { pileShiftY = -14; }
+    }
+  }
+
   const selectedCards = me.hand.filter((c) => selectedCardIds.has(c.id));
   const selectedRank = selectedCards[0]?.rank;
   const beatsOrMatchesPile = state.rankLocked
@@ -635,7 +651,9 @@ function renderTrouducTable(container, { room, player, state }) {
           <div class="trouduc-pile ${state.pileCount > 0 ? 'trouduc-pile--active' : ''}">
             ${
               state.pileCount > 0
-                ? `<div class="trouduc-pile__cards">${state.pile.map(cardFaceHtml).join('')}</div>
+                ? `<div class="trouduc-pile__shift" style="transform: translate(${pileShiftX}px, ${pileShiftY}px)">
+                     <div class="trouduc-pile__cards">${state.pile.map(cardFaceHtml).join('')}</div>
+                   </div>
                    <p class="trouduc-pile__label">${state.pileCount} × ${state.pileRank}${state.rankLocked ? ' <span class="pile__locked">🔒</span>' : ''}</p>`
                 : `<p class="trouduc-pile__empty">Pli libre — pose ce que tu veux</p>`
             }

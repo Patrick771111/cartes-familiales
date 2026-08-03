@@ -477,6 +477,9 @@ h1 {
   min-height: 96px;
   justify-content: center;
 }
+.trouduc-pile__shift {
+  transition: transform 0.25s ease;
+}
 .trouduc-pile__cards {
   display: flex;
   animation: trouduc-pile-pop 0.22s ease both;
@@ -484,7 +487,7 @@ h1 {
 .trouduc-pile__cards .card {
   width: 68px;
   height: 98px;
-  margin-left: -34px;
+  margin-left: -42px;
   box-shadow: 0 6px 16px rgba(0,0,0,0.45);
 }
 .trouduc-pile__cards .card:first-child { margin-left: 0; }
@@ -834,10 +837,10 @@ h1 {
   justify-content: space-between;
 }
 .spectator-player__hand { display: flex; flex-wrap: wrap; gap: 2px; }
-.spectator-player__hand .card { width: 30px; height: 44px; margin-left: -14px; }
+.spectator-player__hand .card { width: 36px; height: 52px; margin-left: -16px; }
 .spectator-player__hand .card:first-child { margin-left: 0; }
-.spectator-player__hand .card__pip { font-size: 14px; }
-.spectator-player__hand .card__corner { font-size: 8px; }
+.spectator-player__hand .card__pip { font-size: 16px; }
+.spectator-player__hand .card__corner { font-size: 9px; }
 .spectator-player--turn {
   opacity: 1;
   border-color: var(--brass);
@@ -857,10 +860,10 @@ h1 {
 .opponent__hand--revealed .card__pip { font-size: 14px; }
 .opponent__hand--revealed .card__corner { font-size: 8px; }
 
-.trouduc-seat__hand--revealed .card { width: 20px; height: 29px; margin-left: -12px; }
+.trouduc-seat__hand--revealed .card { width: 30px; height: 44px; margin-left: -14px; }
 .trouduc-seat__hand--revealed .card:first-child { margin-left: 0; }
-.trouduc-seat__hand--revealed .card__pip { font-size: 10px; }
-.trouduc-seat__hand--revealed .card__corner { font-size: 6px; }
+.trouduc-seat__hand--revealed .card__pip { font-size: 14px; }
+.trouduc-seat__hand--revealed .card__corner { font-size: 8px; }
 
 /* ---------- Pouilleux : écran en trois zones (autres joueurs / cible de la
    pioche, agrandie / ma main), pensé pour rester lisible jusqu'à 6 joueurs. ---------- */
