@@ -63,8 +63,11 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
   tant que la chaîne de copies continue), soit passer — et dans ce cas la
   liberté revient totalement à la personne suivante (copier ou dépasser). À la toute première manche,
   les 4 rôles (Président, Vice-Président, Secrétaire, Trou du Cul) sont tirés
-  au sort ; ensuite ils sont reconduits selon le classement de la manche
-  précédente. Avant chaque donne : le Trou du Cul donne ses 2 meilleures
+  au sort ; ensuite chaque joueur encore présent conserve le rôle qu'il avait à
+  la manche précédente — si le groupe a changé entre-temps (quelqu'un est
+  parti, quelqu'un d'autre a rejoint), seul le siège laissé vacant est retiré
+  au sort parmi les nouveaux venus, sans perturber les rôles de ceux qui
+  étaient déjà là. Avant chaque donne : le Trou du Cul donne ses 2 meilleures
   cartes au Président (qui lui rend 2 cartes en retour), et le Secrétaire fait
   de même avec le Vice-Président pour 1 carte. Le Trou du Cul entame le
   premier pli de la nouvelle manche *(hypothèse — certaines familles font

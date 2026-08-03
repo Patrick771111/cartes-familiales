@@ -62,6 +62,11 @@ export function initGame(players) {
     currentPlayerId: players[0].id,
     stock,
     discard: [topCard],
+    // Historique borné (4 dernières poses) des cartes défaussées, pour un
+    // affichage empilé côté UI façon Trou du Cul — contrairement au pli du
+    // Trou du Cul, la défausse ici ne se vide jamais en cours de partie, donc
+    // on garde volontairement une fenêtre glissante plutôt que tout l'historique.
+    discardHistory: [{ by: null, cards: [topCard] }],
     activeSuit: topCard.suit,
     winnerId: null,
     lastMove: null,
@@ -95,6 +100,7 @@ export function applyPlay(state, playerId, cardId, chosenSuit) {
   if (finishedNow) current.finished = true;
 
   const discard = [...state.discard, card];
+  const discardHistory = [...(state.discardHistory || []), { by: current.id, cards: [card] }].slice(-4);
   const activeSuit = card.rank === '8' ? chosenSuit : card.suit;
 
   const logMessage = `${current.name} pose ${card.rank}${suitInfo(card.suit).symbol}${
@@ -105,6 +111,7 @@ export function applyPlay(state, playerId, cardId, chosenSuit) {
     ...state,
     players,
     discard,
+    discardHistory,
     activeSuit,
     status: finishedNow ? 'finished' : 'playing',
     winnerId: finishedNow ? current.id : state.winnerId,

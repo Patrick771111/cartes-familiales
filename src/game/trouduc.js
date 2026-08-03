@@ -47,17 +47,30 @@ function nextActivePlayerId(turnOrder, players, fromId) {
 
 /**
  * Détermine l'ordre des rôles [Président, Vice-Président, Secrétaire, Trou du Cul]
- * pour cette manche : reprend le classement de la manche précédente si on en a un
- * et que les 4 mêmes joueurs sont toujours là, sinon tirage au sort (première manche).
+ * pour cette manche. Sans historique valide (toute première manche), tirage au
+ * sort complet. Sinon, chaque joueur encore présent garde le rôle qu'il avait à
+ * la manche précédente — seuls les emplacements laissés vacants par des joueurs
+ * partis sont retirés au sort, et comblés par les nouveaux venus (dans un ordre
+ * aléatoire entre eux s'il y en a plusieurs). Si le groupe n'a pas changé, ça
+ * revient exactement au comportement précédent (reconduction intégrale).
  */
 function assignRoleOrder(players, previousRanking) {
   const ids = players.map((p) => p.id);
-  const previousValid =
-    Array.isArray(previousRanking) &&
-    previousRanking.length === REQUIRED_PLAYERS &&
-    previousRanking.every((id) => ids.includes(id));
+  const previousValid = Array.isArray(previousRanking) && previousRanking.length === REQUIRED_PLAYERS;
+  if (!previousValid) return shuffle(ids);
 
-  return previousValid ? previousRanking : shuffle(ids);
+  const roleOrder = previousRanking.map((id) => (ids.includes(id) ? id : null));
+  const newcomers = shuffle(ids.filter((id) => !previousRanking.includes(id)));
+
+  let newcomerIndex = 0;
+  for (let i = 0; i < roleOrder.length; i++) {
+    if (roleOrder[i] === null) {
+      roleOrder[i] = newcomers[newcomerIndex];
+      newcomerIndex += 1;
+    }
+  }
+
+  return roleOrder;
 }
 
 /**
