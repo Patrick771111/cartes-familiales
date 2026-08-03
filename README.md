@@ -70,6 +70,17 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
   premier pli de la nouvelle manche *(hypothèse — certaines familles font
   démarrer le Président à la place ; à changer dans `initGame`, ligne
   `currentPlayerId: trouDuCulId`, si besoin)*.
+- **Le 8 américain** (`src/game/americain.js`) : 2 à 6 joueurs, jeu de 52
+  cartes standard (7 chacun jusqu'à 4 joueurs, 5 au-delà). À son tour, on pose
+  une carte qui correspond à la couleur ou au rang de la carte au sommet de la
+  défausse, ou un **8** (toujours jouable, quelle que soit la situation) qui
+  permet de choisir la nouvelle couleur demandée. Sans coup possible, on
+  pioche une carte dans la pioche (qui se reconstitue en mélangeant la
+  défausse si besoin) — la carte piochée n'est *pas* rejouable dans la foulée,
+  le tour passe directement au joueur suivant *(hypothèse — à ajuster dans
+  `applyDraw` si vous préférez la variante "on peut la rejouer aussitôt")*.
+  Premier à vider sa main : gagné, la manche s'arrête là (pas de classement
+  complet des autres).
 
 L'hôte choisit le jeu dans la salle d'attente juste avant de lancer la partie.
 Si vous n'êtes que 2 ou 3, l'hôte peut ajouter 1 ou 2 bots pour compléter la
@@ -81,6 +92,9 @@ total). Les bots jouent tout seuls après un court délai :
   cartes le plus faible de sa main, et pour battre le pli choisit toujours le
   rang légal le plus faible possible. Pas d'anticipation plus poussée (ne
   retient pas ses grosses cartes en fin de manche, par exemple).
+- **8 américain** : joue la première carte légale trouvée en main (garde les 8
+  pour la fin si un autre coup est possible), et choisit pour un 8 la couleur
+  la plus représentée dans le reste de sa main. Sans coup possible, pioche.
 
 ## Comment ça marche
 

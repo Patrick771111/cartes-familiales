@@ -7,15 +7,18 @@ import {
 } from '../supabase/sync.js';
 import { initGame as initPouilleux, applyDraw } from './pouilleux.js';
 import { initGame as initTrouduc, applyPlay as applyTrouducPlay, applyPass as applyTrouducPass, applyExchangeChoice } from './trouduc.js';
+import { initGame as initAmericain, applyPlay as applyAmericainPlay, applyDraw as applyAmericainDraw } from './americain.js';
 
 const GAME_INITIALIZERS = {
   pouilleux: initPouilleux,
-  trouduc: initTrouduc
+  trouduc: initTrouduc,
+  americain: initAmericain
 };
 
 export const AVAILABLE_GAMES = [
   { id: 'pouilleux', label: 'Le Pouilleux', hint: '2 à 6 joueurs' },
-  { id: 'trouduc', label: 'Le Trou du Cul', hint: 'exactement 4 joueurs' }
+  { id: 'trouduc', label: 'Le Trou du Cul', hint: 'exactement 4 joueurs' },
+  { id: 'americain', label: 'Le 8 américain', hint: '2 à 6 joueurs' }
 ];
 
 // Code fixe de la table familiale : personne n'a besoin de le saisir ni de le
@@ -376,6 +379,18 @@ export async function playCards(room, playerId, cardIds) {
 /** Passe son tour au Trou du Cul. */
 export async function passTurn(room, playerId) {
   const newState = applyTrouducPass(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Pose une carte au 8 américain (`chosenSuit` uniquement pour un 8). */
+export async function playAmericainCard(room, playerId, cardId, chosenSuit) {
+  const newState = applyAmericainPlay(room.state, playerId, cardId, chosenSuit);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Pioche une carte au 8 américain (uniquement si aucun coup possible). */
+export async function drawAmericainCard(room, playerId) {
+  const newState = applyAmericainDraw(room.state, playerId);
   return updateRoomState(room.id, room.version, newState);
 }
 

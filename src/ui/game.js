@@ -1,7 +1,22 @@
 import { cardFaceHtml, cardBackHtml } from './cards.js';
-import { AVAILABLE_GAMES, startGame, drawForCurrentPlayer, playCards, passTurn, playAgain, addBot, submitExchangeGift, claimHost, HOST_STALE_MS } from '../game/engine.js';
+import {
+  AVAILABLE_GAMES,
+  startGame,
+  drawForCurrentPlayer,
+  playCards,
+  passTurn,
+  playAmericainCard,
+  drawAmericainCard,
+  playAgain,
+  addBot,
+  submitExchangeGift,
+  claimHost,
+  HOST_STALE_MS
+} from '../game/engine.js';
 import { playerToDrawFrom as computeTarget } from '../game/pouilleux.js';
 import { rankValue as trouducRankValue, rankLabel as trouducRankLabel } from '../game/trouduc.js';
+import { isLegalCard, hasLegalMove } from '../game/americain.js';
+import { suitInfo } from '../game/deck.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
 import { enableHandDrag } from './dragReorder.js';
 
@@ -27,6 +42,7 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
     lastCelebratedMoveId = null;
     expiredPileClearedId = null;
     pileClearTimerFor = null;
+    pendingEightCardId = null;
     resetHandOrder('pouilleux');
     revealHands = false;
     return renderWaitingRoom(container, { room, player, onLeave, onKick });
@@ -46,15 +62,16 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   lastRenderedState = state;
 
   const isTrouduc = room.game === 'trouduc';
+  const isAmericain = room.game === 'americain';
   if (state.status === 'playing') {
-    return isTrouduc
-      ? renderTrouducTable(container, { room, player, state })
-      : renderTableNow(container, { room, player, state });
+    if (isTrouduc) return renderTrouducTable(container, { room, player, state });
+    if (isAmericain) return renderAmericainTable(container, { room, player, state });
+    return renderTableNow(container, { room, player, state });
   }
   if (state.status === 'finished') {
-    return isTrouduc
-      ? renderTrouducEnd(container, { room, player, state, onLeave })
-      : renderEndScreen(container, { room, player, onLeave });
+    if (isTrouduc) return renderTrouducEnd(container, { room, player, state, onLeave });
+    if (isAmericain) return renderAmericainEnd(container, { room, player, state, onLeave });
+    return renderEndScreen(container, { room, player, onLeave });
   }
 }
 
@@ -844,6 +861,204 @@ function renderTrouducEnd(container, { room, player, state, onLeave }) {
             .map((p) => `<li>${trouducRankLabel(p.rank)} — ${p.name}${p.id === player.id ? ' (toi)' : ''}</li>`)
             .join('')}
         </ol>
+        <button class="btn btn--primary" id="btn-again">Rejouer</button>
+        <button class="btn btn--link" id="btn-leave">Quitter la table</button>
+      </div>
+    </div>
+  `;
+
+  container.querySelector('#btn-again')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await playAgain(room);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de relancer une partie.');
+    }
+  });
+
+  container.querySelector('#btn-leave')?.addEventListener('click', () => {
+    if (window.confirm('Quitter la table ?')) onLeave?.();
+  });
+}
+
+/* ============================== Le 8 américain ============================== */
+
+// Carte "8" en attente du choix de couleur (clic sur l'icône couleur pour valider,
+// ou en dehors pour annuler) — distincte de toute autre sélection, remise à zéro
+// dès que ce n'est plus mon tour.
+let pendingEightCardId = null;
+
+const SUIT_ORDER = ['S', 'H', 'D', 'C'];
+
+function renderAmericainTable(container, { room, player, state }) {
+  const me = state.players.find((p) => p.id === player.id);
+  const others = state.players.filter((p) => p.id !== player.id);
+  const isMyTurn = state.currentPlayerId === player.id;
+  if (!isMyTurn) pendingEightCardId = null;
+
+  const topCard = state.discard[state.discard.length - 1];
+  const activeSuitChanged = topCard.rank === '8' && state.activeSuit !== topCard.suit;
+  const myLegalMove = isMyTurn && hasLegalMove(state, me.hand);
+  const mustDraw = isMyTurn && !myLegalMove;
+
+  const restHtml = others
+    .map((p) => {
+      const isTurn = p.id === state.currentPlayerId;
+      const status = `${p.hand.length} carte${p.hand.length > 1 ? 's' : ''}`;
+      const handHtml =
+        Array.from({ length: Math.min(p.hand.length, 6) }).map(() => cardBackHtml()).join('') +
+        (p.hand.length > 6 ? `<span class="opponent__count">+${p.hand.length - 5}</span>` : '');
+      return `
+        <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
+          <div class="opponent__hand">${handHtml}</div>
+          <p class="opponent__name">${p.name} · ${status}</p>
+        </div>`;
+    })
+    .join('');
+
+  const orderedHand = getOrderedHand('americain', me.hand, sortedHand);
+
+  container.innerHTML = `
+    <div class="screen screen--table americain-screen">
+      <div class="pouilleux-zone pouilleux-zone--others">
+        ${restHtml || '<p class="pouilleux-zone__empty">—</p>'}
+      </div>
+
+      <div class="table-felt americain-felt">
+        <div class="americain-center">
+          <div class="americain-discard">
+            ${cardFaceHtml(topCard)}
+            ${activeSuitChanged ? `<span class="americain-active-suit americain-active-suit--${suitInfo(state.activeSuit).color}">${suitInfo(state.activeSuit).symbol}</span>` : ''}
+          </div>
+          <button type="button" class="americain-stock ${mustDraw ? 'americain-stock--pickable' : ''}" id="btn-draw" ${mustDraw ? '' : 'disabled'}>
+            ${cardBackHtml()}
+            <span class="americain-stock__count">${state.stock.length}</span>
+          </button>
+        </div>
+
+        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
+          ${
+            isMyTurn
+              ? mustDraw
+                ? 'Aucun coup possible — pioche'
+                : 'Touche une carte jouable'
+              : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`
+          }
+        </div>
+
+        ${
+          pendingEightCardId
+            ? `<div class="americain-suit-picker">
+                 <p class="americain-suit-picker__label">Choisis la couleur :</p>
+                 <div class="americain-suit-picker__options">
+                   ${SUIT_ORDER.map((key) => {
+                     const s = suitInfo(key);
+                     return `<button type="button" class="americain-suit-picker__option americain-suit-picker__option--${s.color}" data-suit="${key}">${s.symbol}</button>`;
+                   }).join('')}
+                 </div>
+                 <button type="button" class="btn btn--link btn--small" id="btn-cancel-eight">Annuler</button>
+               </div>`
+            : ''
+        }
+      </div>
+
+      <div class="my-hand">
+        <p class="my-hand__label">Ta main (${me.hand.length}) <small>— glisse pour réordonner</small></p>
+        <div class="my-hand__cards">
+          ${orderedHand
+            .map((c) => {
+              const legal = isLegalCard(state, c);
+              const playable = isMyTurn && legal;
+              return `<div class="hand-card ${playable ? '' : 'hand-card--unplayable'} ${pendingEightCardId === c.id ? 'hand-card--selected' : ''}" data-card-id="${c.id}">${cardFaceHtml(c)}</div>`;
+            })
+            .join('') || '<p class="my-hand__empty">Tu as fini, bravo ! Suis la suite de la partie ci-dessus.</p>'}
+        </div>
+
+        <details class="log">
+          <summary>Journal de la partie</summary>
+          <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
+        </details>
+
+        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+      </div>
+    </div>
+  `;
+
+  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
+    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
+      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
+    }
+  });
+
+  container.querySelector('#btn-draw')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await drawAmericainCard(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+    }
+  });
+
+  container.querySelector('#btn-cancel-eight')?.addEventListener('click', () => {
+    pendingEightCardId = null;
+    renderAmericainTable(container, { room, player, state });
+  });
+
+  container.querySelectorAll('.americain-suit-picker__option').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const suit = btn.dataset.suit;
+      const cardId = pendingEightCardId;
+      container.querySelectorAll('.americain-suit-picker__option').forEach((b) => (b.disabled = true));
+      try {
+        await playAmericainCard(room, player.id, cardId, suit);
+        pendingEightCardId = null;
+      } catch (err) {
+        container.querySelectorAll('.americain-suit-picker__option').forEach((b) => (b.disabled = false));
+        alert(err.message || 'Impossible de jouer cette carte.');
+      }
+    });
+  });
+
+  if (isMyTurn) {
+    container.querySelectorAll('.my-hand .hand-card:not(.hand-card--unplayable)').forEach((el) => {
+      el.addEventListener('click', async () => {
+        const id = el.dataset.cardId;
+        const card = me.hand.find((c) => c.id === id);
+        if (card.rank === '8') {
+          pendingEightCardId = id;
+          renderAmericainTable(container, { room, player, state });
+          return;
+        }
+        try {
+          await playAmericainCard(room, player.id, id);
+        } catch (err) {
+          alert(err.message || 'Impossible de jouer cette carte.');
+        }
+      });
+    });
+  }
+
+  const myHandEl = container.querySelector('.my-hand__cards');
+  if (myHandEl) {
+    enableHandDrag(myHandEl, {
+      onDrop: (cardId, index) => {
+        moveCard('americain', cardId, index);
+        renderAmericainTable(container, { room, player, state });
+      }
+    });
+  }
+}
+
+function renderAmericainEnd(container, { room, player, state, onLeave }) {
+  const winner = state.players.find((p) => p.id === state.winnerId);
+  const youWon = state.winnerId === player.id;
+
+  container.innerHTML = `
+    <div class="screen screen--end">
+      <div class="lobby-card lobby-card--end">
+        <p class="eyebrow">Partie terminée</p>
+        <h1>${youWon ? 'Tu as gagné !' : `${winner?.name || '?'} a gagné !`}${youWon ? ' 🏆' : ''}</h1>
         <button class="btn btn--primary" id="btn-again">Rejouer</button>
         <button class="btn btn--link" id="btn-leave">Quitter la table</button>
       </div>

@@ -969,6 +969,115 @@ h1 {
 
 .settings-modal__save { display: block; width: 100%; margin-top: 22px; }
 
+/* ---------- 8 américain ---------- */
+
+.americain-felt { padding: 20px 14px 24px; }
+
+.americain-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  margin-bottom: 14px;
+}
+
+.americain-discard { position: relative; }
+.americain-discard .card { width: 72px; height: 104px; }
+.americain-discard .card__pip { font-size: 32px; }
+.americain-discard .card__corner { font-size: 13px; }
+
+.americain-active-suit {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--cream);
+  border: 2px solid var(--brass);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+}
+.americain-active-suit--dark { color: var(--dark-suit); }
+.americain-active-suit--red { color: var(--red-suit); }
+
+.americain-stock {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  position: relative;
+  cursor: default;
+  opacity: 0.6;
+}
+.americain-stock .card--back { width: 60px; height: 88px; }
+.americain-stock__count {
+  position: absolute;
+  bottom: -8px;
+  right: -8px;
+  background: var(--brass);
+  color: var(--felt-900);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 6px;
+  min-width: 18px;
+  text-align: center;
+}
+.americain-stock--pickable { cursor: pointer; opacity: 1; }
+.americain-stock--pickable .card--back {
+  box-shadow: 0 0 0 3px var(--brass-soft), 0 6px 16px rgba(0,0,0,0.4);
+}
+.americain-stock:disabled { pointer-events: none; }
+
+.americain-suit-picker { margin-top: 14px; text-align: center; }
+.americain-suit-picker__label {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: rgba(247, 241, 225, 0.8);
+  margin: 0 0 10px;
+}
+.americain-suit-picker__options {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.americain-suit-picker__option {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--cream);
+  border: 2px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.americain-suit-picker__option:hover, .americain-suit-picker__option:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--brass);
+  outline: none;
+}
+.americain-suit-picker__option:disabled { opacity: 0.5; cursor: default; }
+.americain-suit-picker__option--dark { color: var(--dark-suit); }
+.americain-suit-picker__option--red { color: var(--red-suit); }
+
 /* ---------- Écran de fin ---------- */
 
 .screen--end .lobby-card { text-align: center; }

@@ -13,6 +13,8 @@ import {
   drawForCurrentPlayer,
   playCards,
   passTurn,
+  playAmericainCard,
+  drawAmericainCard,
   submitExchangeGift,
   reclaimStaleHost,
   pingHostPresence,
@@ -22,6 +24,7 @@ import {
 } from './game/engine.js';
 import { playerToDrawFrom } from './game/pouilleux.js';
 import { rankValue as trouducRankValue } from './game/trouduc.js';
+import { isLegalCard as americainIsLegalCard } from './game/americain.js';
 
 const app = document.getElementById('app');
 let unsubscribe = null;
@@ -128,6 +131,57 @@ function maybeScheduleTrouducBotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
+// Politique du bot au 8 américain : joue la première carte légale trouvée en
+// main (en gardant les 8 pour la fin s'il a mieux à jouer), sinon pioche. En
+// jouant un 8, choisit la couleur la plus représentée dans le reste de sa main
+// pour maximiser ses coups suivants. Aucune anticipation plus poussée.
+function chooseAmericainMove(state, botId) {
+  const bot = state.players.find((p) => p.id === botId);
+  if (!bot) return { type: 'draw' };
+
+  const legalCards = bot.hand.filter((c) => americainIsLegalCard(state, c));
+  if (!legalCards.length) return { type: 'draw' };
+
+  const card = legalCards.find((c) => c.rank !== '8') || legalCards[0];
+  if (card.rank !== '8') return { type: 'play', cardId: card.id };
+
+  const remaining = bot.hand.filter((c) => c.id !== card.id);
+  const counts = { S: 0, H: 0, D: 0, C: 0 };
+  remaining.forEach((c) => { counts[c.suit] = (counts[c.suit] || 0) + 1; });
+  const bestSuit = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  return { type: 'play', cardId: card.id, chosenSuit: bestSuit };
+}
+
+let scheduledAmericainBotMove = null;
+
+function maybeScheduleAmericainBotMove(room) {
+  if (room.game !== 'americain' || room.state.status !== 'playing') return;
+
+  const currentId = room.state.currentPlayerId;
+  const bot = room.state.players.find((p) => p.id === currentId && p.isBot);
+  if (!bot) return;
+
+  const signature = `${room.id}:${room.version}`;
+  if (scheduledAmericainBotMove === signature) return;
+  scheduledAmericainBotMove = signature;
+
+  window.setTimeout(async () => {
+    try {
+      const fresh = await fetchRoomById(room.id);
+      if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId) return;
+
+      const move = chooseAmericainMove(fresh.state, currentId);
+      if (move.type === 'play') {
+        await playAmericainCard(fresh, currentId, move.cardId, move.chosenSuit);
+      } else {
+        await drawAmericainCard(fresh, currentId);
+      }
+    } catch (err) {
+      // Idem : un autre appareil a probablement déjà joué, la resynchro realtime prend le relais.
+    }
+  }, 900 + Math.random() * 700);
+}
+
 let scheduledTrouducExchangeBot = null;
 
 /** Pendant la phase d'échange, un bot Président/Vice-Président rend toujours ses cartes les plus faibles. */
@@ -171,7 +225,7 @@ function maybeScheduleTrouducExchangeBot(room) {
   });
 }
 
-const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul' };
+const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain' };
 
 function updateDocumentTitle(room) {
   const gameLabel = GAME_TITLES[room.game];
@@ -221,6 +275,7 @@ function draw(room) {
   maybeScheduleBotMove(room);
   maybeScheduleTrouducExchangeBot(room);
   maybeScheduleTrouducBotMove(room);
+  maybeScheduleAmericainBotMove(room);
 
   const stillMember = room.state.players.some((p) => p.id === currentPlayer.id);
 

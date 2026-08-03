@@ -1,4 +1,4 @@
-// Mémorise, par jeu ('pouilleux' | 'trouduc'), l'ordre dans lequel le joueur a
+// Mémorise, par jeu ('pouilleux' | 'trouduc' | 'americain'), l'ordre dans lequel le joueur a
 // choisi de ranger ses cartes. Vit en mémoire (pas en localStorage) : c'est une
 // simple préférence d'affichage pour la session en cours, remise à zéro entre
 // deux visites — largement suffisant pour une partie entre proches.
