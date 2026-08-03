@@ -139,7 +139,9 @@ export function initGame(players, previousRanking = null) {
   return {
     status: 'exchange',
     players: gamePlayers,
-    turnOrder: players.map((p) => p.id),
+    // L'ordre de jeu suit toujours les rôles, dans cet ordre précis (celui du
+    // premier pli après l'échange) — indépendant de l'ordre d'arrivée à table.
+    turnOrder: [trouDuCulId, secretaireId, vicePresidentId, presidentId],
     currentPlayerId: null,
     pile: [],
     pileRank: null,

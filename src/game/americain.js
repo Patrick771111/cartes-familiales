@@ -6,10 +6,28 @@ function uniqueId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Prochain joueur dans l'ordre du tour (tous les joueurs restent "actifs" jusqu'à la victoire, pas de sortie en cours de partie). */
-function nextPlayerId(turnOrder, fromId) {
+/** Prochain joueur dans l'ordre du tour (tous les joueurs restent "actifs" jusqu'à la victoire, pas de sortie en cours de partie). `direction` = 1 (sens normal) ou -1 (inversé par un Valet). */
+function nextPlayerId(turnOrder, fromId, direction = 1) {
   const idx = turnOrder.indexOf(fromId);
-  return turnOrder[(idx + 1) % turnOrder.length];
+  const len = turnOrder.length;
+  return turnOrder[(idx + direction + len) % len];
+}
+
+/** Tire `count` cartes du sabot, en le reformant depuis la défausse (sauf sa carte du dessus) si besoin. */
+function drawFromStock(stock, discard, count) {
+  let currentStock = stock.slice();
+  let currentDiscard = discard.slice();
+  const cards = [];
+  for (let i = 0; i < count; i++) {
+    if (currentStock.length === 0) {
+      if (currentDiscard.length <= 1) break; // plus aucune carte disponible nulle part : on s'arrête là
+      const top = currentDiscard[currentDiscard.length - 1];
+      currentStock = shuffle(currentDiscard.slice(0, -1));
+      currentDiscard = [top];
+    }
+    cards.push(currentStock.shift());
+  }
+  return { cards, stock: currentStock, discard: currentDiscard };
 }
 
 /**
@@ -35,6 +53,16 @@ export function hasLegalMove(state, hand) {
  * première carte de la pioche pour ouvrir la défausse. Si cette carte de départ
  * est un 8, elle garde simplement sa couleur imprimée (pas de joker déclenché
  * avant même le premier tour) — hypothèse, à ajuster dans `initGame` si besoin.
+ * De même si elle est un Valet/2/As : son effet spécial ne s'applique pas à la
+ * toute première carte, seulement à celles jouées ensuite.
+ *
+ * Règles spéciales (en plus du 8, voir `isLegalCard`) — appliquées dans
+ * `applyPlay`, uniquement si la carte jouée n'est pas la dernière de la main :
+ * - **Valet** : inverse le sens du jeu.
+ * - **2** : le joueur suivant (dans le sens en cours) pioche 2 cartes et son
+ *   tour est sauté.
+ * - **As** : tu pioches une carte au hasard dans la main du joueur suivant
+ *   (comme au Pouilleux) — son tour n'est en revanche pas sauté.
  */
 export function initGame(players) {
   if (players.length < 2) {
@@ -60,6 +88,7 @@ export function initGame(players) {
     players: gamePlayers,
     turnOrder: players.map((p) => p.id),
     currentPlayerId: players[0].id,
+    direction: 1,
     stock,
     discard: [topCard],
     // Historique borné (4 dernières poses) des cartes défaussées, pour un
@@ -99,23 +128,56 @@ export function applyPlay(state, playerId, cardId, chosenSuit) {
   const finishedNow = current.hand.length === 0;
   if (finishedNow) current.finished = true;
 
-  const discard = [...state.discard, card];
+  let discard = [...state.discard, card];
   const discardHistory = [...(state.discardHistory || []), { by: current.id, cards: [card] }].slice(-4);
   const activeSuit = card.rank === '8' ? chosenSuit : card.suit;
 
-  const logMessage = `${current.name} pose ${card.rank}${suitInfo(card.suit).symbol}${
-    card.rank === '8' ? ` et choisit ${suitInfo(chosenSuit).symbol}` : ''
-  }${finishedNow ? ` — ${current.name} a gagné !` : ''}`;
+  let stock = state.stock.slice();
+  let direction = state.direction || 1;
+  let extraLog = '';
+
+  if (card.rank === '8') {
+    extraLog = ` et choisit ${suitInfo(chosenSuit).symbol}`;
+  } else if (!finishedNow && card.rank === 'J') {
+    direction = -direction;
+    extraLog = " — le sens de jeu s'inverse !";
+  }
+
+  let nextId = finishedNow ? null : nextPlayerId(state.turnOrder, current.id, direction);
+
+  if (!finishedNow && card.rank === '2' && nextId) {
+    const victim = players.find((p) => p.id === nextId);
+    const drawn = drawFromStock(stock, discard, 2);
+    stock = drawn.stock;
+    discard = drawn.discard;
+    victim.hand = [...victim.hand, ...drawn.cards];
+    extraLog = ` — ${victim.name} pioche ${drawn.cards.length} carte${drawn.cards.length > 1 ? 's' : ''} et passe son tour !`;
+    nextId = nextPlayerId(state.turnOrder, nextId, direction);
+  }
+
+  if (!finishedNow && card.rank === 'A' && nextId) {
+    const victim = players.find((p) => p.id === nextId);
+    if (victim.hand.length > 0) {
+      const stealIndex = Math.floor(Math.random() * victim.hand.length);
+      const [stolen] = victim.hand.splice(stealIndex, 1);
+      current.hand.push(stolen);
+      extraLog = ` — ${current.name} pioche une carte dans la main de ${victim.name} !`;
+    }
+  }
+
+  const logMessage = `${current.name} pose ${card.rank}${suitInfo(card.suit).symbol}${extraLog}${finishedNow ? ` — ${current.name} a gagné !` : ''}`;
 
   return {
     ...state,
     players,
+    stock,
     discard,
     discardHistory,
     activeSuit,
+    direction,
     status: finishedNow ? 'finished' : 'playing',
     winnerId: finishedNow ? current.id : state.winnerId,
-    currentPlayerId: finishedNow ? null : nextPlayerId(state.turnOrder, current.id),
+    currentPlayerId: nextId,
     lastMove: { id: uniqueId(), by: current.id, type: 'play', card, chosenSuit: card.rank === '8' ? chosenSuit : null, finished: finishedNow },
     log: [...state.log, { ts: Date.now(), message: logMessage }].slice(-40)
   };
@@ -139,24 +201,16 @@ export function applyDraw(state, playerId) {
     throw new Error('Tu as un coup possible : impossible de piocher.');
   }
 
-  let stock = state.stock.slice();
-  let discard = state.discard.slice();
-  if (stock.length === 0) {
-    if (discard.length <= 1) throw new Error('Plus aucune carte à piocher.');
-    const top = discard[discard.length - 1];
-    stock = shuffle(discard.slice(0, -1));
-    discard = [top];
-  }
-
-  const [drawnCard, ...restStock] = stock;
-  current.hand.push(drawnCard);
+  const drawn = drawFromStock(state.stock, state.discard, 1);
+  if (!drawn.cards.length) throw new Error('Plus aucune carte à piocher.');
+  current.hand.push(...drawn.cards);
 
   return {
     ...state,
     players,
-    stock: restStock,
-    discard,
-    currentPlayerId: nextPlayerId(state.turnOrder, current.id),
+    stock: drawn.stock,
+    discard: drawn.discard,
+    currentPlayerId: nextPlayerId(state.turnOrder, current.id, state.direction || 1),
     lastMove: { id: uniqueId(), by: current.id, type: 'draw', card: null, chosenSuit: null, finished: false },
     log: [...state.log, { ts: Date.now(), message: `${current.name} pioche une carte.` }].slice(-40)
   };

@@ -342,10 +342,11 @@ export async function startGame(room, gameType = 'pouilleux') {
     if (room.state.players.length !== 4) {
       throw new Error('Le Trou du Cul se joue à 4 joueurs exactement.');
     }
-    const gameState = initializer(
-      room.state.players.map(({ id, name, isBot }) => ({ id, name, isBot })),
-      room.state.previousTrouducRanking || null
-    );
+    // Toujours un tirage au sort frais des rôles en démarrant depuis le lobby
+    // (le lobby remet systématiquement à zéro — voir playAgain). Pour
+    // reconduire les rôles d'une manche à l'autre sans repasser par le lobby,
+    // voir continueGame.
+    const gameState = initializer(room.state.players.map(({ id, name, isBot }) => ({ id, name, isBot })), null);
     const newState = { ...room.state, ...gameState, hostId: room.state.hostId };
     return updateRoomState(room.id, room.version, newState, { game: gameType });
   }
@@ -412,14 +413,15 @@ export async function standBlackjack(room, playerId) {
   return updateRoomState(room.id, room.version, newState);
 }
 
-/** Remet la table en salle d'attente pour relancer une manche du même jeu, en gardant les mêmes joueurs. */
+/**
+ * Remet la table en salle d'attente — **réinitialise le contexte de la partie**
+ * (rôles du Trou du Cul retirés au sort à la prochaine donne, argent du
+ * Blackjack remis à `STARTING_MONEY`) puisqu'on quitte volontairement la
+ * partie en cours. Pour enchaîner une manche en conservant ce contexte, voir
+ * `continueGame`.
+ */
 export async function playAgain(room) {
   const players = room.state.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false }));
-
-  const justFinishedTrouduc = room.game === 'trouduc' && room.state.status === 'finished';
-  const previousTrouducRanking = justFinishedTrouduc
-    ? room.state.finishedOrder
-    : room.state.previousTrouducRanking || null;
 
   const newState = {
     status: 'lobby',
@@ -428,10 +430,40 @@ export async function playAgain(room) {
     hostLastSeen: Date.now(),
     turnOrder: [],
     currentPlayerId: null,
-    previousTrouducRanking,
-    log: [...room.state.log, { ts: Date.now(), message: 'Nouvelle partie.' }].slice(-40)
+    log: [...room.state.log, { ts: Date.now(), message: 'Retour à la salle d\'attente — nouvelle partie.' }].slice(-40)
   };
   return updateRoomState(room.id, room.version, newState);
+}
+
+/**
+ * Enchaîne directement une nouvelle manche du même jeu, avec les mêmes
+ * joueurs, **sans repasser par le lobby** — et en conservant le contexte
+ * propre à chaque jeu (rôles du Trou du Cul, argent du Blackjack). Seulement
+ * disponible une fois la manche/partie précédente terminée.
+ */
+export async function continueGame(room) {
+  if (room.state.status !== 'finished') {
+    throw new Error("La manche en cours n'est pas terminée.");
+  }
+
+  const gameType = room.game;
+  const initializer = GAME_INITIALIZERS[gameType];
+  if (!initializer) throw new Error('Jeu inconnu.');
+
+  const playersList = room.state.players.map(({ id, name, isBot }) => ({ id, name, isBot }));
+
+  let gameState;
+  if (gameType === 'trouduc') {
+    gameState = initializer(playersList, room.state.finishedOrder || null);
+  } else if (gameType === 'blackjack') {
+    const previousMoney = Object.fromEntries(room.state.players.map((p) => [p.id, p.money]));
+    gameState = initializer(playersList, previousMoney);
+  } else {
+    gameState = initializer(playersList);
+  }
+
+  const newState = { ...room.state, ...gameState, hostId: room.state.hostId };
+  return updateRoomState(room.id, room.version, newState, { game: gameType });
 }
 
 export function watchRoom(roomId, onChange) {

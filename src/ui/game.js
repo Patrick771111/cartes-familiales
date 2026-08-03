@@ -10,6 +10,7 @@ import {
   hitBlackjack,
   standBlackjack,
   playAgain,
+  continueGame,
   addBot,
   submitExchangeGift,
   claimHost,
@@ -18,7 +19,7 @@ import {
 import { playerToDrawFrom as computeTarget } from '../game/pouilleux.js';
 import { rankValue as trouducRankValue, rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { isLegalCard, hasLegalMove } from '../game/americain.js';
-import { handTotal } from '../game/blackjack.js';
+import { handTotal, BET as BLACKJACK_BET } from '../game/blackjack.js';
 import { suitInfo } from '../game/deck.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
 import { enableHandDrag } from './dragReorder.js';
@@ -31,6 +32,43 @@ function rankSortValue(rank) {
 
 function sortedHand(hand) {
   return hand.slice().sort((a, b) => rankSortValue(a.rank) - rankSortValue(b.rank) || a.suit.localeCompare(b.suit));
+}
+
+/**
+ * Boutons de fin de partie, communs aux 4 jeux : soit on enchaîne directement
+ * une nouvelle manche (mêmes joueurs, sans repasser par le lobby — le contexte
+ * propre à chaque jeu comme les rôles du Trou du Cul ou l'argent du Blackjack
+ * est conservé), soit on retourne au lobby (tout est remis à zéro).
+ */
+function endGameActionsHtml() {
+  return `
+    <div class="end-actions">
+      <button class="btn btn--primary" id="btn-continue">Continuer</button>
+      <button class="btn btn--ghost" id="btn-lobby">Retour au lobby</button>
+    </div>
+  `;
+}
+
+function wireEndGameActions(container, room) {
+  container.querySelector('#btn-continue')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await continueGame(room);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de continuer.');
+    }
+  });
+
+  container.querySelector('#btn-lobby')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await playAgain(room);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de revenir au lobby.');
+    }
+  });
 }
 
 /**
@@ -425,21 +463,13 @@ function renderEndScreen(container, { room, player, onLeave }) {
         <p class="eyebrow">Partie terminée</p>
         <div class="odd-card-reveal">${cardFaceHtml({ id: state.oddCardId, rank: state.oddCardId.slice(0, -1), suit: state.oddCardId.slice(-1) })}</div>
         <h1>${youLost ? 'Tu es le Pouilleux !' : `${loser?.name || '?'} est le Pouilleux !`}</h1>
-        <button class="btn btn--primary" id="btn-again">Rejouer</button>
+        ${endGameActionsHtml()}
         <button class="btn btn--link" id="btn-leave">Quitter la table</button>
       </div>
     </div>
   `;
 
-  container.querySelector('#btn-again')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try {
-      await playAgain(room);
-    } catch (err) {
-      e.target.disabled = false;
-      alert(err.message || 'Impossible de relancer une partie.');
-    }
-  });
+  wireEndGameActions(container, room);
 
   container.querySelector('#btn-leave')?.addEventListener('click', () => {
     if (window.confirm('Quitter la table ?')) onLeave?.();
@@ -578,7 +608,15 @@ let pileClearTimerFor = null;
 
 function renderTrouducTable(container, { room, player, state }) {
   const me = state.players.find((p) => p.id === player.id);
-  const others = state.players.filter((p) => p.id !== player.id);
+  // Place les 3 adversaires dans l'ordre du tour à partir de moi (siège gauche
+  // = joueur suivant, milieu = celui d'après, droite = celui juste avant moi),
+  // pour que le jeu progresse toujours dans le sens des aiguilles d'une montre
+  // en partant du bas (moi) vers la gauche, le haut, puis la droite.
+  const myTurnIdx = state.turnOrder.indexOf(player.id);
+  const others =
+    myTurnIdx === -1
+      ? state.players.filter((p) => p.id !== player.id)
+      : [1, 2, 3].map((step) => state.players.find((p) => p.id === state.turnOrder[(myTurnIdx + step) % state.turnOrder.length]));
   const isMyTurn = state.currentPlayerId === player.id;
   if (!isMyTurn) selectedCardIds = new Set();
 
@@ -889,21 +927,13 @@ function renderTrouducEnd(container, { room, player, state, onLeave }) {
             .map((p) => `<li>${trouducRankLabel(p.rank)} — ${p.name}${p.id === player.id ? ' (toi)' : ''}</li>`)
             .join('')}
         </ol>
-        <button class="btn btn--primary" id="btn-again">Rejouer</button>
+        ${endGameActionsHtml()}
         <button class="btn btn--link" id="btn-leave">Quitter la table</button>
       </div>
     </div>
   `;
 
-  container.querySelector('#btn-again')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try {
-      await playAgain(room);
-    } catch (err) {
-      e.target.disabled = false;
-      alert(err.message || 'Impossible de relancer une partie.');
-    }
-  });
+  wireEndGameActions(container, room);
 
   container.querySelector('#btn-leave')?.addEventListener('click', () => {
     if (window.confirm('Quitter la table ?')) onLeave?.();
@@ -1001,6 +1031,7 @@ function renderAmericainTable(container, { room, player, state }) {
               : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`
           }
         </div>
+        <p class="americain-direction">${state.direction === -1 ? '↺ Sens inversé' : '↻ Sens normal'}</p>
 
         ${
           pendingEightCardId
@@ -1116,21 +1147,13 @@ function renderAmericainEnd(container, { room, player, state, onLeave }) {
       <div class="lobby-card lobby-card--end">
         <p class="eyebrow">Partie terminée</p>
         <h1>${youWon ? 'Tu as gagné !' : `${winner?.name || '?'} a gagné !`}${youWon ? ' 🏆' : ''}</h1>
-        <button class="btn btn--primary" id="btn-again">Rejouer</button>
+        ${endGameActionsHtml()}
         <button class="btn btn--link" id="btn-leave">Quitter la table</button>
       </div>
     </div>
   `;
 
-  container.querySelector('#btn-again')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try {
-      await playAgain(room);
-    } catch (err) {
-      e.target.disabled = false;
-      alert(err.message || 'Impossible de relancer une partie.');
-    }
-  });
+  wireEndGameActions(container, room);
 
   container.querySelector('#btn-leave')?.addEventListener('click', () => {
     if (window.confirm('Quitter la table ?')) onLeave?.();
@@ -1153,6 +1176,17 @@ function renderBlackjackTable(container, { room, player, state, onLeave }) {
     : state.dealer.hand.map(cardFaceHtml).join('');
   const dealerTotalLabel = state.dealer.hidden ? '' : ` (${handTotal(state.dealer.hand)})`;
 
+  const moneyDeltaFor = (id) => {
+    const r = state.results?.[id];
+    return r === 'win' ? BLACKJACK_BET : r === 'lose' ? -BLACKJACK_BET : 0;
+  };
+  const moneyLabelFor = (p) => {
+    if (!finished) return `${p.money} 💰`;
+    const delta = moneyDeltaFor(p.id);
+    const deltaLabel = delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : '±0';
+    return `${p.money} 💰 (${deltaLabel})`;
+  };
+
   const restHtml = others
     .map((p) => {
       const total = handTotal(p.hand);
@@ -1162,6 +1196,7 @@ function renderBlackjackTable(container, { room, player, state, onLeave }) {
         <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
           <div class="opponent__hand opponent__hand--revealed">${p.hand.map(cardFaceHtml).join('')}</div>
           <p class="opponent__name">${p.name} · ${total} · ${label}</p>
+          <p class="opponent__name">${moneyLabelFor(p)}</p>
         </div>`;
     })
     .join('');
@@ -1195,6 +1230,7 @@ function renderBlackjackTable(container, { room, player, state, onLeave }) {
 
       <div class="my-hand">
         <p class="my-hand__label">Ta main (${meTotal}) · ${myResultLabel}</p>
+        <p class="my-hand__label">${moneyLabelFor(me)}</p>
         <div class="my-hand__cards">${me.hand.map(cardFaceHtml).join('')}</div>
 
         ${
@@ -1206,7 +1242,7 @@ function renderBlackjackTable(container, { room, player, state, onLeave }) {
             : ''
         }
 
-        ${finished ? `<button class="btn btn--primary" id="btn-again">Rejouer</button>` : ''}
+        ${finished ? endGameActionsHtml() : ''}
 
         <details class="log">
           <summary>Journal de la partie</summary>
@@ -1239,15 +1275,7 @@ function renderBlackjackTable(container, { room, player, state, onLeave }) {
     }
   });
 
-  container.querySelector('#btn-again')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try {
-      await playAgain(room);
-    } catch (err) {
-      e.target.disabled = false;
-      alert(err.message || 'Impossible de relancer une partie.');
-    }
-  });
+  wireEndGameActions(container, room);
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
   container.querySelector('#btn-abandon')?.addEventListener('click', () => {

@@ -69,21 +69,29 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
   au sort parmi les nouveaux venus, sans perturber les rôles de ceux qui
   étaient déjà là. Avant chaque donne : le Trou du Cul donne ses 2 meilleures
   cartes au Président (qui lui rend 2 cartes en retour), et le Secrétaire fait
-  de même avec le Vice-Président pour 1 carte. Le Trou du Cul entame le
-  premier pli de la nouvelle manche *(hypothèse — certaines familles font
-  démarrer le Président à la place ; à changer dans `initGame`, ligne
-  `currentPlayerId: trouDuCulId`, si besoin)*.
+  de même avec le Vice-Président pour 1 carte. L'ordre de jeu suit toujours les
+  rôles dans cet ordre précis — Trou du Cul, Secrétaire, Vice-Président,
+  Président — et la disposition des adversaires à l'écran est calculée à
+  partir de cet ordre pour que la partie se joue toujours dans le sens des
+  aiguilles d'une montre en partant de soi (bas → gauche → haut → droite)
+  *(hypothèse — certaines familles font démarrer le Président à la place ;
+  à changer dans `initGame`, l'ordre du tableau `turnOrder`, si besoin)*.
 - **Le 8 américain** (`src/game/americain.js`) : 2 à 6 joueurs, jeu de 52
   cartes standard (7 chacun jusqu'à 4 joueurs, 5 au-delà). À son tour, on pose
   une carte qui correspond à la couleur ou au rang de la carte au sommet de la
-  défausse, ou un **8** (toujours jouable, quelle que soit la situation) qui
-  permet de choisir la nouvelle couleur demandée. Sans coup possible, on
-  pioche une carte dans la pioche (qui se reconstitue en mélangeant la
-  défausse si besoin) — la carte piochée n'est *pas* rejouable dans la foulée,
-  le tour passe directement au joueur suivant *(hypothèse — à ajuster dans
-  `applyDraw` si vous préférez la variante "on peut la rejouer aussitôt")*.
-  Premier à vider sa main : gagné, la manche s'arrête là (pas de classement
-  complet des autres).
+  défausse. Sans coup possible, on pioche une carte dans la pioche (qui se
+  reconstitue en mélangeant la défausse si besoin) — la carte piochée n'est
+  *pas* rejouable dans la foulée, le tour passe directement au joueur suivant
+  *(hypothèse — à ajuster dans `applyDraw` si vous préférez la variante "on
+  peut la rejouer aussitôt")*. Premier à vider sa main : gagné, la manche
+  s'arrête là (pas de classement complet des autres). Cartes spéciales (sans
+  effet sur la toute dernière carte jouée, la partie est déjà gagnée) :
+  - **8** : toujours jouable, quelle que soit la situation — choisit la
+    nouvelle couleur demandée.
+  - **Valet** : inverse le sens du jeu.
+  - **2** : le joueur suivant pioche 2 cartes et son tour est sauté.
+  - **As** : pioche une carte au hasard dans la main du joueur suivant (comme
+    au Pouilleux) — son tour n'est en revanche pas sauté.
 - **Blackjack** (`src/game/blackjack.js`) : 1 à 6 joueurs, tous contre la
   banque — **tenue automatiquement par un bot**, ce n'est pas un siège à la
   table (`state.dealer`, distinct de `state.players`). Distribution de 2
@@ -92,9 +100,11 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
   Une fois tout le monde fixé, la banque révèle sa carte cachée et tire
   automatiquement tant que son total est inférieur à 17 *(hypothèse : pas de
   "peek" — même si la banque a un blackjack naturel caché dès la donne, ça ne
-  se révèle qu'à la toute fin comme n'importe quelle autre main ; pas de mise
-  ni de double/split non plus, pour rester simple)*. Résolution
-  gagné/perdu/égalité par joueur, sans classement global.
+  se révèle qu'à la toute fin comme n'importe quelle autre main ; pas de
+  double/split non plus, pour rester simple)*. Chacun démarre avec
+  `STARTING_MONEY` (500) et joue une mise fixe `BET` (25) par manche — gagné :
+  `+BET`, perdu : `-BET`, égalité : inchangé. Le solde peut devenir négatif :
+  pas d'élimination, seul un retour au lobby le remet à zéro (voir plus bas).
 
 L'hôte choisit le jeu dans la salle d'attente juste avant de lancer la partie.
 Si vous n'êtes que 2 ou 3, l'hôte peut ajouter 1 ou 2 bots pour compléter la
@@ -147,8 +157,15 @@ total). Les bots jouent tout seuls après un court délai :
 2. La salle d'attente affiche la liste des joueurs déjà connectés en temps réel.
 3. L'hôte clique sur "Lancer la partie" quand tout le monde est là (pas besoin
    d'attendre exactement 4 joueurs, ça marche dès 2).
-4. À la fin d'une manche, n'importe qui peut cliquer "Rejouer" : ça remet tout
-   le monde en salle d'attente avec les mêmes joueurs, prêt pour une nouvelle donne.
+4. À la fin d'une manche, n'importe qui peut choisir :
+   - **"Continuer"** (`continueGame` dans `engine.js`) : enchaîne directement
+     une nouvelle manche du même jeu avec les mêmes joueurs, sans repasser par
+     la salle d'attente — et en conservant le contexte propre au jeu (rôles du
+     Trou du Cul, argent du Blackjack).
+   - **"Retour au lobby"** (`playAgain`) : remet tout le monde en salle
+     d'attente avec les mêmes joueurs, et **réinitialise** ce contexte (rôles
+     retirés au sort à la prochaine manche, argent remis à `STARTING_MONEY`) —
+     pratique pour changer de jeu, ou repartir sur des bases neutres.
 
 ## Règles du Pouilleux implémentées
 
