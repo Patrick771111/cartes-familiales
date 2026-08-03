@@ -8,17 +8,20 @@ import {
 import { initGame as initPouilleux, applyDraw } from './pouilleux.js';
 import { initGame as initTrouduc, applyPlay as applyTrouducPlay, applyPass as applyTrouducPass, applyExchangeChoice } from './trouduc.js';
 import { initGame as initAmericain, applyPlay as applyAmericainPlay, applyDraw as applyAmericainDraw } from './americain.js';
+import { initGame as initBlackjack, applyHit as applyBlackjackHit, applyStand as applyBlackjackStand } from './blackjack.js';
 
 const GAME_INITIALIZERS = {
   pouilleux: initPouilleux,
   trouduc: initTrouduc,
-  americain: initAmericain
+  americain: initAmericain,
+  blackjack: initBlackjack
 };
 
 export const AVAILABLE_GAMES = [
-  { id: 'pouilleux', label: 'Le Pouilleux', hint: '2 à 6 joueurs' },
-  { id: 'trouduc', label: 'Le Trou du Cul', hint: 'exactement 4 joueurs' },
-  { id: 'americain', label: 'Le 8 américain', hint: '2 à 6 joueurs' }
+  { id: 'pouilleux', label: 'Le Pouilleux', hint: '2 à 6 joueurs', minPlayers: 2 },
+  { id: 'trouduc', label: 'Le Trou du Cul', hint: 'exactement 4 joueurs', minPlayers: 4 },
+  { id: 'americain', label: 'Le 8 américain', hint: '2 à 6 joueurs', minPlayers: 2 },
+  { id: 'blackjack', label: 'Blackjack', hint: '1 à 6 joueurs, banque tenue par un bot', minPlayers: 1 }
 ];
 
 // Code fixe de la table familiale : personne n'a besoin de le saisir ni de le
@@ -347,7 +350,10 @@ export async function startGame(room, gameType = 'pouilleux') {
     return updateRoomState(room.id, room.version, newState, { game: gameType });
   }
 
-  if (room.state.players.length < 2) throw new Error('Il faut au moins 2 joueurs.');
+  const minPlayers = AVAILABLE_GAMES.find((g) => g.id === gameType)?.minPlayers ?? 2;
+  if (room.state.players.length < minPlayers) {
+    throw new Error(`Il faut au moins ${minPlayers} joueur${minPlayers > 1 ? 's' : ''}.`);
+  }
   const gameState = initializer(room.state.players.map(({ id, name, isBot }) => ({ id, name, isBot })));
   const newState = { ...room.state, ...gameState, hostId: room.state.hostId };
   return updateRoomState(room.id, room.version, newState, { game: gameType });
@@ -391,6 +397,18 @@ export async function playAmericainCard(room, playerId, cardId, chosenSuit) {
 /** Pioche une carte au 8 américain (uniquement si aucun coup possible). */
 export async function drawAmericainCard(room, playerId) {
   const newState = applyAmericainDraw(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Tire une carte au Blackjack. */
+export async function hitBlackjack(room, playerId) {
+  const newState = applyBlackjackHit(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Reste sur sa main au Blackjack. */
+export async function standBlackjack(room, playerId) {
+  const newState = applyBlackjackStand(room.state, playerId);
   return updateRoomState(room.id, room.version, newState);
 }
 

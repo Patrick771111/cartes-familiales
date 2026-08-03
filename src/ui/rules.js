@@ -41,6 +41,20 @@ const RULES = {
         <li>Premier à vider sa main : gagné ! La manche s'arrête là.</li>
       </ul>
     `
+  },
+  blackjack: {
+    title: 'Blackjack',
+    html: `
+      <p>1 à 6 joueurs, tous contre la banque — <strong>tenue automatiquement par un bot</strong>, ce n'est pas un siège à la table.</p>
+      <ul>
+        <li>Chacun reçoit 2 cartes, la banque aussi (une carte visible, une cachée). Les figures valent 10, l'As vaut 11 ou 1 (ce qui t'arrange le mieux).</li>
+        <li>À ton tour : <strong>Tirer</strong> une carte de plus, ou <strong>Rester</strong> sur ta main actuelle.</li>
+        <li>Si ton total dépasse 21, tu as sauté — perdu d'office pour cette manche, quel que soit le score final de la banque.</li>
+        <li>Une fois que tout le monde a fini (resté ou sauté), la banque révèle sa carte cachée et tire automatiquement tant que son total est inférieur à 17.</li>
+        <li>Résultat : tu gagnes si la banque saute ou si ton total est plus proche de 21 que le sien (sans dépasser) ; égalité si vous êtes à égalité ; perdu sinon.</li>
+        <li>Pas de mise ni de jeton ici — chaque manche se solde juste par gagné, perdu ou égalité, pour rester simple.</li>
+      </ul>
+    `
   }
 };
 

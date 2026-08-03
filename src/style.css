@@ -1086,6 +1086,24 @@ h1 {
 .americain-suit-picker__option--dark { color: var(--dark-suit); }
 .americain-suit-picker__option--red { color: var(--red-suit); }
 
+/* ---------- Blackjack ---------- */
+
+.blackjack-felt { padding: 20px 14px 16px; }
+
+.blackjack-dealer { text-align: center; margin-bottom: 16px; }
+.blackjack-dealer__label {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: rgba(247, 241, 225, 0.75);
+  margin: 0 0 8px;
+}
+.blackjack-hand { display: flex; justify-content: center; }
+.blackjack-hand .card { margin-left: -18px; flex-shrink: 0; }
+.blackjack-hand .card:first-child { margin-left: 0; }
+
+.blackjack-actions { display: flex; gap: 10px; justify-content: center; margin-top: 10px; }
+.blackjack-actions .btn { flex: 1; max-width: 160px; }
+
 /* ---------- Modale des règles (réutilise l'habillage de settings-modal) ---------- */
 
 .rules-modal { max-width: 520px; }

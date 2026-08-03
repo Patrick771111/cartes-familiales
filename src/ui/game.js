@@ -7,6 +7,8 @@ import {
   passTurn,
   playAmericainCard,
   drawAmericainCard,
+  hitBlackjack,
+  standBlackjack,
   playAgain,
   addBot,
   submitExchangeGift,
@@ -16,6 +18,7 @@ import {
 import { playerToDrawFrom as computeTarget } from '../game/pouilleux.js';
 import { rankValue as trouducRankValue, rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { isLegalCard, hasLegalMove } from '../game/americain.js';
+import { handTotal } from '../game/blackjack.js';
 import { suitInfo } from '../game/deck.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
 import { enableHandDrag } from './dragReorder.js';
@@ -64,6 +67,12 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
 
   const isTrouduc = room.game === 'trouduc';
   const isAmericain = room.game === 'americain';
+  const isBlackjack = room.game === 'blackjack';
+  // Le Blackjack n'a pas d'écran de fin séparé : la table (banque + mains de
+  // tout le monde) reste affichée telle quelle, seuls les résultats s'y ajoutent.
+  if (isBlackjack && (state.status === 'playing' || state.status === 'finished')) {
+    return renderBlackjackTable(container, { room, player, state, onLeave });
+  }
   if (state.status === 'playing') {
     if (isTrouduc) return renderTrouducTable(container, { room, player, state });
     if (isAmericain) return renderAmericainTable(container, { room, player, state });
@@ -137,9 +146,7 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
                   ).join('')}
                 </div>
               </div>
-              <button id="btn-start" class="btn btn--primary" ${state.players.length < 2 ? 'disabled' : ''}>
-                ${state.players.length < 2 ? "En attente d'un 2ᵉ joueur…" : `Lancer la partie (${state.players.length} joueurs)`}
-              </button>`
+              <button id="btn-start" class="btn btn--primary"></button>`
             : ''
         }
         <p class="lobby-card__rename-hint">Ce n'est pas ${me?.name || 'toi'} ? Change de prénom dans les réglages ⚙️ (en haut à droite).</p>
@@ -147,6 +154,20 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
       </div>
     </div>
   `;
+
+  const startBtn = container.querySelector('#btn-start');
+  const updateStartButton = () => {
+    if (!startBtn) return;
+    const selectedId = container.querySelector('input[name="game"]:checked')?.value;
+    const game = AVAILABLE_GAMES.find((g) => g.id === selectedId) || AVAILABLE_GAMES[0];
+    const canStart = state.players.length >= game.minPlayers;
+    startBtn.disabled = !canStart;
+    startBtn.textContent = canStart
+      ? `Lancer la partie (${state.players.length} joueur${state.players.length > 1 ? 's' : ''})`
+      : `En attente (minimum ${game.minPlayers} joueur${game.minPlayers > 1 ? 's' : ''})`;
+  };
+  updateStartButton();
+  container.querySelectorAll('input[name="game"]').forEach((r) => r.addEventListener('change', updateStartButton));
 
   container.querySelector('#btn-start')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
@@ -1113,6 +1134,126 @@ function renderAmericainEnd(container, { room, player, state, onLeave }) {
 
   container.querySelector('#btn-leave')?.addEventListener('click', () => {
     if (window.confirm('Quitter la table ?')) onLeave?.();
+  });
+}
+
+/* ============================== Blackjack ============================== */
+
+const BLACKJACK_STATUS_LABEL = { playing: 'En jeu', stood: 'Reste', bust: 'Passé !' };
+const BLACKJACK_RESULT_LABEL = { win: 'Gagné 🎉', lose: 'Perdu', push: 'Égalité' };
+
+function renderBlackjackTable(container, { room, player, state, onLeave }) {
+  const me = state.players.find((p) => p.id === player.id);
+  const others = state.players.filter((p) => p.id !== player.id);
+  const isMyTurn = state.currentPlayerId === player.id;
+  const finished = state.status === 'finished';
+
+  const dealerCardsHtml = state.dealer.hidden
+    ? cardFaceHtml(state.dealer.hand[0]) + cardBackHtml()
+    : state.dealer.hand.map(cardFaceHtml).join('');
+  const dealerTotalLabel = state.dealer.hidden ? '' : ` (${handTotal(state.dealer.hand)})`;
+
+  const restHtml = others
+    .map((p) => {
+      const total = handTotal(p.hand);
+      const label = finished ? BLACKJACK_RESULT_LABEL[state.results?.[p.id]] || BLACKJACK_STATUS_LABEL[p.status] : BLACKJACK_STATUS_LABEL[p.status];
+      const isTurn = p.id === state.currentPlayerId;
+      return `
+        <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
+          <div class="opponent__hand opponent__hand--revealed">${p.hand.map(cardFaceHtml).join('')}</div>
+          <p class="opponent__name">${p.name} · ${total} · ${label}</p>
+        </div>`;
+    })
+    .join('');
+
+  const meTotal = handTotal(me.hand);
+  const myResultLabel = finished ? BLACKJACK_RESULT_LABEL[state.results?.[me.id]] || BLACKJACK_STATUS_LABEL[me.status] : BLACKJACK_STATUS_LABEL[me.status];
+  const canAct = isMyTurn && me.status === 'playing' && !finished;
+
+  container.innerHTML = `
+    <div class="screen screen--table blackjack-screen">
+      <div class="table-felt blackjack-felt">
+        <div class="blackjack-dealer">
+          <p class="blackjack-dealer__label">🏦 Banque${dealerTotalLabel}</p>
+          <div class="blackjack-hand">${dealerCardsHtml}</div>
+        </div>
+
+        <div class="pouilleux-zone pouilleux-zone--others">
+          ${restHtml || '<p class="pouilleux-zone__empty">—</p>'}
+        </div>
+
+        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
+          ${
+            finished
+              ? 'Manche terminée'
+              : isMyTurn
+                ? 'À toi de jouer'
+                : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || 'la banque'}`
+          }
+        </div>
+      </div>
+
+      <div class="my-hand">
+        <p class="my-hand__label">Ta main (${meTotal}) · ${myResultLabel}</p>
+        <div class="my-hand__cards">${me.hand.map(cardFaceHtml).join('')}</div>
+
+        ${
+          canAct
+            ? `<div class="blackjack-actions">
+                 <button id="btn-hit" class="btn btn--primary">Tirer</button>
+                 <button id="btn-stand" class="btn btn--ghost">Rester</button>
+               </div>`
+            : ''
+        }
+
+        ${finished ? `<button class="btn btn--primary" id="btn-again">Rejouer</button>` : ''}
+
+        <details class="log">
+          <summary>Journal de la partie</summary>
+          <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
+        </details>
+
+        <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
+        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+      </div>
+    </div>
+  `;
+
+  container.querySelector('#btn-hit')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await hitBlackjack(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de tirer une carte.');
+    }
+  });
+
+  container.querySelector('#btn-stand')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await standBlackjack(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de rester.');
+    }
+  });
+
+  container.querySelector('#btn-again')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await playAgain(room);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de relancer une partie.');
+    }
+  });
+
+  container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
+  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
+    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
+      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
+    }
   });
 }
 

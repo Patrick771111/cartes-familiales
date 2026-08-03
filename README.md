@@ -84,6 +84,17 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
   `applyDraw` si vous préférez la variante "on peut la rejouer aussitôt")*.
   Premier à vider sa main : gagné, la manche s'arrête là (pas de classement
   complet des autres).
+- **Blackjack** (`src/game/blackjack.js`) : 1 à 6 joueurs, tous contre la
+  banque — **tenue automatiquement par un bot**, ce n'est pas un siège à la
+  table (`state.dealer`, distinct de `state.players`). Distribution de 2
+  cartes chacun, dont une carte cachée pour la banque. À son tour, chaque
+  joueur **tire** ou **reste** ; en cas de dépassement de 21, perdu d'office.
+  Une fois tout le monde fixé, la banque révèle sa carte cachée et tire
+  automatiquement tant que son total est inférieur à 17 *(hypothèse : pas de
+  "peek" — même si la banque a un blackjack naturel caché dès la donne, ça ne
+  se révèle qu'à la toute fin comme n'importe quelle autre main ; pas de mise
+  ni de double/split non plus, pour rester simple)*. Résolution
+  gagné/perdu/égalité par joueur, sans classement global.
 
 L'hôte choisit le jeu dans la salle d'attente juste avant de lancer la partie.
 Si vous n'êtes que 2 ou 3, l'hôte peut ajouter 1 ou 2 bots pour compléter la
@@ -98,6 +109,11 @@ total). Les bots jouent tout seuls après un court délai :
 - **8 américain** : joue la première carte légale trouvée en main (garde les 8
   pour la fin si un autre coup est possible), et choisit pour un 8 la couleur
   la plus représentée dans le reste de sa main. Sans coup possible, pioche.
+- **Blackjack** : tire tant que son total est inférieur à 17, reste sinon —
+  même seuil que la banque, aucune stratégie plus fine (ne tient pas compte de
+  la carte visible de la banque). La banque elle-même n'est jamais "un bot
+  planifié" : elle joue de façon synchrone et déterministe dès que le dernier
+  joueur a fini son tour, pas besoin de lui laisser la main.
 
 ## Comment ça marche
 

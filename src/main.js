@@ -15,6 +15,8 @@ import {
   passTurn,
   playAmericainCard,
   drawAmericainCard,
+  hitBlackjack,
+  standBlackjack,
   submitExchangeGift,
   reclaimStaleHost,
   pingHostPresence,
@@ -24,6 +26,7 @@ import {
 } from './game/engine.js';
 import { playerToDrawFrom } from './game/pouilleux.js';
 import { rankValue as trouducRankValue } from './game/trouduc.js';
+import { handTotal as blackjackHandTotal } from './game/blackjack.js';
 import { isLegalCard as americainIsLegalCard } from './game/americain.js';
 
 const app = document.getElementById('app');
@@ -182,6 +185,48 @@ function maybeScheduleAmericainBotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
+// Politique du bot au Blackjack : tire tant que son total est inférieur à 17,
+// sinon reste — même seuil que la banque, aucune stratégie plus fine (ne
+// compte pas les cartes, ne tient pas compte de la carte visible de la
+// banque). La banque elle-même n'a pas besoin d'être planifiée ici : elle
+// n'est pas un "joueur", elle joue automatiquement et de façon synchrone dans
+// `blackjack.js` dès que le dernier joueur a fini son tour.
+function chooseBlackjackMove(state, botId) {
+  const bot = state.players.find((p) => p.id === botId);
+  if (!bot) return { type: 'stand' };
+  return blackjackHandTotal(bot.hand) < 17 ? { type: 'hit' } : { type: 'stand' };
+}
+
+let scheduledBlackjackBotMove = null;
+
+function maybeScheduleBlackjackBotMove(room) {
+  if (room.game !== 'blackjack' || room.state.status !== 'playing') return;
+
+  const currentId = room.state.currentPlayerId;
+  const bot = room.state.players.find((p) => p.id === currentId && p.isBot);
+  if (!bot) return;
+
+  const signature = `${room.id}:${room.version}`;
+  if (scheduledBlackjackBotMove === signature) return;
+  scheduledBlackjackBotMove = signature;
+
+  window.setTimeout(async () => {
+    try {
+      const fresh = await fetchRoomById(room.id);
+      if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId) return;
+
+      const move = chooseBlackjackMove(fresh.state, currentId);
+      if (move.type === 'hit') {
+        await hitBlackjack(fresh, currentId);
+      } else {
+        await standBlackjack(fresh, currentId);
+      }
+    } catch (err) {
+      // Idem : un autre appareil a probablement déjà joué, la resynchro realtime prend le relais.
+    }
+  }, 900 + Math.random() * 700);
+}
+
 let scheduledTrouducExchangeBot = null;
 
 /** Pendant la phase d'échange, un bot Président/Vice-Président rend toujours ses cartes les plus faibles. */
@@ -225,7 +270,7 @@ function maybeScheduleTrouducExchangeBot(room) {
   });
 }
 
-const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain' };
+const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain', blackjack: 'Blackjack' };
 
 function updateDocumentTitle(room) {
   const gameLabel = GAME_TITLES[room.game];
@@ -276,6 +321,7 @@ function draw(room) {
   maybeScheduleTrouducExchangeBot(room);
   maybeScheduleTrouducBotMove(room);
   maybeScheduleAmericainBotMove(room);
+  maybeScheduleBlackjackBotMove(room);
 
   const stillMember = room.state.players.some((p) => p.id === currentPlayer.id);
 
