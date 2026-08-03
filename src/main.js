@@ -17,6 +17,8 @@ import {
   drawAmericainCard,
   hitBlackjack,
   standBlackjack,
+  hitFlip7,
+  stayFlip7,
   submitExchangeGift,
   reclaimStaleHost,
   pingHostPresence,
@@ -227,6 +229,46 @@ function maybeScheduleBlackjackBotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
+// Politique du bot à Flip 7 : flippe tant qu'il a moins de 5 numéros uniques
+// en main, reste au-delà — aucune stratégie plus fine (ne tient pas compte des
+// cartes déjà sorties, ni de son score cumulé par rapport aux autres).
+function chooseFlip7Move(state, botId) {
+  const bot = state.players.find((p) => p.id === botId);
+  if (!bot) return { type: 'stay' };
+  const uniqueCount = bot.display.filter((c) => c.kind === 'number').length;
+  return uniqueCount < 5 ? { type: 'hit' } : { type: 'stay' };
+}
+
+let scheduledFlip7BotMove = null;
+
+function maybeScheduleFlip7BotMove(room) {
+  if (room.game !== 'flip7' || room.state.status !== 'playing') return;
+
+  const currentId = room.state.currentPlayerId;
+  const bot = room.state.players.find((p) => p.id === currentId && p.isBot);
+  if (!bot) return;
+
+  const signature = `${room.id}:${room.version}`;
+  if (scheduledFlip7BotMove === signature) return;
+  scheduledFlip7BotMove = signature;
+
+  window.setTimeout(async () => {
+    try {
+      const fresh = await fetchRoomById(room.id);
+      if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId) return;
+
+      const move = chooseFlip7Move(fresh.state, currentId);
+      if (move.type === 'hit') {
+        await hitFlip7(fresh, currentId);
+      } else {
+        await stayFlip7(fresh, currentId);
+      }
+    } catch (err) {
+      // Idem : un autre appareil a probablement déjà joué, la resynchro realtime prend le relais.
+    }
+  }, 900 + Math.random() * 700);
+}
+
 let scheduledTrouducExchangeBot = null;
 
 /** Pendant la phase d'échange, un bot Président/Vice-Président rend toujours ses cartes les plus faibles. */
@@ -270,7 +312,7 @@ function maybeScheduleTrouducExchangeBot(room) {
   });
 }
 
-const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain', blackjack: 'Blackjack' };
+const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain', blackjack: 'Blackjack', flip7: 'Flip 7' };
 
 function updateDocumentTitle(room) {
   const gameLabel = GAME_TITLES[room.game];
@@ -322,6 +364,7 @@ function draw(room) {
   maybeScheduleTrouducBotMove(room);
   maybeScheduleAmericainBotMove(room);
   maybeScheduleBlackjackBotMove(room);
+  maybeScheduleFlip7BotMove(room);
 
   const stillMember = room.state.players.some((p) => p.id === currentPlayer.id);
 

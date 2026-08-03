@@ -9,6 +9,8 @@ import {
   drawAmericainCard,
   hitBlackjack,
   standBlackjack,
+  hitFlip7,
+  stayFlip7,
   playAgain,
   continueGame,
   addBot,
@@ -20,6 +22,7 @@ import { playerToDrawFrom as computeTarget } from '../game/pouilleux.js';
 import { rankValue as trouducRankValue, rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { isLegalCard, hasLegalMove } from '../game/americain.js';
 import { handTotal, BET as BLACKJACK_BET } from '../game/blackjack.js';
+import { TARGET_SCORE as FLIP7_TARGET_SCORE } from '../game/flip7.js';
 import { suitInfo } from '../game/deck.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
 import { enableHandDrag } from './dragReorder.js';
@@ -106,10 +109,15 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   const isTrouduc = room.game === 'trouduc';
   const isAmericain = room.game === 'americain';
   const isBlackjack = room.game === 'blackjack';
-  // Le Blackjack n'a pas d'écran de fin séparé : la table (banque + mains de
-  // tout le monde) reste affichée telle quelle, seuls les résultats s'y ajoutent.
+  const isFlip7 = room.game === 'flip7';
+  // Le Blackjack et Flip 7 n'ont pas d'écran de fin séparé : la table (banque
+  // ou mains de tout le monde) reste affichée telle quelle, seuls les
+  // résultats s'y ajoutent.
   if (isBlackjack && (state.status === 'playing' || state.status === 'finished')) {
     return renderBlackjackTable(container, { room, player, state, onLeave });
+  }
+  if (isFlip7 && (state.status === 'playing' || state.status === 'finished')) {
+    return renderFlip7Table(container, { room, player, state, onLeave });
   }
   if (state.status === 'playing') {
     if (isTrouduc) return renderTrouducTable(container, { room, player, state });
@@ -1269,6 +1277,125 @@ function renderBlackjackTable(container, { room, player, state, onLeave }) {
     e.target.disabled = true;
     try {
       await standBlackjack(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de rester.');
+    }
+  });
+
+  wireEndGameActions(container, room);
+
+  container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
+  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
+    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
+      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
+    }
+  });
+}
+
+/* ============================== Flip 7 ============================== */
+
+const FLIP7_STATUS_LABEL = { active: 'En jeu', stayed: 'Resté', busted: 'Passé !' };
+const FLIP7_ACTION_LABEL = { freeze: '❄️ Freeze', flipThree: '🔀 Flip Three', secondChance: '🛡️ 2e chance' };
+
+function flip7CardHtml(card) {
+  if (card.kind === 'number') return `<div class="flip7-card flip7-card--number">${card.value}</div>`;
+  if (card.kind === 'modifier') return `<div class="flip7-card flip7-card--modifier">${card.label}</div>`;
+  return `<div class="flip7-card flip7-card--action">${FLIP7_ACTION_LABEL[card.kind] || card.label}</div>`;
+}
+
+function renderFlip7Table(container, { room, player, state, onLeave }) {
+  const me = state.players.find((p) => p.id === player.id);
+  const others = state.players.filter((p) => p.id !== player.id);
+  const isMyTurn = state.currentPlayerId === player.id;
+  const finished = state.status === 'finished';
+  const canAct = isMyTurn && me.status === 'active' && !finished;
+
+  const uniqueCountFor = (p) => p.display.filter((c) => c.kind === 'number').length;
+  const statusLabelFor = (p) =>
+    finished ? `${FLIP7_STATUS_LABEL[p.status]} · ${p.roundScore ?? 0} pt${(p.roundScore ?? 0) > 1 ? 's' : ''} cette manche` : FLIP7_STATUS_LABEL[p.status];
+
+  const restHtml = others
+    .map((p) => {
+      const isTurn = p.id === state.currentPlayerId;
+      return `
+        <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
+          <div class="flip7-mini-hand">${p.display.map(flip7CardHtml).join('') || '<span class="flip7-mini-hand__empty">—</span>'}</div>
+          <p class="opponent__name">${p.name} · ${uniqueCountFor(p)}/7 · ${statusLabelFor(p)}</p>
+          <p class="opponent__name">Score total : ${p.score}${p.id === state.gameWinnerId ? ' 🏆' : ''}</p>
+        </div>`;
+    })
+    .join('');
+
+  container.innerHTML = `
+    <div class="screen screen--table flip7-screen">
+      <div class="pouilleux-zone pouilleux-zone--others">
+        ${restHtml || '<p class="pouilleux-zone__empty">—</p>'}
+      </div>
+
+      <div class="table-felt flip7-felt">
+        ${
+          state.flip7PlayerId
+            ? `<p class="flip7-banner">🎉 ${state.players.find((p) => p.id === state.flip7PlayerId)?.name || '?'} a réalisé un FLIP 7 !</p>`
+            : ''
+        }
+        ${
+          state.gameWinnerId
+            ? `<p class="flip7-banner flip7-banner--winner">🏆 ${state.players.find((p) => p.id === state.gameWinnerId)?.name || '?'} a atteint ${FLIP7_TARGET_SCORE} points et gagne la partie !</p>`
+            : ''
+        }
+        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
+          ${
+            finished
+              ? 'Manche terminée'
+              : isMyTurn
+                ? 'À toi de flipper'
+                : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`
+          }
+        </div>
+      </div>
+
+      <div class="my-hand">
+        <p class="my-hand__label">Ta main (${uniqueCountFor(me)}/7) · ${statusLabelFor(me)}</p>
+        <p class="my-hand__label">Score total : ${me.score}${me.id === state.gameWinnerId ? ' 🏆' : ''}</p>
+        <div class="flip7-hand">${me.display.map(flip7CardHtml).join('') || '<p class="my-hand__empty">Pas encore de carte cette manche.</p>'}</div>
+
+        ${
+          canAct
+            ? `<div class="flip7-actions">
+                 <button id="btn-hit" class="btn btn--primary">Flip !</button>
+                 <button id="btn-stay" class="btn btn--ghost">Rester</button>
+               </div>`
+            : ''
+        }
+
+        ${finished ? endGameActionsHtml() : ''}
+
+        <details class="log">
+          <summary>Journal de la partie</summary>
+          <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
+        </details>
+
+        <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
+        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+      </div>
+    </div>
+  `;
+
+  container.querySelector('#btn-hit')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await hitFlip7(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de flipper une carte.');
+    }
+  });
+
+  container.querySelector('#btn-stay')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await stayFlip7(room, player.id);
     } catch (err) {
       e.target.disabled = false;
       alert(err.message || 'Impossible de rester.');

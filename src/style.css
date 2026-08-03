@@ -1124,6 +1124,68 @@ h1 {
 .rules-modal__content ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
 .rules-modal__content strong { color: var(--brass-soft); }
 
+/* ---------- Flip 7 ---------- */
+
+.flip7-felt { padding: 18px 14px; text-align: center; }
+
+.flip7-banner {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--brass-soft);
+  background: rgba(201, 162, 39, 0.14);
+  border: 1px solid var(--brass);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin: 0 0 10px;
+}
+.flip7-banner--winner { background: rgba(201, 162, 39, 0.28); }
+
+.flip7-card {
+  width: 44px;
+  height: 60px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-weight: 700;
+  flex-shrink: 0;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.35);
+}
+.flip7-card--number {
+  background: var(--cream);
+  color: var(--dark-suit);
+  font-family: var(--font-mono);
+  font-size: 22px;
+}
+.flip7-card--modifier {
+  background: var(--brass-soft);
+  color: var(--felt-900);
+  font-size: 14px;
+}
+.flip7-card--action {
+  background: var(--felt-500);
+  border: 1.5px solid var(--brass);
+  color: var(--cream);
+  font-size: 10px;
+  line-height: 1.2;
+  padding: 4px;
+}
+
+.flip7-hand, .flip7-mini-hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin: 8px 0;
+}
+.flip7-mini-hand .flip7-card { width: 30px; height: 42px; font-size: 14px; }
+.flip7-mini-hand .flip7-card--action { font-size: 7px; }
+.flip7-mini-hand__empty { color: rgba(247, 241, 225, 0.4); font-size: 13px; }
+
+.flip7-actions { display: flex; gap: 10px; justify-content: center; margin: 10px 0; }
+.flip7-actions .btn { flex: 1; max-width: 160px; }
+
 /* ---------- Écran de fin ---------- */
 
 .screen--end .lobby-card { text-align: center; }

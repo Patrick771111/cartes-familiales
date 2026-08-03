@@ -105,6 +105,21 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
   `STARTING_MONEY` (500) et joue une mise fixe `BET` (25) par manche — gagné :
   `+BET`, perdu : `-BET`, égalité : inchangé. Le solde peut devenir négatif :
   pas d'élimination, seul un retour au lobby le remet à zéro (voir plus bas).
+- **Flip 7** (`src/game/flip7.js`) : 2 à 6 joueurs, reconstitution du jeu
+  physique du même nom *(hypothèse — décomptes de cartes et bonus approximés
+  de mémoire, à ajuster dans `flip7.js` si votre exemplaire diffère)*. À son
+  tour, on **flippe** une carte du paquet dans sa main ou on **reste**. Un
+  numéro (0-12) déjà en main = perdu pour la manche (0 point), sauf avec une
+  carte Seconde Chance en réserve (elle absorbe le doublon une fois). 7
+  numéros différents en main = **Flip 7**, la manche s'arrête aussitôt pour
+  tout le monde avec un bonus de `FLIP7_BONUS` (15) pour l'auteur. Cartes
+  spéciales en plus des numéros : +2/+4/+6/+8/+10 et ×2 (points bonus, ne
+  comptent pas comme numéro), Freeze (arrêt immédiat), Flip Three (3 tirages
+  forcés d'affilée, résolus automatiquement dans le même appel — peut
+  s'enchaîner si un nouveau Flip Three sort pendant la séquence), Seconde
+  Chance (sauve d'un doublon, une seule à la fois). Score cumulé sur
+  plusieurs manches ; `TARGET_SCORE` (200) atteint = victoire de partie,
+  affichée mais n'empêche pas de continuer à jouer si le groupe le souhaite.
 
 L'hôte choisit le jeu dans la salle d'attente juste avant de lancer la partie.
 Si vous n'êtes que 2 ou 3, l'hôte peut ajouter 1 ou 2 bots pour compléter la
@@ -124,6 +139,9 @@ total). Les bots jouent tout seuls après un court délai :
   la carte visible de la banque). La banque elle-même n'est jamais "un bot
   planifié" : elle joue de façon synchrone et déterministe dès que le dernier
   joueur a fini son tour, pas besoin de lui laisser la main.
+- **Flip 7** : flippe tant qu'il a moins de 5 numéros uniques en main, reste
+  au-delà — aucune stratégie plus fine (ignore les cartes déjà sorties et son
+  score par rapport aux autres).
 
 ## Comment ça marche
 

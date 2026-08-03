@@ -9,19 +9,22 @@ import { initGame as initPouilleux, applyDraw } from './pouilleux.js';
 import { initGame as initTrouduc, applyPlay as applyTrouducPlay, applyPass as applyTrouducPass, applyExchangeChoice } from './trouduc.js';
 import { initGame as initAmericain, applyPlay as applyAmericainPlay, applyDraw as applyAmericainDraw } from './americain.js';
 import { initGame as initBlackjack, applyHit as applyBlackjackHit, applyStand as applyBlackjackStand } from './blackjack.js';
+import { initGame as initFlip7, applyHit as applyFlip7Hit, applyStay as applyFlip7Stay } from './flip7.js';
 
 const GAME_INITIALIZERS = {
   pouilleux: initPouilleux,
   trouduc: initTrouduc,
   americain: initAmericain,
-  blackjack: initBlackjack
+  blackjack: initBlackjack,
+  flip7: initFlip7
 };
 
 export const AVAILABLE_GAMES = [
   { id: 'pouilleux', label: 'Le Pouilleux', hint: '2 à 6 joueurs', minPlayers: 2 },
   { id: 'trouduc', label: 'Le Trou du Cul', hint: 'exactement 4 joueurs', minPlayers: 4 },
   { id: 'americain', label: 'Le 8 américain', hint: '2 à 6 joueurs', minPlayers: 2 },
-  { id: 'blackjack', label: 'Blackjack', hint: '1 à 6 joueurs, banque tenue par un bot', minPlayers: 1 }
+  { id: 'blackjack', label: 'Blackjack', hint: '1 à 6 joueurs, banque tenue par un bot', minPlayers: 1 },
+  { id: 'flip7', label: 'Flip 7', hint: '2 à 6 joueurs, score cumulé', minPlayers: 2 }
 ];
 
 // Code fixe de la table familiale : personne n'a besoin de le saisir ni de le
@@ -413,12 +416,24 @@ export async function standBlackjack(room, playerId) {
   return updateRoomState(room.id, room.version, newState);
 }
 
+/** Flippe une carte à Flip 7 (résout aussi, dans le même appel, tout Flip Three déclenché). */
+export async function hitFlip7(room, playerId) {
+  const newState = applyFlip7Hit(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Reste sur sa main à Flip 7. */
+export async function stayFlip7(room, playerId) {
+  const newState = applyFlip7Stay(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
 /**
  * Remet la table en salle d'attente — **réinitialise le contexte de la partie**
  * (rôles du Trou du Cul retirés au sort à la prochaine donne, argent du
- * Blackjack remis à `STARTING_MONEY`) puisqu'on quitte volontairement la
- * partie en cours. Pour enchaîner une manche en conservant ce contexte, voir
- * `continueGame`.
+ * Blackjack remis à `STARTING_MONEY`, score de Flip 7 remis à 0) puisqu'on
+ * quitte volontairement la partie en cours. Pour enchaîner une manche en
+ * conservant ce contexte, voir `continueGame`.
  */
 export async function playAgain(room) {
   const players = room.state.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false }));
@@ -458,6 +473,9 @@ export async function continueGame(room) {
   } else if (gameType === 'blackjack') {
     const previousMoney = Object.fromEntries(room.state.players.map((p) => [p.id, p.money]));
     gameState = initializer(playersList, previousMoney);
+  } else if (gameType === 'flip7') {
+    const previousScores = Object.fromEntries(room.state.players.map((p) => [p.id, p.score]));
+    gameState = initializer(playersList, previousScores);
   } else {
     gameState = initializer(playersList);
   }
