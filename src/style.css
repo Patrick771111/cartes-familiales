@@ -94,6 +94,12 @@ h1 {
 
 .lobby-form { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
 
+.lobby-card__rename-hint {
+  font-size: 13px;
+  color: rgba(247, 241, 225, 0.5);
+  margin: 4px 0 0;
+}
+
 .lobby-form label {
   font-size: 13px;
   color: rgba(247, 241, 225, 0.65);
@@ -534,6 +540,16 @@ h1 {
 .hand-card--selected .card { box-shadow: 0 0 0 2px var(--brass), 0 10px 16px rgba(0,0,0,0.45); }
 .hand-card--unplayable { opacity: 0.35; cursor: default; }
 .hand-card--unplayable .card { filter: grayscale(0.6); }
+/* Carte reçue lors de l'échange (don d'office ou retour) : liseré doré, en
+   plus de (et non à la place de) l'éventuel style de sélection en cours. */
+.hand-card--gifted { outline: 2px solid var(--brass-soft); outline-offset: 2px; border-radius: 10px; }
+
+.exchange-hint {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--brass-soft);
+  margin: 4px 0 8px;
+}
 
 .rank-list {
   list-style: decimal;
@@ -739,6 +755,216 @@ h1 {
   background: repeating-linear-gradient(135deg, var(--felt-500) 0 6px, var(--felt-700) 6px 12px);
   border: 1.5px solid var(--brass);
 }
+
+/* ---------- Thèmes de cartes (réglage d'affichage) ----------
+   Par défaut ("classique", pas d'attribut ou data-card-theme="classique") rien
+   ne change. Les 3 autres thèmes n'habillent que les figures (Valet/Dame/Roi) —
+   les cartes numérales restent identiques dans tous les thèmes. Les sélecteurs
+   ciblent [data-card-theme] sans exiger :root, pour pouvoir aussi être appliqués
+   localement (aperçu dans la modale de réglages). */
+
+.card__figure {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+[data-card-theme="moderne"] .card[data-rank="J"] .card__pip,
+[data-card-theme="moderne"] .card[data-rank="Q"] .card__pip,
+[data-card-theme="moderne"] .card[data-rank="K"] .card__pip { display: none; }
+[data-card-theme="moderne"] .card[data-rank="J"] .card__figure,
+[data-card-theme="moderne"] .card[data-rank="Q"] .card__figure,
+[data-card-theme="moderne"] .card[data-rank="K"] .card__figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+[data-card-theme="moderne"] .card__figure::before {
+  content: attr(data-rank);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 30px;
+  opacity: 0.88;
+}
+[data-card-theme="moderne"] .card__figure::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.45;
+}
+
+[data-card-theme="retro"] .card[data-rank="J"],
+[data-card-theme="retro"] .card[data-rank="Q"],
+[data-card-theme="retro"] .card[data-rank="K"] {
+  box-shadow: inset 0 0 0 2px currentColor, inset 0 0 0 5px var(--cream), 0 3px 8px rgba(0,0,0,0.35);
+}
+[data-card-theme="retro"] .card[data-rank="J"] .card__pip,
+[data-card-theme="retro"] .card[data-rank="Q"] .card__pip,
+[data-card-theme="retro"] .card[data-rank="K"] .card__pip { font-size: 19px; }
+[data-card-theme="retro"] .card[data-rank="J"] .card__figure,
+[data-card-theme="retro"] .card[data-rank="Q"] .card__figure,
+[data-card-theme="retro"] .card[data-rank="K"] .card__figure {
+  display: block;
+  inset: 7px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  opacity: 0.45;
+}
+
+[data-card-theme="royal"] .card[data-rank="J"] .card__pip,
+[data-card-theme="royal"] .card[data-rank="Q"] .card__pip,
+[data-card-theme="royal"] .card[data-rank="K"] .card__pip { display: none; }
+[data-card-theme="royal"] .card[data-rank="J"] .card__figure,
+[data-card-theme="royal"] .card[data-rank="Q"] .card__figure,
+[data-card-theme="royal"] .card[data-rank="K"] .card__figure {
+  display: flex;
+  font-size: 32px;
+}
+[data-card-theme="royal"] .card[data-rank="J"] .card__figure::before { content: '♞'; }
+[data-card-theme="royal"] .card[data-rank="Q"] .card__figure::before { content: '♛'; }
+[data-card-theme="royal"] .card[data-rank="K"] .card__figure::before { content: '♚'; }
+
+/* ---------- Réglages d'affichage (bouton flottant + modale) ---------- */
+
+.settings-fab {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 50;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--felt-700);
+  color: var(--cream);
+  font-size: 18px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+}
+.settings-fab:hover, .settings-fab:focus-visible { border-color: var(--brass); outline: none; }
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(8, 20, 15, 0.72);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+}
+@media (min-width: 560px) {
+  .settings-overlay { align-items: center; padding: 20px; }
+}
+
+.settings-modal {
+  width: 100%;
+  max-width: 480px;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--felt-900);
+  border: 1px solid var(--line);
+  border-radius: 20px 20px 0 0;
+  padding: 18px 18px 28px;
+}
+@media (min-width: 560px) {
+  .settings-modal { border-radius: 20px; }
+}
+
+.settings-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.settings-modal__header h2 { font-size: 19px; margin: 0; }
+.settings-modal__close {
+  all: unset;
+  cursor: pointer;
+  padding: 6px 10px;
+  color: rgba(247, 241, 225, 0.7);
+}
+.settings-modal__close:hover { color: var(--cream); }
+
+.settings-section { margin-top: 18px; }
+.settings-section__label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: rgba(247, 241, 225, 0.6);
+  margin: 0 0 10px;
+}
+
+.settings-name-row { display: flex; gap: 8px; }
+.settings-name-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(247, 241, 225, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: var(--cream);
+  font-size: 15px;
+}
+.settings-name-input:focus { outline: none; border-color: var(--brass); }
+.settings-name-status {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--brass-soft);
+  margin: 6px 0 0;
+  min-height: 14px;
+}
+
+.settings-swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.settings-swatch {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+}
+.settings-swatch--active { border-color: var(--brass); background: rgba(201, 162, 39, 0.12); }
+.settings-swatch__dot {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid;
+}
+.settings-swatch__label { font-size: 11px; color: rgba(247, 241, 225, 0.75); }
+
+.settings-card-themes { display: flex; flex-direction: column; gap: 8px; }
+.settings-card-theme {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  cursor: pointer;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+.settings-card-theme--active { border-color: var(--brass); background: rgba(201, 162, 39, 0.12); }
+.settings-card-theme__preview { flex-shrink: 0; }
+.settings-card-theme__preview .card { width: 44px; height: 64px; overflow: hidden; }
+.settings-card-theme__preview .card__corner { font-size: 9px; }
+.settings-card-theme__preview .card__pip { font-size: 20px; }
+.settings-card-theme__preview[data-card-theme="moderne"] .card__figure::before { font-size: 22px; }
+.settings-card-theme__preview[data-card-theme="royal"] .card__figure::before { font-size: 24px; }
+.settings-card-theme__text { display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.settings-card-theme__text strong { font-size: 14px; }
+.settings-card-theme__text small { font-size: 12px; color: rgba(247, 241, 225, 0.6); }
 
 /* ---------- Écran de fin ---------- */
 

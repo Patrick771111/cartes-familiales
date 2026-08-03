@@ -17,9 +17,9 @@ function sortedHand(hand) {
 /**
  * Affiche l'écran de partie (salle d'attente / plateau / fin) dans `container`.
  * `room` = ligne courante (state + type de jeu inclus), `player` = profil local.
- * `onRename(newName)` optionnel, pour corriger le prénom depuis la salle d'attente.
+ * Le changement de prénom se fait désormais depuis la modale de réglages (settings.js).
  */
-export function renderGame(container, { room, player, onRename, onLeave, onKick } = {}) {
+export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   const state = room.state;
 
   if (state.status === 'lobby') {
@@ -27,7 +27,7 @@ export function renderGame(container, { room, player, onRename, onLeave, onKick 
     lastCelebratedMoveId = null;
     resetHandOrder('pouilleux');
     revealHands = false;
-    return renderWaitingRoom(container, { room, player, onRename, onLeave, onKick });
+    return renderWaitingRoom(container, { room, player, onLeave, onKick });
   }
 
   if (state.status === 'exchange') {
@@ -56,7 +56,7 @@ export function renderGame(container, { room, player, onRename, onLeave, onKick 
   }
 }
 
-function renderWaitingRoom(container, { room, player, onRename, onLeave, onKick }) {
+function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   const state = room.state;
   const isHost = state.hostId === player.id;
   const me = state.players.find((p) => p.id === player.id);
@@ -122,7 +122,7 @@ function renderWaitingRoom(container, { room, player, onRename, onLeave, onKick 
               </button>`
             : ''
         }
-        <button class="btn btn--link" id="btn-rename">Ce n'est pas ${me?.name || 'toi'} ? Changer de prénom</button>
+        <p class="lobby-card__rename-hint">Ce n'est pas ${me?.name || 'toi'} ? Change de prénom dans les réglages ⚙️ (en haut à droite).</p>
         <button class="btn btn--link" id="btn-leave">Quitter la table</button>
       </div>
     </div>
@@ -159,11 +159,6 @@ function renderWaitingRoom(container, { room, player, onRename, onLeave, onKick 
     }
   });
 
-  container.querySelector('#btn-rename')?.addEventListener('click', () => {
-    const newName = window.prompt('Ton prénom :', me?.name || '');
-    if (newName && newName.trim() && onRename) onRename(newName.trim());
-  });
-
   container.querySelector('#btn-leave')?.addEventListener('click', () => {
     if (window.confirm('Quitter la table ?')) onLeave?.();
   });
@@ -183,9 +178,19 @@ function renderWaitingRoom(container, { room, player, onRename, onLeave, onKick 
 // à animer avant de basculer sur l'état à jour. Réinitialisé à chaque nouvelle partie.
 let lastRenderedState = null;
 
+// Sur Chrome/Android, navigator.vibrate() est bloqué (silencieusement, ou avec
+// un message "[Intervention]" dans la console) tant que la page n'a reçu AUCUN
+// tap depuis son dernier chargement complet — et n'existe même pas du tout hors
+// contexte sécurisé (https, ou localhost). Concrètement : ça ne vibrera jamais
+// en testant via `npm run dev -- --host` sur le réseau local en http://192.168.x.x
+// (utilise l'URL https de prod pour ce test-là), et un appareil resté pur
+// spectateur (aucun tap depuis l'ouverture de l'appli) ne vibrera pas non plus
+// tant qu'il n'a pas touché un bouton au moins une fois.
 function vibrate(pattern) {
-  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-    navigator.vibrate(pattern);
+  if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
+  const accepted = navigator.vibrate(pattern);
+  if (!accepted) {
+    console.debug('[vibrate] refusée par le navigateur (page pas encore "touchée", ou hors contexte sécurisé).');
   }
 }
 
@@ -348,6 +353,11 @@ function renderTableNow(container, { room, player, state }) {
   if (isMyTurn) {
     container.querySelectorAll('.target-card--pickable').forEach((btn) => {
       btn.addEventListener('click', async () => {
+        // Vibration directement dans le gestionnaire de clic (et non uniquement
+        // dans renderDrawReveal, déclenché plus tard par la resynchro realtime) :
+        // c'est le seul moment où le navigateur est garanti d'accepter l'appel,
+        // puisqu'il suit immédiatement un vrai tap.
+        vibrate(30);
         const cardIndex = Number(btn.dataset.pickIndex);
         container.querySelectorAll('.target-card--pickable').forEach((b) => (b.disabled = true));
         try {
@@ -443,6 +453,10 @@ function renderTrouducExchange(container, { room, player, state }) {
 
   const selectedCount = [...exchangeSelectedCardIds].filter((id) => me.hand.some((c) => c.id === id)).length;
 
+  // Les cartes reçues d'office (Trou du Cul → Président, Secrétaire → Vice-
+  // Président) sont entourées de doré, pour aider à choisir quoi rendre.
+  const receivedIds = isPresident ? ex.receivedByPresident : isVicePresident ? ex.receivedByVicePresident : [];
+
   container.innerHTML = `
     <div class="screen screen--table">
       <div class="table-felt">
@@ -451,7 +465,8 @@ function renderTrouducExchange(container, { room, player, state }) {
         <p class="exchange-status">${statusMessage}</p>
         ${
           needsToChoose
-            ? `<button id="btn-give" class="btn btn--primary" ${selectedCount === requiredCount ? '' : 'disabled'}>
+            ? `<p class="exchange-hint">✨ Entourées de doré : les cartes que tu viens de recevoir.</p>
+               <button id="btn-give" class="btn btn--primary" ${selectedCount === requiredCount ? '' : 'disabled'}>
                  Donner (${selectedCount}/${requiredCount})
                </button>`
             : ''
@@ -464,7 +479,7 @@ function renderTrouducExchange(container, { room, player, state }) {
           ${me.hand
             .map(
               (c) =>
-                `<div class="hand-card ${exchangeSelectedCardIds.has(c.id) ? 'hand-card--selected' : ''}" data-card-id="${c.id}">${cardFaceHtml(c)}</div>`
+                `<div class="hand-card ${exchangeSelectedCardIds.has(c.id) ? 'hand-card--selected' : ''} ${receivedIds.includes(c.id) ? 'hand-card--gifted' : ''}" data-card-id="${c.id}">${cardFaceHtml(c)}</div>`
             )
             .join('')}
         </div>
@@ -523,6 +538,10 @@ function renderTrouducTable(container, { room, player, state }) {
       else if (seatIndex === 1) { pileShiftY = -14; }
     }
   }
+
+  // Pendant le tout premier pli de la manche, entoure de doré les cartes que
+  // le Trou du Cul / le Secrétaire viennent de recevoir en retour d'échange.
+  const giftedCardIds = state.firstTrickPending ? state.returnGiftIds?.[player.id] || [] : [];
 
   const selectedCards = me.hand.filter((c) => selectedCardIds.has(c.id));
   const selectedRank = selectedCards[0]?.rank;
@@ -599,7 +618,8 @@ function renderTrouducTable(container, { room, player, state }) {
         else if (isFirstInGroup) marginLeft = -(CARD_W - lightStep);
         else marginLeft = -(CARD_W - TIGHT_STEP);
         const playable = !isMyTurn || isRankPlayable(c.rank);
-        html += `<div class="hand-card ${selectedCardIds.has(c.id) ? 'hand-card--selected' : ''} ${playable ? '' : 'hand-card--unplayable'}" data-card-id="${c.id}" style="margin-left:${marginLeft}px">${cardFaceHtml(c)}</div>`;
+        const gifted = giftedCardIds.includes(c.id);
+        html += `<div class="hand-card ${selectedCardIds.has(c.id) ? 'hand-card--selected' : ''} ${playable ? '' : 'hand-card--unplayable'} ${gifted ? 'hand-card--gifted' : ''}" data-card-id="${c.id}" style="margin-left:${marginLeft}px">${cardFaceHtml(c)}</div>`;
         cardPos++;
       });
     });
@@ -680,6 +700,7 @@ function renderTrouducTable(container, { room, player, state }) {
 
       <div class="my-hand trouduc-hand">
         <p class="my-hand__label">${me.role ? `${me.role} · ` : ''}Ta main (${me.hand.length})</p>
+        ${giftedCardIds.length ? `<p class="exchange-hint">✨ Entourées de doré : les cartes reçues en retour d'échange.</p>` : ''}
         ${
           me.hand.length
             ? `<div class="trouduc-hand-rows">
@@ -732,6 +753,7 @@ function renderTrouducTable(container, { room, player, state }) {
   }
 
   container.querySelector('#btn-play')?.addEventListener('click', async (e) => {
+    vibrate(30);
     e.target.disabled = true;
     const ids = [...selectedCardIds];
     try {

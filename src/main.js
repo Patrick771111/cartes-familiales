@@ -1,6 +1,7 @@
 import './style.css';
 import { renderNamePrompt, renderLeftTable } from './ui/lobby.js';
 import { renderGame, renderSpectatorGame } from './ui/game.js';
+import { applySettings, mountSettingsButton, setPlayerNameController } from './ui/settings.js';
 import {
   getLocalProfile,
   ensureFamilyRoom,
@@ -179,6 +180,16 @@ function updateDocumentTitle(room) {
 
 let currentRoomRef = null;
 
+setPlayerNameController({
+  getName: () => currentPlayer?.name || '',
+  onChange: async (newName) => {
+    if (!currentPlayer || !currentRoomRef) throw new Error("Pas encore rejoint la table, réessaie dans un instant.");
+    const { room: updatedRoom, player: updatedProfile } = await renameLocalPlayer(currentRoomRef, currentPlayer, newName);
+    currentPlayer = updatedProfile;
+    draw(updatedRoom);
+  }
+});
+
 function renderCrashRecovery(container, { onReset }) {
   container.innerHTML = `
     <div class="screen screen--lobby">
@@ -245,15 +256,6 @@ function draw(room) {
     renderGame(app, {
       room,
       player: currentPlayer,
-      onRename: async (newName) => {
-        try {
-          const { room: updatedRoom, player: updatedProfile } = await renameLocalPlayer(room, currentPlayer, newName);
-          currentPlayer = updatedProfile;
-          draw(updatedRoom);
-        } catch (err) {
-          alert(err.message || 'Impossible de changer le prénom.');
-        }
-      },
       onLeave: async () => {
         try {
           await leaveTable(room, currentPlayer);
@@ -296,6 +298,9 @@ function enterRoom(room, player) {
   draw(room);
   unsubscribe = watchRoom(room.id, (freshRow) => draw(freshRow));
 }
+
+applySettings();
+mountSettingsButton();
 
 async function boot() {
   if ('serviceWorker' in navigator) {

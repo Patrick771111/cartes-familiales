@@ -89,7 +89,10 @@ total). Les bots jouent tout seuls après un court délai :
   Personne n'a besoin de créer ou saisir de code : le premier appareil qui ouvre
   l'appli la crée automatiquement, les suivants la rejoignent.
 - Chaque appareil mémorise son prénom dans `localStorage` dès la première visite
-  (bouton "Ce n'est pas [prénom] ? Changer de prénom" dans la salle d'attente si besoin).
+  (modifiable à tout moment depuis la modale de réglages ⚙️, en haut à droite de l'écran).
+- Modale de réglages (`src/ui/settings.js`) : prénom, couleur du tapis et style des
+  cartes (4 thèmes, dont 3 qui n'habillent que les figures Valet/Dame/Roi), tout est
+  mémorisé dans `localStorage` et s'applique instantanément via des variables CSS.
 - `src/game/deck.js` et `src/game/pouilleux.js` : logique du jeu, en fonctions
   pures — aucune dépendance à Supabase ni au DOM. C'est le cœur à copier/adapter
   pour ajouter un nouveau jeu.
