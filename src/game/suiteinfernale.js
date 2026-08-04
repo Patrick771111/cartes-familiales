@@ -298,14 +298,17 @@ function resolveAttackEffect(players, discardIn, attack) {
     case 'volerDerniere': {
       const h = highestFilledIndex(target.sequence);
       const card = target.sequence[h];
-      target.sequence[h] = null;
+      // Un Joker +2 occupe 2 cases avec la même carte physique (voir
+      // `retirerUne` ci-dessus) : le voler libère les deux, pas seulement
+      // celle visée — la suite recule alors de 2 cases, pas d'une.
+      target.sequence = target.sequence.map((c) => (c && card && c.id === card.id ? null : c));
       attacker.hand.push(card);
       message = `${attacker.name} vole la dernière carte de la suite de ${target.name}.`;
       break;
     }
     case 'volerUne': {
       const card = target.sequence[attack.slotIndex];
-      target.sequence[attack.slotIndex] = null;
+      target.sequence = target.sequence.map((c) => (c && card && c.id === card.id ? null : c));
       attacker.hand.push(card);
       message = `${attacker.name} vole une carte de la suite de ${target.name}.`;
       break;

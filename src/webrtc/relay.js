@@ -39,7 +39,15 @@ let backingStore = {
  */
 
 const RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-const REQUEST_TIMEOUT_MS = 6000;
+// Généreux : le trajet complet passe par l'hôte qui écrit lui-même dans
+// Supabase, potentiellement lent si SA connexion est aussi dégradée — un
+// délai trop court transformerait une simple lenteur en échec artificiel.
+const REQUEST_TIMEOUT_MS = 12000;
+// Health-check à l'ouverture du canal, plus court : sert juste à vérifier
+// que la liaison relaie vraiment des messages (et pas seulement "ouverte"
+// au sens WebRTC — un NAT capricieux peut donner cette fausse impression)
+// avant de l'activer pour de vrai.
+const HEALTH_CHECK_TIMEOUT_MS = 4000;
 
 function wireDataChannel(dc, { onMessage, onOpen, onClose }) {
   dc.addEventListener('message', (e) => onMessage(e.data));
@@ -141,26 +149,36 @@ async function handleIncomingOffer(guestId, sdp) {
   signal?.send({ type: 'answer', from: myPlayerId, to: guestId, sdp: pc.localDescription.toJSON() });
 }
 
+// Enveloppe défensive : si `conn.dc.send` lui-même échoue (canal coupé entre
+// la réception du message et l'envoi de la réponse), on ne laisse pas
+// l'exception disparaître silencieusement sans que l'invité comprenne
+// pourquoi sa requête reste sans réponse jusqu'au timeout.
 async function handleHostChannelMessage(guestId, raw) {
-  const conn = hostConnections.get(guestId);
-  if (!conn) return;
-  const msg = JSON.parse(raw);
+  try {
+    const conn = hostConnections.get(guestId);
+    if (!conn) return;
+    const msg = JSON.parse(raw);
 
-  if (msg.type === 'fetch') {
-    const row = await backingStore.fetchRoomById(myRoomId);
-    conn.dc.send(JSON.stringify({ type: 'response', id: msg.id, result: { type: 'room', row } }));
-    return;
-  }
-  if (msg.type === 'update') {
-    try {
-      const row = await backingStore.updateRoomState(myRoomId, msg.expectedVersion, msg.newState, msg.extraColumns || {});
+    if (msg.type === 'fetch') {
+      const row = await backingStore.fetchRoomById(myRoomId);
+      conn.dc.send(JSON.stringify({ type: 'response', id: msg.id, result: { type: 'room', row } }));
+      return;
+    }
+    if (msg.type === 'update') {
+      let row;
+      try {
+        row = await backingStore.updateRoomState(myRoomId, msg.expectedVersion, msg.newState, msg.extraColumns || {});
+      } catch (e) {
+        conn.dc.send(JSON.stringify({ type: 'response', id: msg.id, result: { type: 'conflict' } }));
+        return;
+      }
       conn.dc.send(JSON.stringify({ type: 'response', id: msg.id, result: { type: 'room', row } }));
       // Le push vers les AUTRES invités connectés se fait via l'abonnement
       // Supabase interne d'`armHostRelay` (déclenché par cette même
       // écriture) — pas la peine de le refaire ici pour celui-ci.
-    } catch (e) {
-      conn.dc.send(JSON.stringify({ type: 'response', id: msg.id, result: { type: 'conflict' } }));
     }
+  } catch (e) {
+    console.error('[webrtc/relay] Erreur en traitant un message invité :', e);
   }
 }
 
@@ -185,7 +203,17 @@ async function armGuestConnection() {
   wireDataChannel(dc, {
     onMessage: (raw) => handleGuestChannelMessage(link, raw),
     onOpen: () => {
-      if (guestLink === link) link.ready = true;
+      // Le canal est "ouvert" au sens WebRTC, mais ça ne garantit pas qu'il
+      // relaie vraiment des messages (NAT capricieux) : on vérifie par un
+      // aller-retour réel avant d'y router de vrais coups.
+      sendRequestOn(link, { type: 'fetch' }, HEALTH_CHECK_TIMEOUT_MS)
+        .then(() => {
+          if (guestLink === link) link.ready = true;
+        })
+        .catch(() => {
+          // Ne répond pas vraiment : reste non prête, tout continue de
+          // passer par Supabase comme avant cette fonctionnalité.
+        });
     },
     onClose: () => {
       if (guestLink === link) guestLink = null;
@@ -213,14 +241,13 @@ function handleGuestChannelMessage(link, raw) {
   }
 }
 
-function sendGuestRequest(msg) {
-  const link = guestLink;
+function sendRequestOn(link, msg, timeoutMs = REQUEST_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const id = ++link.reqCounter;
     const timer = setTimeout(() => {
       link.pending.delete(id);
       reject(new Error('La connexion directe ne répond pas — réessaie.'));
-    }, REQUEST_TIMEOUT_MS);
+    }, timeoutMs);
     link.pending.set(id, {
       resolve: (v) => {
         clearTimeout(timer);
@@ -302,10 +329,15 @@ export function stopRelay() {
 
 export async function fetchRoomById(id) {
   if (guestLinkReady()) {
+    const link = guestLink;
     try {
-      return await sendGuestRequest({ type: 'fetch' });
+      return await sendRequestOn(link, { type: 'fetch' });
     } catch (e) {
-      // Lecture : repli silencieux sans risque de double-effet.
+      // Lecture : repli silencieux sans risque de double-effet. Une liaison
+      // qui ne répond pas ne relaiera sans doute pas mieux le prochain coup :
+      // on la désactive pour de bon, plutôt que de retenter en vain à
+      // chaque action (voir `updateRoomState` pour le même raisonnement).
+      if (guestLink === link) guestLink = null;
     }
   }
   return backingStore.fetchRoomById(id);
@@ -313,12 +345,22 @@ export async function fetchRoomById(id) {
 
 export async function updateRoomState(roomId, expectedVersion, newState, extraColumns = {}) {
   if (guestLinkReady()) {
-    // Écriture envoyée par la liaison directe : on ne la retente PAS
-    // ensuite via Supabase en cas d'échec (risque de double-application si
-    // l'hôte l'avait en fait déjà traitée) — l'appelant gère l'erreur comme
-    // n'importe quelle autre erreur réseau aujourd'hui (message + nouvel essai
-    // manuel de l'utilisateur).
-    return sendGuestRequest({ type: 'update', expectedVersion, newState, extraColumns });
+    const link = guestLink;
+    try {
+      return await sendRequestOn(link, { type: 'update', expectedVersion, newState, extraColumns });
+    } catch (e) {
+      if (e instanceof ConflictError) throw e; // réponse propre et rapide : la liaison va bien, rien à faire
+
+      // Pas de réponse dans les temps (liaison ouverte au sens WebRTC mais
+      // qui ne relaie plus rien, ex: NAT capricieux) : on la désactive pour
+      // de bon, pour que le PROCHAIN essai de l'utilisateur passe directement
+      // par Supabase au lieu de retenter (et retimeout) la même liaison
+      // cassée. Ce coup-ci reste en échec — pas de nouvel essai automatique
+      // ici, pour ne pas risquer de le jouer deux fois si l'hôte l'avait en
+      // fait déjà traité.
+      if (guestLink === link) guestLink = null;
+      throw e;
+    }
   }
   return backingStore.updateRoomState(roomId, expectedVersion, newState, extraColumns);
 }
