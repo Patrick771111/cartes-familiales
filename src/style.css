@@ -1308,15 +1308,15 @@ h1 {
   margin: 6px 0;
 }
 .suiteinfernale-slot {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   border: 1.5px dashed var(--line);
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: rgba(247, 241, 225, 0.5);
 }
 .suiteinfernale-slot--filled {
@@ -1326,7 +1326,10 @@ h1 {
   font-weight: 700;
   box-shadow: 0 2px 6px rgba(0,0,0,0.3);
 }
-.opponent--compact .suiteinfernale-slot { width: 14px; height: 14px; font-size: 8px; }
+/* Cases un peu plus grandes que la moyenne "compacte" du reste de l'appli :
+   ce sont ici des cibles à toucher précisément (attaque au clic ou au
+   glisser-déposer), pas seulement de l'affichage. */
+.opponent--compact .suiteinfernale-slot { width: 22px; height: 22px; font-size: 10px; }
 .suiteinfernale-slot--pickable {
   cursor: pointer;
   box-shadow: 0 0 0 2px var(--red-suit), 0 2px 6px rgba(0,0,0,0.3);
@@ -1361,6 +1364,50 @@ h1 {
 }
 .hand-card--selected .suiteinfernale-card { box-shadow: 0 0 0 2px var(--brass), 0 10px 16px rgba(0,0,0,0.45); }
 .hand-card--unplayable .suiteinfernale-card { filter: grayscale(0.6); }
+
+/* Main en grille (pas en éventail superposé) : les cartes portent du texte
+   (types de cartes spéciales) qu'un fort chevauchement rendrait illisible,
+   et il reste largement la place d'utiliser plusieurs lignes. */
+.suiteinfernale-hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow: visible;
+  padding: 4px;
+  justify-content: flex-start;
+}
+.suiteinfernale-hand .hand-card { margin-left: 0; touch-action: none; }
+
+/* Glisser-déposer : la carte suit le doigt/curseur (position fixe), les
+   zones de dépôt s'illuminent au survol. */
+.hand-card.is-dragging-away {
+  position: fixed;
+  z-index: 200;
+  pointer-events: none;
+  transform: scale(1.08) rotate(-2deg);
+  transition: none;
+}
+[data-dropzone] { transition: box-shadow 0.15s ease, background 0.15s ease; border-radius: 12px; }
+[data-dropzone].dropzone--hover {
+  box-shadow: 0 0 0 3px var(--brass-soft);
+  background: rgba(228, 199, 101, 0.12);
+}
+
+.suiteinfernale-discard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 60px;
+  height: 60px;
+  margin: 8px auto 0;
+  border: 1.5px dashed var(--line);
+  border-radius: 12px;
+  font-size: 11px;
+  color: rgba(247, 241, 225, 0.55);
+  text-align: center;
+}
 
 .suiteinfernale-actions { display: flex; gap: 10px; justify-content: center; margin: 10px 0; }
 .suiteinfernale-actions .btn { flex: 1; max-width: 160px; }
