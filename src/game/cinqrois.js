@@ -342,17 +342,27 @@ export function applyDiscard(state, playerId, cardId, goOut = false) {
     lastMove: { id: uniqueId(), by: playerId, type: 'discard', card, goOut: false }
   };
 
-  // Tentative de pose (main entière)
-  if (goOut && state.status === 'playing' && canGoOut(current.hand, state.trumpRank)) {
+  // Tentative de pose (main entière) — possible aussi pendant les derniers
+  // tours (`last_turns`) : chacun garde une chance d'éviter les pénalités en
+  // posant à son tour, pas seulement le tout premier à avoir posé.
+  const canAttemptGoOut = state.status === 'playing' || state.status === 'last_turns';
+  if (goOut && canAttemptGoOut && canGoOut(current.hand, state.trumpRank)) {
     current.laidDown = true;
     current.hand = []; // les cartes posées ne sont plus "en main" (sinon elles restent visibles à tort pendant les derniers tours)
     logMessage += ` ${current.name} pose sa main !`;
     nextState.lastMove.goOut = true;
-    nextState.firstToLayId = playerId;
-    nextState.status = 'last_turns';
-    // Les autres joueurs non posés jouent encore une fois
-    nextState.lastTurnQueue = state.turnOrder.filter((id) => id !== playerId);
     nextState.log = [...state.log, { ts: Date.now(), message: logMessage }].slice(-40);
+
+    if (state.status === 'playing') {
+      // Premier à poser : déclenche les derniers tours pour tout le monde d'autre.
+      nextState.firstToLayId = playerId;
+      nextState.status = 'last_turns';
+      nextState.lastTurnQueue = state.turnOrder.filter((id) => id !== playerId);
+    } else {
+      // Déjà en derniers tours : ce joueur a posé au lieu de simplement défausser,
+      // il sort donc de la file de ceux qui doivent encore jouer.
+      nextState.lastTurnQueue = (state.lastTurnQueue || []).filter((id) => id !== playerId);
+    }
 
     if (nextState.lastTurnQueue.length === 0) {
       return finishRound(nextState);
@@ -361,7 +371,7 @@ export function applyDiscard(state, playerId, cardId, goOut = false) {
     return nextState;
   }
 
-  if (goOut && state.status === 'playing') {
+  if (goOut && canAttemptGoOut) {
     throw new Error("Tu ne peux pas poser : ta main ne forme pas uniquement des suites/familles.");
   }
 
