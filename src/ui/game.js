@@ -1520,6 +1520,13 @@ function skyjoGridHtml(grid, clickableClassFor, enableDrop) {
   </div>`;
 }
 
+// Somme des cases déjà retournées d'une grille (0 pour les cases cachées ou
+// effacées) : donne un aperçu du score de manche en cours, avant que la
+// grille ne soit entièrement révélée.
+function skyjoVisibleSum(grid) {
+  return grid.reduce((sum, cell) => sum + (cell && cell.faceUp ? cell.card.value : 0), 0);
+}
+
 function renderSkyjoTable(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
   const others = state.players.filter((p) => p.id !== player.id);
@@ -1535,8 +1542,10 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
     .map((p) => {
       const isTurn = p.id === state.currentPlayerId;
       const roundLabel = finished ? ` · ${p.roundScore ?? 0} pt${(p.roundScore ?? 0) > 1 ? 's' : ''} cette manche` : '';
+      const visibleSum = skyjoVisibleSum(p.grid);
       return `
         <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
+          <p class="skyjo-visible-sum">${visibleSum} pt${visibleSum > 1 ? 's' : ''} visible${visibleSum > 1 ? 's' : ''}</p>
           ${skyjoGridHtml(p.grid)}
           <p class="opponent__name">${p.name} · ${p.score}${p.id === state.gameWinnerId ? ' 🏆' : ''}${roundLabel}</p>
         </div>`;
@@ -1544,6 +1553,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
     .join('');
 
   const myClickableClassFor = (cell, i) => (canAct && cell ? 'skyjo-cell--placeable' : '');
+  const myVisibleSum = skyjoVisibleSum(me.grid);
 
   container.innerHTML = `
     <div class="screen screen--table skyjo-screen">
@@ -1558,9 +1568,9 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
             : ''
         }
         <div class="skyjo-draw-area">
-          <button type="button" class="skyjo-pile skyjo-pile--discard ${canDraw ? 'skyjo-pile--pickable' : ''}" id="btn-draw-discard" ${canDraw ? '' : 'disabled'}>
+          <button type="button" class="skyjo-pile skyjo-pile--discard ${canDraw ? 'skyjo-pile--pickable' : ''}" id="btn-draw-discard" ${canDraw ? '' : 'disabled'} ${canDraw && topDiscard ? 'data-card-id="discard-pile"' : ''}>
             ${topDiscard ? `<div class="skyjo-cell skyjo-cell--faceup ${skyjoValueClass(topDiscard.value)}">${topDiscard.value}</div>` : ''}
-            <span class="skyjo-pile__label">Défausse</span>
+            <span class="skyjo-pile__label">Défausse${canDraw && topDiscard ? ' · glisse-la vers ta grille' : ''}</span>
           </button>
           <button type="button" class="skyjo-pile skyjo-pile--deck ${canDraw ? 'skyjo-pile--pickable' : ''}" id="btn-draw-deck" ${canDraw ? '' : 'disabled'}>
             <div class="skyjo-cell skyjo-cell--facedown"></div>
@@ -1594,9 +1604,6 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
       </div>
 
       <div class="my-hand">
-        <p class="my-hand__label">Ta grille · Score total : ${me.score}${me.id === state.gameWinnerId ? ' 🏆' : ''}${finished ? ` · ${me.roundScore ?? 0} pts cette manche` : ''}</p>
-        ${skyjoGridHtml(me.grid, myClickableClassFor, canAct)}
-
         ${finished ? endGameActionsHtml() : ''}
 
         <details class="log">
@@ -1606,6 +1613,12 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
 
         <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
         <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+      </div>
+
+      <div class="skyjo-my-grid-dock">
+        <p class="my-hand__label">Ta grille · Score total : ${me.score}${me.id === state.gameWinnerId ? ' 🏆' : ''}${finished ? ` · ${me.roundScore ?? 0} pts cette manche` : ''}</p>
+        <p class="skyjo-visible-sum">${myVisibleSum} pt${myVisibleSum > 1 ? 's' : ''} visible${myVisibleSum > 1 ? 's' : ''}</p>
+        ${skyjoGridHtml(me.grid, myClickableClassFor, canAct || canDraw)}
       </div>
     </div>
   `;
@@ -1620,15 +1633,36 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
     }
   });
 
-  container.querySelector('#btn-draw-discard')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try {
-      await drawSkyjoFromDiscard(room, player.id);
-    } catch (err) {
-      e.target.disabled = false;
-      alert(err.message || 'Impossible de prendre la défausse.');
-    }
-  });
+  // La défausse se prend et se pose obligatoirement (jamais gardée en main) :
+  // en plus du tap simple (prend, puis pose séparément comme avant), on peut
+  // la glisser directement sur une case de sa grille pour enchaîner les deux
+  // d'un seul geste — deux appels réseau à la suite, mais un seul geste côté
+  // joueur.
+  const drawArea = container.querySelector('.skyjo-draw-area');
+  if (drawArea && canDraw) {
+    enableDragToZone(drawArea, {
+      onTap: async (id) => {
+        if (id !== 'discard-pile') return;
+        const btn = container.querySelector('#btn-draw-discard');
+        if (btn) btn.disabled = true;
+        try {
+          await drawSkyjoFromDiscard(room, player.id);
+        } catch (err) {
+          if (btn) btn.disabled = false;
+          alert(err.message || 'Impossible de prendre la défausse.');
+        }
+      },
+      onDrop: async (id, zone) => {
+        if (id !== 'discard-pile' || zone.dropzone !== 'skyjo-cell') return;
+        try {
+          await drawSkyjoFromDiscard(room, player.id);
+          await placeSkyjoCard(room, player.id, Number(zone.index));
+        } catch (err) {
+          alert(err.message || 'Impossible de prendre la défausse et de la poser.');
+        }
+      }
+    });
+  }
 
   if (canAct) {
     const placeCard = (index) => {

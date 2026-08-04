@@ -831,30 +831,34 @@ h1 {
 [data-card-theme="royal"] .card[data-rank="Q"] .card__figure::before { content: '♛'; }
 [data-card-theme="royal"] .card[data-rank="K"] .card__figure::before { content: '♚'; }
 
-/* ---------- Indicateur de connexion directe (WebRTC) ---------- */
+/* ---------- Prénom + indicateur de connexion directe (WebRTC) ---------- */
+/* À côté du bouton réglages ⚙️ plutôt qu'un bandeau flottant qui cachait une
+   partie de l'écran de jeu. Le 🔌 ne s'allume (couleur pleine) que quand la
+   liaison directe est active ; sinon il reste discret/grisé. */
 
-.connection-badge {
+.player-badge {
   position: fixed;
   top: 12px;
-  left: 12px;
+  right: 58px;
   z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   padding: 5px 10px;
   border-radius: 999px;
   background: var(--felt-700);
-  border: 1px solid var(--brass);
-  color: var(--brass-soft);
+  border: 1px solid var(--line);
+  color: var(--cream);
   font-family: var(--font-mono);
   font-size: 11px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.35);
   opacity: 0;
-  transform: translateY(-6px);
   pointer-events: none;
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition: opacity 0.25s ease;
 }
-.connection-badge--visible {
-  opacity: 1;
-  transform: translateY(0);
-}
+.player-badge--visible { opacity: 1; }
+.player-badge__plug { opacity: 0.3; filter: grayscale(1); transition: opacity 0.2s ease, filter 0.2s ease; }
+.player-badge--plugged .player-badge__plug { opacity: 1; filter: none; }
 
 /* ---------- Réglages d'affichage (bouton flottant + modale) ---------- */
 
@@ -1218,6 +1222,33 @@ h1 {
 /* ---------- Skyjo ---------- */
 
 .skyjo-felt { padding: 18px 14px; text-align: center; }
+.skyjo-screen { padding-bottom: 210px; }
+
+/* Grille du joueur épinglée en bas de l'écran (position fixe, indépendante
+   du défilement) : le glisser-déposer (carte piochée ou défausse) vise des
+   coordonnées écran précises, qui ne doivent pas bouger en cours de geste. */
+.skyjo-my-grid-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  background: var(--felt-700);
+  border-top: 1px solid var(--brass);
+  box-shadow: 0 -6px 20px rgba(0,0,0,0.45);
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.skyjo-visible-sum {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(247, 241, 225, 0.6);
+  margin: 0 0 4px;
+}
 
 .skyjo-grid {
   display: grid;
@@ -1275,6 +1306,8 @@ h1 {
 }
 .skyjo-pile .skyjo-cell { width: 48px; height: 48px; font-size: 20px; }
 .skyjo-pile--pickable { cursor: pointer; opacity: 1; }
+.skyjo-pile--discard[data-card-id] { cursor: grab; touch-action: none; }
+.skyjo-pile--discard[data-card-id].is-dragging-away { cursor: grabbing; }
 .skyjo-pile--pickable .skyjo-cell { box-shadow: 0 0 0 3px var(--brass-soft), 0 6px 16px rgba(0,0,0,0.4); }
 .skyjo-pile__label { font-family: var(--font-mono); font-size: 11px; color: rgba(247, 241, 225, 0.7); }
 

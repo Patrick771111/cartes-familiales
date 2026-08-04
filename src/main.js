@@ -602,7 +602,7 @@ function draw(room) {
   currentRoomRef = room;
   updateDocumentTitle(room);
   maybeReinitRelay(room);
-  updateConnectionBadge(isRelayActive());
+  updateConnectionBadge(isRelayActive(), currentPlayer.name);
   maybeScheduleBotMove(room);
   maybeScheduleTrouducExchangeBot(room);
   maybeScheduleTrouducBotMove(room);
