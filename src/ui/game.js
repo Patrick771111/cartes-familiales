@@ -21,6 +21,9 @@ import {
   playSuiteInfernaleAttack,
   respondToSuiteInfernaleAttack,
   discardSuiteInfernale,
+  drawCinqRoisFromStock,
+  drawCinqRoisFromDiscard,
+  discardCinqRois,
   playAgain,
   continueGame,
   addBot,
@@ -36,12 +39,27 @@ import { handTotal, DEFAULT_BET as BLACKJACK_DEFAULT_BET, MIN_BET as BLACKJACK_M
 import { TARGET_SCORE as FLIP7_TARGET_SCORE } from '../game/flip7.js';
 import { TARGET_SCORE as SKYJO_TARGET_SCORE } from '../game/skyjo.js';
 import { SEQUENCE_TARGET as SUITE_INFERNALE_TARGET, SPECIAL_TYPES as SUITE_INFERNALE_SPECIAL_TYPES } from '../game/suiteinfernale.js';
+import {
+  canGoOut as cinqRoisCanGoOut,
+  rankLabel as cinqRoisRankLabel,
+  suitInfo as cinqRoisSuitInfo
+} from '../game/cinqrois.js';
 import { suitInfo } from '../game/deck.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
 import { enableHandDrag } from './dragReorder.js';
 import { enableDragToZone } from './dragToZone.js';
 import { isSuiteInfernaleDragEnabled } from './settings.js';
 import { openRulesModal } from './rules.js';
+
+/**
+ * 🔌 à côté du prénom d'un joueur qui bénéficie actuellement d'une liaison
+ * directe (WebRTC) vers l'hôte — poussé par tout appareil dans
+ * `room.state.connections` (voir `reportRelayStatus` dans engine.js), donc
+ * visible par tout le monde à la table, pas seulement sur l'appareil concerné.
+ */
+function connectionBadge(state, playerId) {
+  return state.connections?.[playerId] ? ' 🔌' : '';
+}
 
 function rankSortValue(rank) {
   const order = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -94,7 +112,7 @@ function wireEndGameActions(container, room) {
  * `room` = ligne courante (state + type de jeu inclus), `player` = profil local.
  * Le changement de prénom se fait désormais depuis la modale de réglages (settings.js).
  */
-export function renderGame(container, { room, player, onLeave, onKick, relayActive } = {}) {
+export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   const state = room.state;
 
   if (state.status === 'lobby') {
@@ -111,7 +129,7 @@ export function renderGame(container, { room, player, onLeave, onKick, relayActi
     suiteInfernaleResolutionBanner = null;
     resetHandOrder('pouilleux');
     revealHands = false;
-    return renderWaitingRoom(container, { room, player, onLeave, onKick, relayActive });
+    return renderWaitingRoom(container, { room, player, onLeave, onKick });
   }
 
   if (state.status === 'exchange') {
@@ -133,6 +151,7 @@ export function renderGame(container, { room, player, onLeave, onKick, relayActi
   const isFlip7 = room.game === 'flip7';
   const isSkyjo = room.game === 'skyjo';
   const isSuiteInfernale = room.game === 'suiteinfernale';
+  const isCinqRois = room.game === 'cinqrois';
   // Le Blackjack, Flip 7, Skyjo et la Suite Infernale n'ont pas d'écran de fin
   // séparé : la table (banque, mains/grilles/suites de tout le monde) reste
   // affichée telle quelle, seuls les résultats s'y ajoutent.
@@ -147,6 +166,9 @@ export function renderGame(container, { room, player, onLeave, onKick, relayActi
   }
   if (isSuiteInfernale && (state.status === 'playing' || state.status === 'finished')) {
     return renderSuiteInfernaleTable(container, { room, player, state, onLeave });
+  }
+  if (isCinqRois && (state.status === 'playing' || state.status === 'last_turns' || state.status === 'finished')) {
+    return renderCinqRoisTable(container, { room, player, state, onLeave });
   }
   if (state.status === 'playing') {
     if (isTrouduc) return renderTrouducTable(container, { room, player, state });
@@ -165,7 +187,7 @@ export function renderGame(container, { room, player, onLeave, onKick, relayActi
 // si elle n'était pas mémorisée en dehors de la fonction de rendu.
 let selectedGameIdByRoom = null;
 
-function renderWaitingRoom(container, { room, player, onLeave, onKick, relayActive }) {
+function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   const state = room.state;
   if (selectedGameIdByRoom?.roomId !== room.id) selectedGameIdByRoom = null;
   const selectedGameId = selectedGameIdByRoom?.gameId || AVAILABLE_GAMES[0].id;
@@ -198,7 +220,7 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick, relayActi
             .map(
               (p) => `
                 <li>
-                  <span>${p.name}${p.isBot ? ' 🤖' : ''}${p.id === state.hostId ? ' <span class="tag">hôte</span>' : ''}${p.id === player.id ? ` <span class="tag tag--you">toi${relayActive ? ' 🔌' : ''}</span>` : ''}</span>
+                  <span>${p.name}${connectionBadge(state, p.id)}${p.isBot ? ' 🤖' : ''}${p.id === state.hostId ? ' <span class="tag">hôte</span>' : ''}${p.id === player.id ? ' <span class="tag tag--you">toi</span>' : ''}</span>
                   ${isHost && p.id !== player.id ? `<button class="player-list__kick" data-kick-id="${p.id}" title="Retirer ${p.name}" aria-label="Retirer ${p.name}">✕</button>` : ''}
                 </li>`
             )
@@ -418,7 +440,7 @@ function renderTableNow(container, { room, player, state }) {
       return `
         <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
           <div class="opponent__hand ${showFaces ? 'opponent__hand--revealed' : ''}">${handHtml}</div>
-          <p class="opponent__name">${p.name}${p.hand.length === 0 ? ' — sorti·e' : ` · ${status}`}</p>
+          <p class="opponent__name">${p.name}${connectionBadge(state, p.id)}${p.hand.length === 0 ? ' — sorti·e' : ` · ${status}`}</p>
         </div>`;
     })
     .join('');
@@ -433,7 +455,7 @@ function renderTableNow(container, { room, player, state }) {
         <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
           ${isMyTurn ? `Touche une carte chez ${targetName}` : `Tour de ${currentPlayerName}`}
         </div>
-        ${target ? `<p class="pouilleux-target__name">${target.name}${target.hand.length === 0 ? ' — sorti·e' : ` · ${target.hand.length} carte${target.hand.length > 1 ? 's' : ''}`}</p>` : ''}
+        ${target ? `<p class="pouilleux-target__name">${target.name}${connectionBadge(state, target.id)}${target.hand.length === 0 ? ' — sorti·e' : ` · ${target.hand.length} carte${target.hand.length > 1 ? 's' : ''}`}</p>` : ''}
         <div class="pouilleux-target__hand ${targetPickable ? 'pouilleux-target__hand--pickable' : ''} ${showFaces ? 'opponent__hand--revealed' : ''}">
           ${targetHandHtml}
         </div>
@@ -816,7 +838,7 @@ function renderTrouducTable(container, { room, player, state }) {
                   : Array.from({ length: previewCount }).map(() => cardBackHtml()).join('');
               return `
                 <div class="trouduc-seat trouduc-seat--${i} ${isTurn ? 'trouduc-seat--turn' : ''} ${p.finished ? 'trouduc-seat--finished' : ''}">
-                  <p class="trouduc-seat__name">${p.name}</p>
+                  <p class="trouduc-seat__name">${p.name}${connectionBadge(state, p.id)}</p>
                   <p class="trouduc-seat__status">${label}</p>
                   <div class="trouduc-seat__row">
                     <div class="trouduc-seat__hand ${showFaces ? 'trouduc-seat__hand--revealed' : ''}">${handPreview}</div>
@@ -1033,7 +1055,7 @@ function renderAmericainTable(container, { room, player, state }) {
       return `
         <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
           <div class="opponent__hand">${handHtml}</div>
-          <p class="opponent__name">${p.name} · ${status}</p>
+          <p class="opponent__name">${p.name}${connectionBadge(state, p.id)} · ${status}</p>
         </div>`;
     })
     .join('');
@@ -1247,7 +1269,7 @@ function renderBlackjackTable(container, { room, player, state, onLeave }) {
       return `
         <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
           <div class="opponent__hand opponent__hand--revealed">${p.hand.map(cardFaceHtml).join('')}</div>
-          <p class="opponent__name">${p.name} · ${total} · ${label}</p>
+          <p class="opponent__name">${p.name}${connectionBadge(state, p.id)} · ${total} · ${label}</p>
           <p class="opponent__name">${moneyLabelFor(p)}</p>
         </div>`;
     })
@@ -1386,7 +1408,7 @@ function renderFlip7Table(container, { room, player, state, onLeave }) {
       return `
         <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
           <div class="flip7-mini-hand">${p.display.map(flip7CardHtml).join('') || '<span class="flip7-mini-hand__empty">—</span>'}</div>
-          <p class="opponent__name">${p.name} · ${uniqueCountFor(p)}/7 · ${statusLabelFor(p)}</p>
+          <p class="opponent__name">${p.name}${connectionBadge(state, p.id)} · ${uniqueCountFor(p)}/7 · ${statusLabelFor(p)}</p>
           <p class="opponent__name">Score total : ${p.score}${p.id === state.gameWinnerId ? ' 🏆' : ''}</p>
         </div>`;
     })
@@ -1547,7 +1569,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
         <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
           <p class="skyjo-visible-sum">${visibleSum} pt${visibleSum > 1 ? 's' : ''} visible${visibleSum > 1 ? 's' : ''}</p>
           ${skyjoGridHtml(p.grid)}
-          <p class="opponent__name">${p.name} · ${p.score}${p.id === state.gameWinnerId ? ' 🏆' : ''}${roundLabel}</p>
+          <p class="opponent__name">${p.name}${connectionBadge(state, p.id)} · ${p.score}${p.id === state.gameWinnerId ? ' 🏆' : ''}${roundLabel}</p>
         </div>`;
     })
     .join('');
@@ -1866,7 +1888,7 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
       return `
         <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}" data-player-id="${p.id}" data-dropzone="opponent" data-target-id="${p.id}">
           ${suiteInfernaleSequenceHtml(p.sequence, { clickableIndexes, targetId: p.id })}
-          <p class="opponent__name">${p.name} · ${p.sequence.filter(Boolean).length}/${SUITE_INFERNALE_TARGET} · ${p.hand.length} carte${p.hand.length > 1 ? 's' : ''}</p>
+          <p class="opponent__name">${p.name}${connectionBadge(state, p.id)} · ${p.sequence.filter(Boolean).length}/${SUITE_INFERNALE_TARGET} · ${p.hand.length} carte${p.hand.length > 1 ? 's' : ''}</p>
         </div>`;
     })
     .join('');
@@ -2160,6 +2182,210 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
   });
 }
 
+function cinqRoisCardHtml(card, trumpRank, selected = false) {
+  if (card.isJoker) {
+    return `<div class="cinqrois-card cinqrois-card--joker ${selected ? 'cinqrois-card--selected' : ''}" data-card-id="${card.id}">!</div>`;
+  }
+  const info = cinqRoisSuitInfo(card.suit);
+  const isTrump = card.rank === trumpRank;
+  return `<div class="cinqrois-card ${info?.color === 'red' ? 'cinqrois-card--red' : info?.color === 'gold' ? 'cinqrois-card--gold' : 'cinqrois-card--dark'} ${isTrump ? 'cinqrois-card--trump' : ''} ${selected ? 'cinqrois-card--selected' : ''}" data-card-id="${card.id}">
+    <span class="cinqrois-card__rank">${cinqRoisRankLabel(card.rank)}</span>
+    <span class="cinqrois-card__suit">${info?.symbol || ''}</span>
+  </div>`;
+}
+
+function renderCinqRoisTable(container, { room, player, state, onLeave }) {
+  const me = state.players.find((p) => p.id === player.id);
+  const isMyTurn =
+    (state.status === 'playing' || state.status === 'last_turns') &&
+    state.currentPlayerId === player.id &&
+    me &&
+    !me.laidDown;
+  const isFinished = state.status === 'finished';
+  const topDiscard = state.discard[state.discard.length - 1];
+
+  const othersHtml = state.players
+    .filter((p) => p.id !== player.id)
+    .map((p) => {
+      const isTurn = state.currentPlayerId === p.id;
+      let status = p.laidDown ? 'Posé ✓' : isTurn ? 'À jouer…' : `${p.hand.length} cartes`;
+      if (isFinished && state.roundScores) status = `+${state.roundScores[p.id] ?? 0} · total ${p.score}`;
+      return `
+        <div class="cinqrois-seat ${isTurn ? 'cinqrois-seat--turn' : ''} ${p.laidDown ? 'cinqrois-seat--laid' : ''}">
+          <p class="cinqrois-seat__name">${p.name}${connectionBadge(state, p.id)} <span class="cinqrois-seat__score">(${p.score})</span></p>
+          <p class="cinqrois-seat__status">${status}</p>
+          <div class="cinqrois-seat__backs">${Array(Math.min(p.hand.length, 13)).fill('<div class="cinqrois-card cinqrois-card--back"></div>').join('')}</div>
+        </div>`;
+    })
+    .join('');
+
+  const sortedHand = me
+    ? me.hand.slice().sort((a, b) => {
+        if (a.isJoker !== b.isJoker) return a.isJoker ? 1 : -1;
+        if (a.rank !== b.rank) return (a.rank || 99) - (b.rank || 99);
+        return (a.suit || '').localeCompare(b.suit || '');
+      })
+    : [];
+
+  let actionsHtml = '';
+  if (isFinished) {
+    const winner = state.gameWinnerId ? state.players.find((p) => p.id === state.gameWinnerId) : null;
+    actionsHtml = `
+      <div class="cinqrois-actions">
+        ${
+          winner
+            ? `<p class="cinqrois-winner">🏆 ${winner.name} gagne avec ${winner.score} points !</p>`
+            : `<p class="cinqrois-winner">Manche terminée — enchaîne ou retourne au lobby.</p>`
+        }
+        ${endGameActionsHtml()}
+      </div>`;
+  } else if (isMyTurn && state.phase === 'draw') {
+    actionsHtml = `
+      <div class="cinqrois-actions">
+        <button id="btn-cinqrois-stock" class="btn btn--primary">Pioche (${state.stock.length})</button>
+        <button id="btn-cinqrois-discard-draw" class="btn btn--secondary" ${
+          topDiscard ? '' : 'disabled'
+        }>Prendre défausse ${
+          topDiscard
+            ? topDiscard.isJoker
+              ? '(!)'
+              : `(${cinqRoisRankLabel(topDiscard.rank)}${cinqRoisSuitInfo(topDiscard.suit)?.symbol || ''})`
+            : ''
+        }</button>
+      </div>`;
+  } else if (isMyTurn && state.phase === 'discard') {
+    actionsHtml = `
+      <div class="cinqrois-actions">
+        <p class="cinqrois-hint">Choisis une carte à défausser${
+          state.status === 'playing' ? ', puis éventuellement pose ta main.' : '.'
+        }</p>
+        <button id="btn-cinqrois-discard" class="btn btn--primary" disabled>Défausser</button>
+        ${
+          state.status === 'playing'
+            ? `<button id="btn-cinqrois-goout" class="btn btn--secondary" disabled>Défausser &amp; poser</button>`
+            : ''
+        }
+      </div>`;
+  } else if (me?.laidDown) {
+    actionsHtml = `<p class="cinqrois-hint">Tu as posé ta main — en attente des autres…</p>`;
+  }
+
+  const myStatus = isFinished && state.roundScores ? ` — +${state.roundScores[me?.id] ?? 0} pts cette manche` : '';
+
+  container.innerHTML = `
+    <div class="screen screen--table cinqrois-screen">
+      <p class="eyebrow">Cinq Rois · manche ${state.handSize}/13 · atout ${cinqRoisRankLabel(state.trumpRank)}${
+        state.status === 'last_turns' ? ' · derniers tours' : ''
+      }</p>
+      <div class="cinqrois-opponents">${othersHtml || '<p class="cinqrois-empty">Aucun adversaire</p>'}</div>
+      <div class="cinqrois-center">
+        <div class="cinqrois-pile">
+          <div class="cinqrois-card cinqrois-card--back"></div>
+          <span class="cinqrois-pile__label">Pioche ${state.stock.length}</span>
+        </div>
+        <div class="cinqrois-discard">
+          ${
+            topDiscard
+              ? cinqRoisCardHtml(topDiscard, state.trumpRank)
+              : '<div class="cinqrois-card cinqrois-card--empty">—</div>'
+          }
+          <span class="cinqrois-pile__label">Défausse</span>
+        </div>
+      </div>
+      <div class="cinqrois-me ${isMyTurn ? 'cinqrois-me--turn' : ''} ${me?.laidDown ? 'cinqrois-me--laid' : ''}">
+        <p class="cinqrois-me__name">Toi${connectionBadge(state, me?.id)} (${me?.score ?? 0} pts)${me?.laidDown ? ' — posé ✓' : ''}${myStatus}</p>
+        <div class="cinqrois-me__hand" id="cinqrois-hand">
+          ${sortedHand.map((c) => cinqRoisCardHtml(c, state.trumpRank)).join('') || '<p class="cinqrois-empty">—</p>'}
+        </div>
+      </div>
+      ${actionsHtml}
+
+      <details class="log">
+        <summary>Journal de la partie</summary>
+        <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
+      </details>
+
+      <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
+      <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+    </div>`;
+
+  if (isFinished) wireEndGameActions(container, room);
+
+  container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal('cinqrois'));
+  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
+    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
+      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
+    }
+  });
+
+  let selectedCardId = null;
+  const refreshSelection = () => {
+    container.querySelectorAll('#cinqrois-hand .cinqrois-card').forEach((el) => {
+      el.classList.toggle('cinqrois-card--selected', el.dataset.cardId === selectedCardId);
+    });
+    const discardBtn = container.querySelector('#btn-cinqrois-discard');
+    const goOutBtn = container.querySelector('#btn-cinqrois-goout');
+    if (discardBtn) discardBtn.disabled = !selectedCardId;
+    if (goOutBtn) {
+      if (!selectedCardId || !me) {
+        goOutBtn.disabled = true;
+      } else {
+        const remaining = me.hand.filter((c) => c.id !== selectedCardId);
+        goOutBtn.disabled = remaining.length < 3 || !cinqRoisCanGoOut(remaining, state.trumpRank);
+      }
+    }
+  };
+
+  if (isMyTurn && state.phase === 'discard') {
+    container.querySelectorAll('#cinqrois-hand .cinqrois-card').forEach((el) => {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', () => {
+        selectedCardId = el.dataset.cardId;
+        refreshSelection();
+      });
+    });
+  }
+
+  container.querySelector('#btn-cinqrois-stock')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await drawCinqRoisFromStock(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de piocher.');
+    }
+  });
+  container.querySelector('#btn-cinqrois-discard-draw')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await drawCinqRoisFromDiscard(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de prendre la défausse.');
+    }
+  });
+  container.querySelector('#btn-cinqrois-discard')?.addEventListener('click', async (e) => {
+    if (!selectedCardId) return;
+    e.target.disabled = true;
+    try {
+      await discardCinqRois(room, player.id, selectedCardId, false);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de défausser.');
+    }
+  });
+  container.querySelector('#btn-cinqrois-goout')?.addEventListener('click', async (e) => {
+    if (!selectedCardId) return;
+    e.target.disabled = true;
+    try {
+      await discardCinqRois(room, player.id, selectedCardId, true);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de poser.');
+    }
+  });
+}
+
 /**
  * Vue lecture seule d'une partie en cours, pour quelqu'un qui n'y participe pas
  * (arrivé après le lancement, ou en attente de la manche suivante). Volontairement
@@ -2199,7 +2425,7 @@ export function renderSpectatorGame(container, { room, gameLabel }) {
               return `
                 <li class="spectator-player ${isTurn ? 'spectator-player--turn' : ''}">
                   <div class="spectator-player__row">
-                    <span class="spectator-player__name">${p.name}${p.isBot ? ' 🤖' : ''}</span>
+                    <span class="spectator-player__name">${p.name}${connectionBadge(state, p.id)}${p.isBot ? ' 🤖' : ''}</span>
                     <span class="spectator-player__status">${roleLabel}${status}</span>
                   </div>
                   ${handHtml}

@@ -27,6 +27,13 @@ import {
   applyRespondToAttack as applySuiteInfernaleRespondToAttack,
   applyDiscard as applySuiteInfernaleDiscard
 } from './suiteinfernale.js';
+import {
+  initGame as initCinqRois,
+  applyDrawFromStock as applyCinqRoisDrawStock,
+  applyDrawFromDiscard as applyCinqRoisDrawDiscard,
+  applyDiscard as applyCinqRoisDiscard,
+  startNextRound as startCinqRoisNextRound
+} from './cinqrois.js';
 
 const GAME_INITIALIZERS = {
   pouilleux: initPouilleux,
@@ -35,7 +42,8 @@ const GAME_INITIALIZERS = {
   blackjack: initBlackjack,
   flip7: initFlip7,
   skyjo: initSkyjo,
-  suiteinfernale: initSuiteInfernale
+  suiteinfernale: initSuiteInfernale,
+  cinqrois: initCinqRois
 };
 
 export const AVAILABLE_GAMES = [
@@ -45,7 +53,8 @@ export const AVAILABLE_GAMES = [
   { id: 'blackjack', label: 'Blackjack', hint: '1 à 6 joueurs, banque tenue par un bot', minPlayers: 1 },
   { id: 'flip7', label: 'Flip 7', hint: '2 à 6 joueurs, score cumulé', minPlayers: 2 },
   { id: 'skyjo', label: 'Skyjo', hint: '2 à 6 joueurs, moins de points c\'est mieux', minPlayers: 2 },
-  { id: 'suiteinfernale', label: 'La Suite Infernale', hint: '2 à 4 joueurs, construis ta suite de 1 à 10', minPlayers: 2 }
+  { id: 'suiteinfernale', label: 'La Suite Infernale', hint: '2 à 4 joueurs, construis ta suite de 1 à 10', minPlayers: 2 },
+  { id: 'cinqrois', label: 'Les Cinq Rois', hint: '2 à 7 joueurs — moins de points gagne', minPlayers: 2 }
 ];
 
 // Code fixe de la table familiale : personne n'a besoin de le saisir ni de le
@@ -399,6 +408,30 @@ export async function startGame(room, gameType = 'pouilleux') {
   return updateRoomState(room.id, room.version, newState, { game: gameType });
 }
 
+/**
+ * Signale si CET appareil bénéficie actuellement d'une liaison directe
+ * (WebRTC) vers l'hôte — poussé régulièrement par `main.js` (voir
+ * `isRelayActive`) pour que l'indicateur 🔌 soit visible par tout le monde à
+ * côté du prénom concerné, pas seulement sur l'appareil de la personne
+ * connectée. Rangé à part dans `room.state.connections` (et non sur l'entrée
+ * du joueur dans `players`) pour survivre aux changements de forme des
+ * joueurs d'un jeu à l'autre (`startGame`/`continueGame` ne recopient que
+ * `{id, name, isBot, bet}` depuis le lobby). Non critique : en cas de
+ * conflit d'écriture, on laisse simplement le prochain passage de
+ * `main.js` (quelques secondes plus tard) corriger l'état.
+ */
+export async function reportRelayStatus(room, playerId, active) {
+  try {
+    const fresh = await fetchRoomById(room.id);
+    if (Boolean(fresh.state.connections?.[playerId]) === active) return fresh;
+    const newState = { ...fresh.state, connections: { ...fresh.state.connections, [playerId]: active } };
+    return await updateRoomState(fresh.id, fresh.version, newState);
+  } catch (e) {
+    if (e instanceof ConflictError) return room;
+    throw e;
+  }
+}
+
 /** Règle sa propre mise au Blackjack (lobby ou écran de fin de manche — jamais en pleine manche). */
 export async function setBlackjackBet(room, playerId, bet) {
   if (room.state.status === 'playing') throw new Error('Impossible de changer sa mise en pleine manche.');
@@ -537,6 +570,24 @@ export async function discardSuiteInfernale(room, playerId, cardId) {
   return updateRoomState(room.id, room.version, newState);
 }
 
+/** Pioche la carte du dessus du talon aux Cinq Rois. */
+export async function drawCinqRoisFromStock(room, playerId) {
+  const newState = applyCinqRoisDrawStock(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Prend la carte visible de la défausse aux Cinq Rois. */
+export async function drawCinqRoisFromDiscard(room, playerId) {
+  const newState = applyCinqRoisDrawDiscard(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Défausse une carte aux Cinq Rois, en posant éventuellement toute sa main du même coup (`goOut`). */
+export async function discardCinqRois(room, playerId, cardId, goOut = false) {
+  const newState = applyCinqRoisDiscard(room.state, playerId, cardId, goOut);
+  return updateRoomState(room.id, room.version, newState);
+}
+
 /**
  * Remet la table en salle d'attente — **réinitialise le contexte de la partie**
  * (rôles du Trou du Cul retirés au sort à la prochaine donne, argent du
@@ -593,6 +644,8 @@ export async function continueGame(room) {
       ? null
       : Object.fromEntries(room.state.players.map((p) => [p.id, p.score]));
     gameState = initializer(playersList, previousScores);
+  } else if (gameType === 'cinqrois') {
+    gameState = startCinqRoisNextRound(room.state);
   } else {
     gameState = initializer(playersList);
   }

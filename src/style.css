@@ -1707,3 +1707,131 @@ h1 {
 .opponent--compact .opponent__hand .card--back { width: 20px; height: 29px; margin-left: -12px; }
 .opponent--compact .opponent__hand .card--back:first-child { margin-left: 0; }
 .opponent--compact .opponent__name { font-size: 11px; margin: 4px 0 0; }
+
+/* ── Les Cinq Rois ──────────────────────────────────────── */
+.cinqrois-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  min-height: 100%;
+}
+.cinqrois-opponents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+.cinqrois-seat {
+  background: rgba(0,0,0,0.25);
+  border-radius: 10px;
+  padding: 6px 8px;
+  min-width: 90px;
+  max-width: 160px;
+}
+.cinqrois-seat--turn { box-shadow: 0 0 0 2px var(--brass, #c9a227); }
+.cinqrois-seat--laid { opacity: 0.7; }
+.cinqrois-seat__name { font-weight: 600; margin: 0; font-size: 12px; }
+.cinqrois-seat__score { font-weight: 400; opacity: 0.7; }
+.cinqrois-seat__status { margin: 2px 0 4px; font-size: 11px; opacity: 0.85; }
+.cinqrois-seat__backs { display: flex; }
+.cinqrois-seat__backs .cinqrois-card--back {
+  width: 14px; height: 20px; margin-left: -8px;
+}
+.cinqrois-seat__backs .cinqrois-card--back:first-child { margin-left: 0; }
+.cinqrois-center {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+  align-items: flex-end;
+  padding: 8px 0;
+}
+.cinqrois-pile, .cinqrois-discard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.cinqrois-pile__label { font-size: 11px; opacity: 0.75; }
+.cinqrois-me {
+  background: rgba(0,0,0,0.35);
+  border-radius: 12px;
+  padding: 10px;
+  margin-top: auto;
+}
+.cinqrois-me--turn { box-shadow: 0 0 0 2px var(--brass, #c9a227); }
+.cinqrois-me--laid { opacity: 0.75; }
+.cinqrois-me__name { margin: 0 0 8px; font-weight: 600; }
+.cinqrois-me__hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+.cinqrois-card {
+  width: 40px;
+  height: 56px;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  background: #f5f0e6;
+  color: #1a1a1a;
+  border: 1px solid rgba(0,0,0,0.15);
+  user-select: none;
+}
+.cinqrois-card--red { color: #b91c1c; }
+.cinqrois-card--gold { color: #a16207; }
+.cinqrois-card--dark { color: #1a1a1a; }
+.cinqrois-card--joker {
+  background: #4a1a6b;
+  color: #f3e8ff;
+  font-size: 20px;
+}
+.cinqrois-card--trump {
+  box-shadow: inset 0 0 0 2px #c9a227;
+}
+.cinqrois-card--selected {
+  transform: translateY(-8px);
+  box-shadow: 0 0 0 2px var(--brass, #c9a227);
+}
+.cinqrois-card--back {
+  background: linear-gradient(135deg, #1e3a5f, #0f2744);
+  border-color: rgba(255,255,255,0.1);
+}
+.cinqrois-card--empty {
+  background: transparent;
+  border-style: dashed;
+  opacity: 0.4;
+}
+.cinqrois-card__rank { line-height: 1; }
+.cinqrois-card__suit { font-size: 14px; line-height: 1.1; }
+.cinqrois-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+  padding: 6px 0;
+}
+.cinqrois-hint {
+  width: 100%;
+  text-align: center;
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.9;
+}
+.cinqrois-winner {
+  width: 100%;
+  text-align: center;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+.cinqrois-empty {
+  color: rgba(247, 241, 225, 0.4);
+  font-size: 13px;
+  margin: 0;
+}

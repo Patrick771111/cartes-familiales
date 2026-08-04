@@ -29,9 +29,13 @@ import {
   playSuiteInfernaleAttack,
   respondToSuiteInfernaleAttack,
   discardSuiteInfernale,
+  drawCinqRoisFromStock,
+  drawCinqRoisFromDiscard,
+  discardCinqRois,
   submitExchangeGift,
   reclaimStaleHost,
   pingHostPresence,
+  reportRelayStatus,
   playAgain,
   fetchRoomById,
   watchRoom,
@@ -42,6 +46,7 @@ import { playerToDrawFrom } from './game/pouilleux.js';
 import { rankValue as trouducRankValue } from './game/trouduc.js';
 import { handTotal as blackjackHandTotal } from './game/blackjack.js';
 import { isLegalCard as americainIsLegalCard } from './game/americain.js';
+import { canGoOut as cinqRoisCanGoOut, cardPenalty as cinqRoisCardPenalty } from './game/cinqrois.js';
 
 const app = document.getElementById('app');
 let unsubscribe = null;
@@ -52,6 +57,10 @@ let hasLeftTable = false;
 // signifie "armée pour une table sans hôte"). Ré-arme `initRelay` (et donc
 // reconnecte tout le monde) seulement quand `hostId` change réellement.
 let lastRelayHostId = undefined;
+// Dernière valeur de `isRelayActive()` effectivement poussée dans
+// `room.state.connections`, pour ne pousser une mise à jour que lors d'un
+// vrai changement (voir le battement de cœur dédié en bas de fichier).
+let lastReportedRelayActive = null;
 // Pourquoi on affiche l'écran "pas à la table" : un départ volontaire, ou juste
 // une attente pendant qu'une partie tournait sans nous. Fixé une fois à l'entrée
 // sur cet écran, pour ne pas changer de message à chaque re-rendu.
@@ -539,7 +548,76 @@ function maybeScheduleTrouducExchangeBot(room) {
   });
 }
 
-const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain', blackjack: 'Blackjack', flip7: 'Flip 7', skyjo: 'Skyjo', suiteinfernale: 'La Suite Infernale' };
+// Politique du bot aux Cinq Rois : à la pioche, prend la défausse si elle est
+// utile (même rang en main, atout, ou faible pénalité), sinon pioche à
+// l'aveugle dans le talon. À la défausse : pose sa main entière dès que
+// c'est possible, sinon se débarrasse de la carte la plus coûteuse en
+// pénalité. Aucune anticipation plus fine (ne calcule pas les combinaisons
+// optimales, ne tient pas compte des mains adverses).
+function chooseCinqRoisMove(state, botId) {
+  const bot = state.players.find((p) => p.id === botId);
+  if (!bot) return null;
+  if (state.phase === 'draw') {
+    const top = state.discard[state.discard.length - 1];
+    if (top) {
+      const ranksInHand = new Set(bot.hand.filter((c) => !c.isJoker).map((c) => c.rank));
+      const useful =
+        !top.isJoker &&
+        (ranksInHand.has(top.rank) || top.rank === state.trumpRank || cinqRoisCardPenalty(top, state.trumpRank) <= 5);
+      if (useful) return { type: 'draw_discard' };
+    }
+    return { type: 'draw_stock' };
+  }
+
+  const hand = bot.hand.slice();
+  let bestGoOut = null;
+  let bestDiscard = hand[0];
+  let bestPenalty = -1;
+  for (const card of hand) {
+    const remaining = hand.filter((c) => c.id !== card.id);
+    if (state.status === 'playing' && remaining.length >= 3 && cinqRoisCanGoOut(remaining, state.trumpRank)) {
+      bestGoOut = card;
+      break;
+    }
+    const pen = cinqRoisCardPenalty(card, state.trumpRank);
+    if (pen > bestPenalty) { bestPenalty = pen; bestDiscard = card; }
+  }
+  if (bestGoOut) return { type: 'discard', cardId: bestGoOut.id, goOut: true };
+  return { type: 'discard', cardId: bestDiscard.id, goOut: false };
+}
+
+let scheduledCinqRoisBotMove = null;
+
+function maybeScheduleCinqRoisBotMove(room) {
+  if (room.game !== 'cinqrois') return;
+  if (room.state.status !== 'playing' && room.state.status !== 'last_turns') return;
+
+  const currentId = room.state.currentPlayerId;
+  const bot = room.state.players.find((p) => p.id === currentId && p.isBot);
+  if (!bot) return;
+
+  const signature = `${room.id}:${room.version}`;
+  if (scheduledCinqRoisBotMove === signature) return;
+  scheduledCinqRoisBotMove = signature;
+
+  window.setTimeout(async () => {
+    try {
+      const fresh = await fetchRoomById(room.id);
+      if (fresh.state.currentPlayerId !== currentId) return;
+      if (fresh.state.status !== 'playing' && fresh.state.status !== 'last_turns') return;
+
+      const move = chooseCinqRoisMove(fresh.state, currentId);
+      if (!move) return;
+      if (move.type === 'draw_stock') await drawCinqRoisFromStock(fresh, currentId);
+      else if (move.type === 'draw_discard') await drawCinqRoisFromDiscard(fresh, currentId);
+      else if (move.type === 'discard') await discardCinqRois(fresh, currentId, move.cardId, move.goOut);
+    } catch (err) {
+      // Idem : un autre appareil a probablement déjà joué, la resynchro realtime prend le relais.
+    }
+  }, 900 + Math.random() * 700);
+}
+
+const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain', blackjack: 'Blackjack', flip7: 'Flip 7', skyjo: 'Skyjo', suiteinfernale: 'La Suite Infernale', cinqrois: 'Les Cinq Rois' };
 
 function updateDocumentTitle(room) {
   const gameLabel = GAME_TITLES[room.game];
@@ -609,6 +687,7 @@ function draw(room) {
   maybeScheduleFlip7BotMove(room);
   maybeScheduleSkyjoBotMove(room);
   maybeScheduleSuiteInfernaleBotMove(room);
+  maybeScheduleCinqRoisBotMove(room);
 
   const stillMember = room.state.players.some((p) => p.id === currentPlayer.id);
 
@@ -644,7 +723,6 @@ function draw(room) {
     renderGame(app, {
       room,
       player: currentPlayer,
-      relayActive: isRelayActive(),
       onLeave: async () => {
         try {
           await leaveTable(room, currentPlayer);
@@ -726,5 +804,21 @@ window.setInterval(async () => {
     // Pas grave, on retentera au prochain battement.
   }
 }, 45000);
+
+// Battement de cœur dédié, plus rapproché : pousse dans `room.state.connections`
+// tout changement de `isRelayActive()` (liaison directe armée/coupée), pour que
+// le 🔌 à côté du prénom soit visible par tout le monde, pas seulement sur
+// l'appareil concerné. Ne pousse que sur un vrai changement de valeur.
+window.setInterval(async () => {
+  if (!currentRoomRef || !currentPlayer) return;
+  const active = isRelayActive();
+  if (active === lastReportedRelayActive) return;
+  try {
+    currentRoomRef = await reportRelayStatus(currentRoomRef, currentPlayer.id, active);
+    lastReportedRelayActive = active;
+  } catch (err) {
+    // Pas grave, on retentera au prochain battement.
+  }
+}, 3000);
 
 boot();

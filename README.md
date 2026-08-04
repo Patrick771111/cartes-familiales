@@ -161,6 +161,13 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
   revenir à 8 cartes), ou laisse l'effet se résoudre. `SEQUENCE_TARGET` (10)
   atteint = victoire immédiate et définitive de la partie ("Continuer" relance
   donc toujours une suite neuve, sans contexte à conserver).
+- **Les Cinq Rois** (`src/game/cinqrois.js`) : règles AccessiJeux NFC. 2 à 7
+  joueurs. Manches de 3 à 13 cartes ; atout = rang
+  égal à la taille de main. Tour : piocher (talon ou défausse) puis
+  défausser. Poser toute sa main si suites (≥3 même couleur) et/ou familles
+  (≥3 même rang), atouts et jokers wilds. Après un pose, les autres jouent un
+  dernier tour puis pénalités. Moins de points après la manche à 13 =
+  gagnant.
 
 L'hôte choisit le jeu dans la salle d'attente juste avant de lancer la partie.
 Si vous n'êtes que 2 ou 3, l'hôte peut ajouter 1 ou 2 bots pour compléter la
@@ -190,6 +197,9 @@ total). Les bots jouent tout seuls après un court délai :
   case cachée, place quand même sur sa pire carte visible. Aucune
   anticipation plus fine (ignore les cartes déjà vues et les grilles
   adverses).
+- **Cinq Rois** : prend la défausse si utile (même rang en main / atout /
+  faible pénalité), sinon pioche ; défausse la carte la plus chère ; pose dès
+  que possible.
 
 ## Comment ça marche
 
