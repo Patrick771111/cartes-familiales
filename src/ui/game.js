@@ -1521,8 +1521,12 @@ function skyjoValueClass(v) {
 
 // `enableDrop`, uniquement pour sa propre grille : marque chaque case non
 // vide comme zone de dépôt (`data-dropzone="skyjo-cell"`) pour le
-// glisser-déposer de la carte piochée (voir plus bas).
-function skyjoGridHtml(grid, clickableClassFor, enableDrop) {
+// glisser-déposer de la carte piochée (voir plus bas). `ambiguousFor` (idem,
+// uniquement sa propre grille) marque les cases cachées où la carte piochée
+// du sabot peut soit être posée, soit servir à défausser-et-retourner : un
+// badge 🔄 dédié y apparaît, cliquable directement (ou zone de dépôt séparée
+// en glisser-déposer) pour ce second geste sans ambiguïté avec le premier.
+function skyjoGridHtml(grid, clickableClassFor, enableDrop, ambiguousFor) {
   return `<div class="skyjo-grid">
     ${grid
       .map((cell, i) => {
@@ -1538,7 +1542,11 @@ function skyjoGridHtml(grid, clickableClassFor, enableDrop) {
         }
         if (clickableClassFor) classes += ` ${clickableClassFor(cell, i) || ''}`;
         const dropAttrs = enableDrop && cell ? 'data-dropzone="skyjo-cell"' : '';
-        return `<div class="${classes}" data-index="${i}" ${dropAttrs}>${content}</div>`;
+        const flipBadge =
+          ambiguousFor?.(cell, i)
+            ? `<span class="skyjo-flip-badge" data-index="${i}" data-dropzone="skyjo-flip" title="Défausser la carte piochée et retourner cette case">🔄</span>`
+            : '';
+        return `<div class="${classes}" data-index="${i}" ${dropAttrs}>${content}${flipBadge}</div>`;
       })
       .join('')}
   </div>`;
@@ -1577,6 +1585,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
     .join('');
 
   const myClickableClassFor = (cell, i) => (canAct && cell ? 'skyjo-cell--placeable' : '');
+  const myAmbiguousFor = (cell) => Boolean(canAct && state.drawnCard.source === 'deck' && cell && !cell.faceUp);
   const myVisibleSum = skyjoVisibleSum(me.grid);
 
   container.innerHTML = `
@@ -1642,7 +1651,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
       <div class="skyjo-my-grid-dock">
         <p class="my-hand__label">Ta grille · Score total : ${me.score}${me.id === state.gameWinnerId ? ' 🏆' : ''}${finished ? ` · ${me.roundScore ?? 0} pts cette manche` : ''}</p>
         <p class="skyjo-visible-sum">${myVisibleSum} pt${myVisibleSum > 1 ? 's' : ''} visible${myVisibleSum > 1 ? 's' : ''}</p>
-        ${skyjoGridHtml(me.grid, myClickableClassFor, canAct || canDraw)}
+        ${skyjoGridHtml(me.grid, myClickableClassFor, canAct || canDraw, myAmbiguousFor)}
       </div>
     </div>
   `;
@@ -1696,7 +1705,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
       discardSkyjoAndReveal(room, player.id, index).catch((err) => alert(err.message || 'Coup impossible.'));
     };
 
-    container.querySelectorAll('.my-hand .skyjo-cell--placeable').forEach((el) => {
+    container.querySelectorAll('.skyjo-my-grid-dock .skyjo-cell--placeable').forEach((el) => {
       el.addEventListener('click', () => {
         const index = Number(el.dataset.index);
         const cell = me.grid[index];
@@ -1704,7 +1713,8 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
         // est ambiguë : un tap la pose, deux taps rapprochés la défaussent
         // (et retournent la case à la place) — on attend un court instant
         // pour les distinguer. Partout ailleurs, aucune ambiguïté : on pose
-        // tout de suite, sans délai.
+        // tout de suite, sans délai. Le badge 🔄 (voir plus bas) offre un
+        // geste direct et sans ambiguïté pour le même second cas.
         const ambiguous = state.drawnCard.source === 'deck' && cell && !cell.faceUp;
         if (!ambiguous) {
           placeCard(index);
@@ -1726,12 +1736,24 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
       });
     });
 
+    // Badge dédié sur les cases ambiguës : un seul tap suffit à défausser et
+    // retourner, sans jouer avec le minutage du double-tap ci-dessus — et
+    // sert aussi de zone de dépôt distincte pour le glisser-déposer plus bas.
+    container.querySelectorAll('.skyjo-my-grid-dock .skyjo-flip-badge').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        skyjoLastTap = null;
+        discardAndReveal(Number(el.dataset.index));
+      });
+    });
+
     const drawnCardEl = container.querySelector('#skyjo-drawn-card');
     if (drawnCardEl) {
       enableDragToZone(drawnCardEl, {
         onTap: () => {},
         onDrop: (id, zone) => {
-          if (zone.dropzone === 'skyjo-cell') placeCard(Number(zone.index));
+          if (zone.dropzone === 'skyjo-flip') discardAndReveal(Number(zone.index));
+          else if (zone.dropzone === 'skyjo-cell') placeCard(Number(zone.index));
         }
       });
     }
@@ -2250,15 +2272,9 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
   } else if (isMyTurn && state.phase === 'discard') {
     actionsHtml = `
       <div class="cinqrois-actions">
-        <p class="cinqrois-hint">Choisis une carte à défausser${
-          state.status === 'playing' ? ', puis éventuellement pose ta main.' : '.'
-        }</p>
+        <p class="cinqrois-hint">Choisis une carte à défausser, puis éventuellement pose ta main.</p>
         <button id="btn-cinqrois-discard" class="btn btn--primary" disabled>Défausser</button>
-        ${
-          state.status === 'playing'
-            ? `<button id="btn-cinqrois-goout" class="btn btn--secondary" disabled>Défausser &amp; poser</button>`
-            : ''
-        }
+        <button id="btn-cinqrois-goout" class="btn btn--secondary" disabled>Défausser &amp; poser</button>
       </div>`;
   } else if (me?.laidDown) {
     actionsHtml = `<p class="cinqrois-hint">Tu as posé ta main — en attente des autres…</p>`;
