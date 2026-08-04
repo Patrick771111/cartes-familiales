@@ -211,6 +211,41 @@ total). Les bots jouent tout seuls après un court délai :
   démarrer une manche, jouer un tour, relancer une partie).
 - `src/ui/` : rendu DOM simple (pas de framework), un écran = une fonction.
 
+## Fiabilité en cours de partie : liaison directe (WebRTC)
+
+Le Wi-Fi de la maison ou la 4G d'un téléphone peut devenir instable en
+pleine partie (quelqu'un qui bouge, un bascule Wi-Fi ↔ 4G...), ce qui rend
+Supabase lent à ces moments-là — un coup joué met du temps à se valider ou
+semble ne pas partir. `src/webrtc/relay.js` ajoute une couche de fiabilité
+**transparente**, sans aucun mode à choisir :
+
+- Une fois tout le monde dans le lobby, chaque invité établit une liaison
+  directe (`RTCPeerConnection`/`RTCDataChannel`) vers l'appareil de l'hôte
+  courant (le même `hostId` que celui qui peut lancer la partie — pas de
+  rôle séparé à gérer). La signalisation (échange de l'offre/réponse WebRTC
+  et des candidats ICE) passe par un canal Supabase Realtime *broadcast*
+  éphémère (`webrtc-signal:<roomId>`, ne touche jamais la table
+  `game_rooms`), avec un serveur STUN public
+  (`stun:stun.l.google.com:19302`) puisque les appareils peuvent être sur
+  des réseaux différents (Wi-Fi et 4G en même temps, pas forcément le même
+  Wi-Fi).
+- Une fois la liaison ouverte, les coups d'un invité (`updateRoomState`)
+  partent directement vers l'hôte au lieu de Supabase — l'hôte les applique
+  et les persiste dans Supabase pour son compte, puis relaie le nouvel état
+  à tous les invités connectés. **Si la liaison n'est pas encore prête, ou
+  se coupe : repli automatique et silencieux sur Supabase**, exactement le
+  comportement d'avant cette fonctionnalité — jamais pire qu'aujourd'hui.
+- L'hôte lui-même ne change pas de comportement : il continue de parler à
+  Supabase directement pour ses propres actions, et sert en plus les
+  requêtes des invités connectés.
+- Petit indicateur "⚡ Connexion directe" (`src/ui/connectionBadge.js`,
+  coin supérieur gauche) quand la liaison est active, pour que la famille
+  sache que ses coups partent vite.
+- Limites assumées : reconnexion par un nouvel appairage (pas de retry
+  automatique infini) si la liaison se coupe ou si `hostId` change ; le
+  mode équipe/relais multi-sauts n'est pas nécessaire ici, la topologie
+  reste toujours en étoile autour de l'hôte du moment.
+
 ## Déroulé d'une partie
 
 1. Chacun ouvre l'appli sur son téléphone. Premier arrivé = hôte.

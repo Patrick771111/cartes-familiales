@@ -34,8 +34,11 @@ import {
   pingHostPresence,
   playAgain,
   fetchRoomById,
-  watchRoom
+  watchRoom,
+  initRelay,
+  isRelayActive
 } from './game/engine.js';
+import { updateConnectionBadge } from './ui/connectionBadge.js';
 import { playerToDrawFrom } from './game/pouilleux.js';
 import { rankValue as trouducRankValue } from './game/trouduc.js';
 import { handTotal as blackjackHandTotal } from './game/blackjack.js';
@@ -46,6 +49,10 @@ let unsubscribe = null;
 let currentPlayer = null;
 let currentRoomId = null;
 let hasLeftTable = false;
+// `undefined` = liaison directe jamais armée (distinct de `null`, qui
+// signifie "armée pour une table sans hôte"). Ré-arme `initRelay` (et donc
+// reconnecte tout le monde) seulement quand `hostId` change réellement.
+let lastRelayHostId = undefined;
 // Pourquoi on affiche l'écran "pas à la table" : un départ volontaire, ou juste
 // une attente pendant qu'une partie tournait sans nous. Fixé une fois à l'entrée
 // sur cet écran, pour ne pas changer de message à chaque re-rendu.
@@ -577,9 +584,25 @@ function renderCrashRecovery(container, { onReset }) {
   });
 }
 
+/**
+ * (Ré)arme la liaison directe vers l'hôte courant si `hostId` a changé
+ * depuis la dernière fois (nouvelle table, changement d'hôte...). Pas
+ * d'attente du résultat : si la signalisation échoue (ex: connexion
+ * momentanément indisponible), on reste simplement sur Supabase — la
+ * prochaine mise à jour de la table retentera automatiquement.
+ */
+function maybeReinitRelay(room) {
+  const hostId = room.state.hostId ?? null;
+  if (hostId === lastRelayHostId) return;
+  lastRelayHostId = hostId;
+  initRelay(room, currentPlayer).catch(() => {});
+}
+
 function draw(room) {
   currentRoomRef = room;
   updateDocumentTitle(room);
+  maybeReinitRelay(room);
+  updateConnectionBadge(isRelayActive());
   maybeScheduleBotMove(room);
   maybeScheduleTrouducExchangeBot(room);
   maybeScheduleTrouducBotMove(room);

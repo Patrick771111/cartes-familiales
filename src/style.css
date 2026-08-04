@@ -831,6 +831,31 @@ h1 {
 [data-card-theme="royal"] .card[data-rank="Q"] .card__figure::before { content: '♛'; }
 [data-card-theme="royal"] .card[data-rank="K"] .card__figure::before { content: '♚'; }
 
+/* ---------- Indicateur de connexion directe (WebRTC) ---------- */
+
+.connection-badge {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 50;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--felt-700);
+  border: 1px solid var(--brass);
+  color: var(--brass-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.connection-badge--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 /* ---------- Réglages d'affichage (bouton flottant + modale) ---------- */
 
 .settings-fab {

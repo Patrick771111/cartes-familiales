@@ -1,10 +1,11 @@
-import {
-  getOrCreateRoomByCode,
-  fetchRoomById,
-  updateRoomState,
-  subscribeRoom,
-  ConflictError
-} from '../supabase/sync.js';
+// `getOrCreateRoomByCode` reste toujours du Supabase direct (uniquement
+// utilisé par `ensureFamilyRoom`, à la toute première connexion — avant même
+// qu'une liaison directe ait pu s'établir). Le reste passe par
+// `webrtc/relay.js`, qui accélère les coups via une liaison directe entre
+// appareils une fois établie, avec repli automatique et transparent sur
+// Supabase sinon (voir ce fichier pour le détail).
+import { getOrCreateRoomByCode } from '../supabase/sync.js';
+import { fetchRoomById, updateRoomState, subscribeRoom, ConflictError, initRelay, isRelayActive } from '../webrtc/relay.js';
 import { initGame as initPouilleux, applyDraw } from './pouilleux.js';
 import { initGame as initTrouduc, applyPlay as applyTrouducPlay, applyPass as applyTrouducPass, applyExchangeChoice } from './trouduc.js';
 import { initGame as initAmericain, applyPlay as applyAmericainPlay, applyDraw as applyAmericainDraw } from './americain.js';
@@ -604,4 +605,4 @@ export function watchRoom(roomId, onChange) {
   return subscribeRoom(roomId, onChange);
 }
 
-export { fetchRoomById };
+export { fetchRoomById, initRelay, isRelayActive };
