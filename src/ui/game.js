@@ -103,7 +103,7 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
     expiredPileClearedId = null;
     pileClearTimerFor = null;
     pendingEightCardId = null;
-    skyjoRevealMode = false;
+    skyjoLastTap = null;
     pendingSuiteInfernaleCardId = null;
     pendingSuiteInfernaleTargetId = null;
     suiteInfernaleDiscardMode = false;
@@ -1479,11 +1479,13 @@ function renderFlip7Table(container, { room, player, state, onLeave }) {
 
 /* ============================== Skyjo ============================== */
 
-// Après une pioche du sabot, le joueur choisit entre poser la carte ou la
-// défausser en retournant une case cachée — ce drapeau bascule l'affichage
-// entre les deux modes de clic sur sa propre grille. Remis à zéro dès que ce
-// n'est plus son tour ou que la carte en attente change.
-let skyjoRevealMode = false;
+// Une carte piochée du sabot peut être posée (1 touche/glisser) ou défaussée
+// en retournant une case cachée à la place (2 touches rapprochées sur cette
+// case) — ce petit état suit la dernière case touchée pour distinguer les
+// deux, sans délai ajouté sur les cases où l'ambiguïté n'existe pas (déjà
+// face visible, ou carte piochée de la défausse — jamais défaussable).
+let skyjoLastTap = null; // { index, ts } | null
+const SKYJO_DOUBLE_TAP_MS = 320;
 
 function skyjoValueClass(v) {
   if (v <= -1) return 'skyjo-cell--neg';
@@ -1493,7 +1495,10 @@ function skyjoValueClass(v) {
   return 'skyjo-cell--high';
 }
 
-function skyjoGridHtml(grid, clickableClassFor) {
+// `enableDrop`, uniquement pour sa propre grille : marque chaque case non
+// vide comme zone de dépôt (`data-dropzone="skyjo-cell"`) pour le
+// glisser-déposer de la carte piochée (voir plus bas).
+function skyjoGridHtml(grid, clickableClassFor, enableDrop) {
   return `<div class="skyjo-grid">
     ${grid
       .map((cell, i) => {
@@ -1508,7 +1513,8 @@ function skyjoGridHtml(grid, clickableClassFor) {
           content = cell.card.value;
         }
         if (clickableClassFor) classes += ` ${clickableClassFor(cell, i) || ''}`;
-        return `<div class="${classes}" data-index="${i}">${content}</div>`;
+        const dropAttrs = enableDrop && cell ? 'data-dropzone="skyjo-cell"' : '';
+        return `<div class="${classes}" data-index="${i}" ${dropAttrs}>${content}</div>`;
       })
       .join('')}
   </div>`;
@@ -1519,7 +1525,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
   const others = state.players.filter((p) => p.id !== player.id);
   const isMyTurn = state.currentPlayerId === player.id;
   const finished = state.status === 'finished';
-  if (!isMyTurn || !state.drawnCard) skyjoRevealMode = false;
+  if (!isMyTurn || !state.drawnCard) skyjoLastTap = null;
 
   const canDraw = isMyTurn && !state.drawnCard && !finished;
   const canAct = isMyTurn && !!state.drawnCard && !finished;
@@ -1537,11 +1543,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
     })
     .join('');
 
-  const myClickableClassFor = (cell, i) => {
-    if (!canAct || !cell) return '';
-    if (skyjoRevealMode) return cell.faceUp ? '' : 'skyjo-cell--revealable';
-    return 'skyjo-cell--placeable';
-  };
+  const myClickableClassFor = (cell, i) => (canAct && cell ? 'skyjo-cell--placeable' : '');
 
   container.innerHTML = `
     <div class="screen screen--table skyjo-screen">
@@ -1570,18 +1572,10 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
           canAct
             ? `<div class="skyjo-pending">
                  <p class="skyjo-pending__label">Carte piochée :</p>
-                 <div class="skyjo-cell skyjo-cell--faceup ${skyjoValueClass(state.drawnCard.card.value)}">${state.drawnCard.card.value}</div>
-                 ${
-                   skyjoRevealMode
-                     ? `<p class="skyjo-pending__hint">Touche une case cachée de ta grille pour la retourner.</p>
-                        <button type="button" class="btn btn--link btn--small" id="btn-skyjo-cancel">Annuler</button>`
-                     : `<p class="skyjo-pending__hint">Touche une case de ta grille pour la poser.</p>
-                        ${
-                          state.drawnCard.source === 'deck'
-                            ? `<button type="button" class="btn btn--ghost btn--small" id="btn-skyjo-discard-mode">Défausser plutôt, et retourner une case cachée</button>`
-                            : ''
-                        }`
-                 }
+                 <div class="skyjo-drawn-card" id="skyjo-drawn-card">
+                   <div class="skyjo-cell skyjo-cell--faceup ${skyjoValueClass(state.drawnCard.card.value)}" data-card-id="drawn">${state.drawnCard.card.value}</div>
+                 </div>
+                 <p class="skyjo-pending__hint">Glisse-la (ou touche une case) pour la poser${state.drawnCard.source === 'deck' ? ', ou touche 2 fois une case cachée pour la défausser et la retourner à la place' : ''}.</p>
                </div>`
             : ''
         }
@@ -1601,7 +1595,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
 
       <div class="my-hand">
         <p class="my-hand__label">Ta grille · Score total : ${me.score}${me.id === state.gameWinnerId ? ' 🏆' : ''}${finished ? ` · ${me.roundScore ?? 0} pts cette manche` : ''}</p>
-        ${skyjoGridHtml(me.grid, myClickableClassFor)}
+        ${skyjoGridHtml(me.grid, myClickableClassFor, canAct)}
 
         ${finished ? endGameActionsHtml() : ''}
 
@@ -1636,32 +1630,53 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
     }
   });
 
-  container.querySelector('#btn-skyjo-discard-mode')?.addEventListener('click', () => {
-    skyjoRevealMode = true;
-    renderSkyjoTable(container, { room, player, state, onLeave });
-  });
-
-  container.querySelector('#btn-skyjo-cancel')?.addEventListener('click', () => {
-    skyjoRevealMode = false;
-    renderSkyjoTable(container, { room, player, state, onLeave });
-  });
-
   if (canAct) {
-    container.querySelectorAll('.my-hand .skyjo-cell--placeable, .my-hand .skyjo-cell--revealable').forEach((el) => {
-      el.addEventListener('click', async () => {
+    const placeCard = (index) => {
+      placeSkyjoCard(room, player.id, index).catch((err) => alert(err.message || 'Coup impossible.'));
+    };
+    const discardAndReveal = (index) => {
+      discardSkyjoAndReveal(room, player.id, index).catch((err) => alert(err.message || 'Coup impossible.'));
+    };
+
+    container.querySelectorAll('.my-hand .skyjo-cell--placeable').forEach((el) => {
+      el.addEventListener('click', () => {
         const index = Number(el.dataset.index);
-        try {
-          if (skyjoRevealMode) {
-            await discardSkyjoAndReveal(room, player.id, index);
-          } else {
-            await placeSkyjoCard(room, player.id, index);
-          }
-          skyjoRevealMode = false;
-        } catch (err) {
-          alert(err.message || 'Coup impossible.');
+        const cell = me.grid[index];
+        // Une case cachée, avec une carte piochée du sabot (donc défaussable),
+        // est ambiguë : un tap la pose, deux taps rapprochés la défaussent
+        // (et retournent la case à la place) — on attend un court instant
+        // pour les distinguer. Partout ailleurs, aucune ambiguïté : on pose
+        // tout de suite, sans délai.
+        const ambiguous = state.drawnCard.source === 'deck' && cell && !cell.faceUp;
+        if (!ambiguous) {
+          placeCard(index);
+          return;
         }
+        const now = Date.now();
+        if (skyjoLastTap && skyjoLastTap.index === index && now - skyjoLastTap.ts < SKYJO_DOUBLE_TAP_MS) {
+          skyjoLastTap = null;
+          discardAndReveal(index);
+          return;
+        }
+        skyjoLastTap = { index, ts: now };
+        window.setTimeout(() => {
+          if (skyjoLastTap && skyjoLastTap.index === index && skyjoLastTap.ts === now) {
+            skyjoLastTap = null;
+            placeCard(index);
+          }
+        }, SKYJO_DOUBLE_TAP_MS);
       });
     });
+
+    const drawnCardEl = container.querySelector('#skyjo-drawn-card');
+    if (drawnCardEl) {
+      enableDragToZone(drawnCardEl, {
+        onTap: () => {},
+        onDrop: (id, zone) => {
+          if (zone.dropzone === 'skyjo-cell') placeCard(Number(zone.index));
+        }
+      });
+    }
   }
 
   wireEndGameActions(container, room);

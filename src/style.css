@@ -1249,11 +1249,10 @@ h1 {
 .skyjo-cell--mid { background: #E4C765; }
 .skyjo-cell--high { background: #D9695F; color: var(--cream); }
 
-.skyjo-cell--placeable, .skyjo-cell--revealable {
+.skyjo-cell--placeable {
   cursor: pointer;
   box-shadow: 0 0 0 2px var(--brass-soft), 0 2px 6px rgba(0,0,0,0.3);
 }
-.skyjo-cell--revealable { box-shadow: 0 0 0 2px var(--red-suit), 0 2px 6px rgba(0,0,0,0.3); }
 
 .opponent--compact .skyjo-cell { width: 20px; height: 20px; font-size: 10px; border-radius: 4px; }
 .opponent--compact .skyjo-grid { gap: 3px; margin-bottom: 6px; }
@@ -1293,6 +1292,8 @@ h1 {
 .skyjo-pending__label { font-family: var(--font-mono); font-size: 12px; color: rgba(247, 241, 225, 0.75); margin: 0; }
 .skyjo-pending .skyjo-cell { width: 48px; height: 48px; font-size: 20px; }
 .skyjo-pending__hint { font-size: 13px; color: var(--brass-soft); margin: 0; text-align: center; }
+.skyjo-drawn-card .skyjo-cell { cursor: grab; touch-action: none; }
+.skyjo-drawn-card .skyjo-cell.is-dragging-away { cursor: grabbing; }
 
 /* ---------- La Suite Infernale ---------- */
 
@@ -1389,9 +1390,12 @@ h1 {
 }
 .suiteinfernale-hand .hand-card { margin-left: 0; touch-action: none; }
 
-/* Glisser-déposer : la carte suit le doigt/curseur (position fixe), les
-   zones de dépôt s'illuminent au survol. */
-.hand-card.is-dragging-away {
+/* Glisser-déposer (réutilisé par la Suite Infernale et Skyjo, voir
+   dragToZone.js) : l'élément suivi ([data-card-id]) suit le doigt/curseur
+   (position fixe) une fois décollé, les zones de dépôt s'illuminent au
+   survol. Pas de dépendance à `.hand-card` : s'applique à n'importe quel
+   élément passé à `enableDragToZone`. */
+.is-dragging-away {
   position: fixed;
   z-index: 200;
   pointer-events: none;

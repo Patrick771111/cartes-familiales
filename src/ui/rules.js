@@ -85,6 +85,7 @@ const RULES = {
       <ul>
         <li>Chacun a une grille de 12 cartes cachées (3 lignes × 4 colonnes), dont 2 déjà révélées au départ.</li>
         <li>À ton tour : prends la carte visible du dessus de la <strong>défausse</strong> (à poser obligatoirement), ou pioche du <strong>sabot</strong> (à poser, ou à défausser en retournant une case cachée à la place).</li>
+        <li>Pour poser : glisse la carte piochée vers une case de ta grille, ou touche simplement la case. Pour défausser une carte piochée du sabot et retourner une case cachée à la place : touche cette case <strong>deux fois</strong>.</li>
         <li>Poser une carte remplace celle de la case choisie, qui part à la défausse face visible.</li>
         <li>Si les 3 cartes d'une même colonne sont face visible avec la <strong>même valeur</strong>, la colonne entière est effacée (elle ne compte plus dans ton score).</li>
         <li>Dès que ta grille est entièrement retournée (ou effacée), chacun des autres joue encore un dernier tour, puis toutes les grilles sont révélées et comptées.</li>
