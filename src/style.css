@@ -1326,6 +1326,17 @@ h1 {
   font-weight: 700;
   box-shadow: 0 2px 6px rgba(0,0,0,0.3);
 }
+/* Case remplie par un Joker (+1 ou +2) plutôt qu'un vrai numéro : distincte
+   d'un numéro normal, pour qu'une attaque visée dessus (ou une simple
+   inspection de suite adverse) montre clairement que ce n'est pas la
+   vraie carte. Mêmes couleurs que les cartes spéciales de la main. */
+.suiteinfernale-slot--joker {
+  background: var(--felt-500);
+  border: 1.5px solid var(--brass);
+  color: var(--brass-soft);
+  font-size: 11px;
+}
+.opponent--compact .suiteinfernale-slot--joker { font-size: 9px; }
 /* Cases un peu plus grandes que la moyenne "compacte" du reste de l'appli :
    ce sont ici des cibles à toucher précisément (attaque au clic ou au
    glisser-déposer), pas seulement de l'affichage. */
@@ -1427,6 +1438,23 @@ h1 {
   margin-bottom: 8px;
 }
 .suiteinfernale-target-picker__empty { font-size: 13px; color: rgba(247, 241, 225, 0.6); margin: 0 0 8px; }
+
+/* Attaque en attente (ou message de sa résolution, ~1,5s) : visible de tous
+   les joueurs, pas seulement de la cible — pour qu'on comprenne ce qui se
+   joue avant de voir si ça se contre. */
+.suiteinfernale-attack-banner {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--cream);
+  background: rgba(217, 105, 95, 0.18);
+  border: 1px solid var(--red-suit);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin: 0 0 10px;
+  text-align: center;
+}
+.suiteinfernale-attack-banner p { margin: 0; }
+.suiteinfernale-attack-banner--resolved { background: rgba(201, 162, 39, 0.14); border-color: var(--brass); }
 
 .suiteinfernale-reaction {
   background: rgba(217, 105, 95, 0.14);

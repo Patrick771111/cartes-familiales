@@ -40,6 +40,7 @@ import { suitInfo } from '../game/deck.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
 import { enableHandDrag } from './dragReorder.js';
 import { enableDragToZone } from './dragToZone.js';
+import { isSuiteInfernaleDragEnabled } from './settings.js';
 import { openRulesModal } from './rules.js';
 
 function rankSortValue(rank) {
@@ -106,6 +107,8 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
     pendingSuiteInfernaleCardId = null;
     pendingSuiteInfernaleTargetId = null;
     suiteInfernaleDiscardMode = false;
+    suiteInfernaleAttackWasPending = false;
+    suiteInfernaleResolutionBanner = null;
     resetHandOrder('pouilleux');
     revealHands = false;
     return renderWaitingRoom(container, { room, player, onLeave, onKick });
@@ -1681,6 +1684,21 @@ function suiteInfernaleCardHtml(card) {
   return `<div class="suiteinfernale-card suiteinfernale-card--special">${label}</div>`;
 }
 
+// Une case remplie par un Joker doit rester visuellement distincte d'un
+// numéro normal (on ne voit sinon pas qu'on attaque un Joker +2 plutôt
+// qu'un vrai numéro, par exemple) : contenu + info-bulle différents.
+function suiteInfernaleSlotContent(card) {
+  if (!card) return '';
+  if (card.kind === 'number') return card.value;
+  return card.type === 'jokerPlus2' ? '🃏²' : '🃏';
+}
+
+function suiteInfernaleSlotTitle(card, index) {
+  if (!card) return `Case ${index + 1} (vide)`;
+  if (card.kind === 'number') return `${card.value}`;
+  return SUITE_INFERNALE_SPECIAL_TYPES[card.type]?.label || card.type;
+}
+
 /**
  * `targetId`, uniquement pour la suite d'un adversaire : marque chaque case
  * remplie comme zone de dépôt précise (`opponent-slot`) pour le
@@ -1692,8 +1710,9 @@ function suiteInfernaleSequenceHtml(sequence, { clickableIndexes, targetId } = {
     ${sequence
       .map((card, i) => {
         const clickable = clickableIndexes && clickableIndexes.includes(i);
+        const isJoker = card && card.kind === 'special';
         const dropAttrs = targetId && card ? `data-dropzone="opponent-slot" data-target-id="${targetId}" data-slot-index="${i}"` : '';
-        return `<div class="suiteinfernale-slot ${card ? 'suiteinfernale-slot--filled' : ''} ${clickable ? 'suiteinfernale-slot--pickable' : ''}" data-index="${i}" ${dropAttrs}>${i + 1}</div>`;
+        return `<div class="suiteinfernale-slot ${card ? 'suiteinfernale-slot--filled' : ''} ${isJoker ? 'suiteinfernale-slot--joker' : ''} ${clickable ? 'suiteinfernale-slot--pickable' : ''}" data-index="${i}" ${dropAttrs} title="${suiteInfernaleSlotTitle(card, i)}">${suiteInfernaleSlotContent(card) || i + 1}</div>`;
       })
       .join('')}
   </div>`;
@@ -1725,6 +1744,16 @@ let pendingSuiteInfernaleCardId = null;
 let pendingSuiteInfernaleTargetId = null;
 let suiteInfernaleDiscardMode = false;
 
+// Une attaque en attente reste visible de tous (pas seulement de la cible)
+// pendant qu'elle attend une réponse ; une fois résolue (bloquée ou non), le
+// message de résolution reste affiché ~1,5s pour que tout le monde le voie
+// avant de disparaître — même principe que `pileClearTimerFor` plus haut
+// dans ce fichier (pli du Trou du Cul), adapté avec un simple drapeau de
+// transition plutôt qu'un id, une seule attaque ne pouvant être en attente
+// à la fois.
+let suiteInfernaleAttackWasPending = false;
+let suiteInfernaleResolutionBanner = null;
+
 function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
   const others = state.players.filter((p) => p.id !== player.id);
@@ -1736,6 +1765,28 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
     pendingSuiteInfernaleTargetId = null;
   }
   if (!isMyTurn) suiteInfernaleDiscardMode = false;
+
+  if (state.pendingAttack) {
+    suiteInfernaleAttackWasPending = true;
+  } else if (suiteInfernaleAttackWasPending) {
+    suiteInfernaleAttackWasPending = false;
+    const message = state.log[state.log.length - 1]?.message;
+    if (message) {
+      suiteInfernaleResolutionBanner = message;
+      window.setTimeout(() => {
+        suiteInfernaleResolutionBanner = null;
+        renderSuiteInfernaleTable(container, { room, player, state, onLeave });
+      }, 1500);
+    }
+  }
+
+  const pendingAttackInfo = state.pendingAttack
+    ? {
+        attackerName: state.players.find((p) => p.id === state.pendingAttack.byId)?.name || '?',
+        targetName: state.players.find((p) => p.id === state.pendingAttack.targetId)?.name || '?',
+        label: SUITE_INFERNALE_SPECIAL_TYPES[state.pendingAttack.type]?.label || state.pendingAttack.type
+      }
+    : null;
 
   const canDraw = isMyTurn && !state.hasDrawnThisTurn && !finished && !state.pendingAttack;
   const canAct = isMyTurn && state.hasDrawnThisTurn && !finished && !state.pendingAttack;
@@ -1756,6 +1807,7 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
   const awaitingSlotChoice = pendingCard && pendingTarget && SUITE_INFERNALE_SLOT_TARGETED_TYPES.includes(pendingCard.type);
 
   const myStopCard = me.hand.find((c) => c.kind === 'special' && c.type === 'stop');
+  const dragMode = isSuiteInfernaleDragEnabled();
 
   const restHtml = others
     .map((p) => {
@@ -1784,26 +1836,34 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
         }
         <p class="suiteinfernale-deck-count">Pioche : ${state.deck.length} carte${state.deck.length > 1 ? 's' : ''}</p>
 
-        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
-          ${
-            finished
+        ${
+          (() => {
+            const text = finished
               ? 'Partie terminée'
-              : reaction
-                ? `${state.players.find((p) => p.id === reaction.byId)?.name || '?'} t'attaque !`
-                : state.pendingAttack
-                  ? `En attente de la réponse de ${state.players.find((p) => p.id === state.pendingAttack.targetId)?.name || '…'}...`
-                  : isMyTurn
-                    ? canDraw
-                      ? 'Pioche une carte'
-                      : 'Joue une carte, ou défausses-en une'
-                    : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`
-          }
-        </div>
+              : state.pendingAttack
+                ? '' // le bandeau d'attaque ci-dessous suffit
+                : isMyTurn
+                  ? canDraw
+                    ? '' // redondant avec le bouton "Piocher" ci-dessous
+                    : 'Joue une carte, ou défausses-en une'
+                  : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`;
+            return text ? `<div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">${text}</div>` : '';
+          })()
+        }
+
+        ${
+          pendingAttackInfo
+            ? `<div class="suiteinfernale-attack-banner">
+                 <p>${pendingAttackInfo.attackerName} attaque ${pendingAttackInfo.targetName} avec ${pendingAttackInfo.label} !</p>
+               </div>`
+            : suiteInfernaleResolutionBanner
+              ? `<div class="suiteinfernale-attack-banner suiteinfernale-attack-banner--resolved"><p>${suiteInfernaleResolutionBanner}</p></div>`
+              : ''
+        }
 
         ${
           reaction
             ? `<div class="suiteinfernale-reaction">
-                 <p class="suiteinfernale-reaction__label">${SUITE_INFERNALE_SPECIAL_TYPES[reaction.type]?.label || reaction.type}</p>
                  <div class="suiteinfernale-reaction__options">
                    <button type="button" class="btn btn--primary btn--small" id="btn-stop" ${myStopCard ? '' : 'disabled'}>🛑 Bloquer avec un STOP</button>
                    <button type="button" class="btn btn--ghost btn--small" id="btn-allow">Laisser passer</button>
@@ -1834,20 +1894,20 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
       </div>
 
       <div class="my-hand">
-        <p class="my-hand__label">Ta suite (${me.sequence.filter(Boolean).length}/${SUITE_INFERNALE_TARGET}) · dépose une carte ici pour la jouer</p>
+        <p class="my-hand__label" ${dragMode ? `title="Dépose une carte ici pour la jouer."` : ''}>Ta suite (${me.sequence.filter(Boolean).length}/${SUITE_INFERNALE_TARGET})${dragMode ? ' <small>ℹ️</small>' : ''}</p>
         <div data-dropzone="own-sequence">${suiteInfernaleSequenceHtml(me.sequence)}</div>
 
         ${canDraw ? `<div class="suiteinfernale-actions"><button id="btn-draw" class="btn btn--primary">Piocher</button></div>` : ''}
         ${
           canAct && !pendingCard
             ? `<div class="suiteinfernale-actions">
-                 <div class="suiteinfernale-discard" data-dropzone="discard">🗑️<span>Défausse</span></div>
-                 <button id="btn-discard-mode" class="btn ${suiteInfernaleDiscardMode ? 'btn--primary' : 'btn--ghost'}">${suiteInfernaleDiscardMode ? 'Touche une carte à défausser' : 'Défausser une carte'}</button>
+                 ${dragMode ? `<div class="suiteinfernale-discard" data-dropzone="discard" title="Dépose une carte ici pour la défausser.">🗑️<span>Défausse</span></div>` : ''}
+                 ${!dragMode ? `<button id="btn-discard-mode" class="btn ${suiteInfernaleDiscardMode ? 'btn--primary' : 'btn--ghost'}">${suiteInfernaleDiscardMode ? 'Touche une carte à défausser' : 'Défausser une carte'}</button>` : ''}
                </div>`
             : ''
         }
 
-        <p class="my-hand__label">Ta main (${me.hand.length}) · glisse une carte vers ta suite, un adversaire ou la défausse</p>
+        <p class="my-hand__label" ${dragMode ? `title="Glisse une carte vers ta suite, un adversaire ou la défausse."` : `title="Touche une carte pour la jouer, ou choisir sa cible."`}>Ta main (${me.hand.length}) <small>ℹ️</small></p>
         <div class="my-hand__cards suiteinfernale-hand" id="suiteinfernale-hand">
           ${me.hand
             .map((c) => {
@@ -1957,6 +2017,7 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
     const handEl = container.querySelector('#suiteinfernale-hand');
     if (handEl) {
       enableDragToZone(handEl, {
+        dragEnabled: dragMode,
         onTap: async (id) => {
           const card = me.hand.find((c) => c.id === id);
           if (!card) return;

@@ -25,7 +25,7 @@ export const SPECIAL_TYPES = {
   echangerJeu: { label: '🔀 Échanger les mains', description: 'Échange ta main entière avec un adversaire (les suites ne bougent pas).', count: 2 },
   volerDerniere: { label: '🫳 Voler la dernière', description: "Vole la dernière carte de la suite d'un adversaire.", count: 6 },
   volerUne: { label: '🫳 Voler une carte', description: "Vole une carte au choix de la suite d'un adversaire.", count: 5 },
-  changerPlace: { label: '💺 Changer de place', description: "Échange ta place (ordre de jeu) avec un adversaire.", count: 2 },
+  changerPlace: { label: '💺 Changer de place', description: "Échange ta place (ordre de jeu) ET ta suite avec un adversaire — vous gardez chacun votre main.", count: 2 },
   stop: { label: '🛑 STOP', description: "Contre l'attaque d'un adversaire dirigée contre toi.", count: 4 }
 };
 
@@ -318,7 +318,12 @@ function resolveAttackEffect(players, discardIn, attack) {
       break;
     }
     case 'changerPlace': {
-      message = `${attacker.name} échange sa place avec ${target.name}.`;
+      // Change de place ET de suite (chacun garde sa propre main) : la suite
+      // reste attachée à la place occupée à la table, pas au joueur.
+      const tmpSeq = attacker.sequence;
+      attacker.sequence = target.sequence;
+      target.sequence = tmpSeq;
+      message = `${attacker.name} échange sa place (et sa suite) avec ${target.name}.`;
       break;
     }
     default:

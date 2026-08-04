@@ -152,7 +152,9 @@ de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
   +1/Joker +2 dans sa suite, soit jouer "Rejouer 2 coups" (pioche 2, joue 2
   fois), soit jouer une carte ciblant un adversaire (retirer 1/2 carte(s) de
   sa suite, voler la dernière/une carte de sa suite, échanger les mains,
-  échanger les places), soit défausser une carte. Les cartes ciblant un
+  échanger les places **et les suites** — la suite reste attachée à la
+  place à table, pas au joueur, seule la main le suit), soit défausser une
+  carte. Les cartes ciblant un
   adversaire ne se résolvent pas immédiatement : elles restent en attente
   (`state.pendingAttack`) le temps que la cible réponde via
   `applyRespondToAttack` — bloque avec une carte STOP (et repioche alors pour

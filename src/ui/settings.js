@@ -17,7 +17,17 @@ export const CARD_THEMES = [
   { id: 'royal', label: 'Royal', hint: 'Icônes pour les figures (V/D/R).' }
 ];
 
-const DEFAULTS = { felt: 'foret', cardTheme: 'classique' };
+export const SUITE_INFERNALE_INTERACTIONS = [
+  { id: 'drag', label: 'Glisser-déposer', hint: 'Fais glisser une carte vers ta suite, un adversaire ou la défausse.' },
+  { id: 'tap', label: 'Toucher', hint: 'Touche une carte, puis choisis la cible dans une liste.' }
+];
+
+const DEFAULTS = { felt: 'foret', cardTheme: 'classique', suiteInfernaleInteraction: 'drag' };
+
+/** Vrai si le glisser-déposer est actif à la Suite Infernale (préférence enregistrée, `'drag'` par défaut). */
+export function isSuiteInfernaleDragEnabled(settings = getSettings()) {
+  return settings.suiteInfernaleInteraction !== 'tap';
+}
 
 export function getSettings() {
   try {
@@ -123,6 +133,21 @@ export function openSettingsModal() {
         </div>
       </section>
 
+      <section class="settings-section">
+        <p class="settings-section__label">Suite Infernale : jouer une carte</p>
+        <div class="settings-card-themes">
+          ${SUITE_INFERNALE_INTERACTIONS.map(
+            (opt) => `
+            <button type="button" class="settings-card-theme ${settings.suiteInfernaleInteraction === opt.id ? 'settings-card-theme--active' : ''}" data-suite-interaction-option="${opt.id}">
+              <span class="settings-card-theme__text">
+                <strong>${opt.label}</strong>
+                <small>${opt.hint}</small>
+              </span>
+            </button>`
+          ).join('')}
+        </div>
+      </section>
+
       <button type="button" id="settings-save-close" class="btn btn--primary settings-modal__save">Enregistrer et fermer</button>
     </div>
   `;
@@ -181,6 +206,15 @@ export function openSettingsModal() {
       saveSettings({ cardTheme: btn.dataset.cardThemeOption });
       overlay
         .querySelectorAll('[data-card-theme-option]')
+        .forEach((b) => b.classList.toggle('settings-card-theme--active', b === btn));
+    });
+  });
+
+  overlay.querySelectorAll('[data-suite-interaction-option]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      saveSettings({ suiteInfernaleInteraction: btn.dataset.suiteInteractionOption });
+      overlay
+        .querySelectorAll('[data-suite-interaction-option]')
         .forEach((b) => b.classList.toggle('settings-card-theme--active', b === btn));
     });
   });

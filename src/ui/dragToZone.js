@@ -10,7 +10,13 @@ function findDropZone(x, y) {
   return el?.closest('[data-dropzone]') || null;
 }
 
-export function enableDragToZone(handEl, { onDrop, onTap } = {}) {
+/**
+ * `dragEnabled: false` (préférence "Toucher" dans la modale de réglages)
+ * désactive le geste de glisser : le pointeur ne décolle jamais la carte
+ * visuellement, et tout relâchement — même après un léger déplacement —
+ * est traité comme un tap.
+ */
+export function enableDragToZone(handEl, { onDrop, onTap, dragEnabled = true } = {}) {
   let dragging = null; // { el, id, startX, startY, moved, offsetX, offsetY, width }
   let hovered = null;
 
@@ -32,7 +38,7 @@ export function enableDragToZone(handEl, { onDrop, onTap } = {}) {
     });
 
     el.addEventListener('pointermove', (e) => {
-      if (!dragging || dragging.el !== el) return;
+      if (!dragEnabled || !dragging || dragging.el !== el) return;
       const dx = e.clientX - dragging.startX;
       const dy = e.clientY - dragging.startY;
       if (!dragging.moved && (Math.abs(dx) > TAP_THRESHOLD_PX || Math.abs(dy) > TAP_THRESHOLD_PX)) {
@@ -62,7 +68,7 @@ export function enableDragToZone(handEl, { onDrop, onTap } = {}) {
       el.style.top = '';
       el.style.width = '';
 
-      if (!moved) {
+      if (!dragEnabled || !moved) {
         dragging = null;
         onTap?.(id);
         return;
