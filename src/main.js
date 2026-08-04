@@ -38,7 +38,6 @@ import {
   initRelay,
   isRelayActive
 } from './game/engine.js';
-import { updateConnectionBadge } from './ui/connectionBadge.js';
 import { playerToDrawFrom } from './game/pouilleux.js';
 import { rankValue as trouducRankValue } from './game/trouduc.js';
 import { handTotal as blackjackHandTotal } from './game/blackjack.js';
@@ -602,7 +601,6 @@ function draw(room) {
   currentRoomRef = room;
   updateDocumentTitle(room);
   maybeReinitRelay(room);
-  updateConnectionBadge(isRelayActive(), currentPlayer.name);
   maybeScheduleBotMove(room);
   maybeScheduleTrouducExchangeBot(room);
   maybeScheduleTrouducBotMove(room);
@@ -646,6 +644,7 @@ function draw(room) {
     renderGame(app, {
       room,
       player: currentPlayer,
+      relayActive: isRelayActive(),
       onLeave: async () => {
         try {
           await leaveTable(room, currentPlayer);

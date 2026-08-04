@@ -831,35 +831,6 @@ h1 {
 [data-card-theme="royal"] .card[data-rank="Q"] .card__figure::before { content: '♛'; }
 [data-card-theme="royal"] .card[data-rank="K"] .card__figure::before { content: '♚'; }
 
-/* ---------- Prénom + indicateur de connexion directe (WebRTC) ---------- */
-/* À côté du bouton réglages ⚙️ plutôt qu'un bandeau flottant qui cachait une
-   partie de l'écran de jeu. Le 🔌 ne s'allume (couleur pleine) que quand la
-   liaison directe est active ; sinon il reste discret/grisé. */
-
-.player-badge {
-  position: fixed;
-  top: 12px;
-  right: 58px;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: var(--felt-700);
-  border: 1px solid var(--line);
-  color: var(--cream);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.25s ease;
-}
-.player-badge--visible { opacity: 1; }
-.player-badge__plug { opacity: 0.3; filter: grayscale(1); transition: opacity 0.2s ease, filter 0.2s ease; }
-.player-badge--plugged .player-badge__plug { opacity: 1; filter: none; }
-
 /* ---------- Réglages d'affichage (bouton flottant + modale) ---------- */
 
 .settings-fab {

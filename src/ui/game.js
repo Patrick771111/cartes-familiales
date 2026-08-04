@@ -94,7 +94,7 @@ function wireEndGameActions(container, room) {
  * `room` = ligne courante (state + type de jeu inclus), `player` = profil local.
  * Le changement de prénom se fait désormais depuis la modale de réglages (settings.js).
  */
-export function renderGame(container, { room, player, onLeave, onKick } = {}) {
+export function renderGame(container, { room, player, onLeave, onKick, relayActive } = {}) {
   const state = room.state;
 
   if (state.status === 'lobby') {
@@ -111,7 +111,7 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
     suiteInfernaleResolutionBanner = null;
     resetHandOrder('pouilleux');
     revealHands = false;
-    return renderWaitingRoom(container, { room, player, onLeave, onKick });
+    return renderWaitingRoom(container, { room, player, onLeave, onKick, relayActive });
   }
 
   if (state.status === 'exchange') {
@@ -165,7 +165,7 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
 // si elle n'était pas mémorisée en dehors de la fonction de rendu.
 let selectedGameIdByRoom = null;
 
-function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
+function renderWaitingRoom(container, { room, player, onLeave, onKick, relayActive }) {
   const state = room.state;
   if (selectedGameIdByRoom?.roomId !== room.id) selectedGameIdByRoom = null;
   const selectedGameId = selectedGameIdByRoom?.gameId || AVAILABLE_GAMES[0].id;
@@ -198,7 +198,7 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
             .map(
               (p) => `
                 <li>
-                  <span>${p.name}${p.isBot ? ' 🤖' : ''}${p.id === state.hostId ? ' <span class="tag">hôte</span>' : ''}${p.id === player.id ? ' <span class="tag tag--you">toi</span>' : ''}</span>
+                  <span>${p.name}${p.isBot ? ' 🤖' : ''}${p.id === state.hostId ? ' <span class="tag">hôte</span>' : ''}${p.id === player.id ? ` <span class="tag tag--you">toi${relayActive ? ' 🔌' : ''}</span>` : ''}</span>
                   ${isHost && p.id !== player.id ? `<button class="player-list__kick" data-kick-id="${p.id}" title="Retirer ${p.name}" aria-label="Retirer ${p.name}">✕</button>` : ''}
                 </li>`
             )
