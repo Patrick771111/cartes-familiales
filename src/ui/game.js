@@ -85,6 +85,32 @@ function endGameActionsHtml() {
   `;
 }
 
+/**
+ * Bouton "Abandonner/Quitter la partie" en pleine partie, commun à tous les
+ * jeux. L'hôte abandonne la manche pour tout le monde (comme aujourd'hui,
+ * relance via `playAgain`) — le perdre casserait la table (relais WebRTC,
+ * voir webrtc/relay.js). N'importe qui d'autre peut quitter sans bloquer les
+ * autres : il est remplacé par un bot à sa place (voir `leaveTable` côté
+ * engine.js), et repasse par l'écran "tu as quitté la table" habituel.
+ */
+function wireAbandonButton(container, { room, player, state, onLeave }) {
+  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
+    if (state.hostId === player.id) {
+      if (window.confirm("Abandonner la partie en cours et ramener tout le monde en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
+        playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
+      }
+      return;
+    }
+    if (window.confirm('Quitter la partie en cours ? Un bot prendra ta suite pour ne pas bloquer les autres joueurs.')) {
+      onLeave?.();
+    }
+  });
+}
+
+function abandonButtonLabel(state, player) {
+  return state.hostId === player.id ? 'Abandonner la partie' : 'Quitter la partie';
+}
+
 function wireEndGameActions(container, room) {
   container.querySelector('#btn-continue')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
@@ -133,7 +159,7 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   }
 
   if (state.status === 'exchange') {
-    return renderTrouducExchange(container, { room, player, state });
+    return renderTrouducExchange(container, { room, player, state, onLeave });
   }
 
   const previous = lastRenderedState;
@@ -171,9 +197,9 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
     return renderCinqRoisTable(container, { room, player, state, onLeave });
   }
   if (state.status === 'playing') {
-    if (isTrouduc) return renderTrouducTable(container, { room, player, state });
-    if (isAmericain) return renderAmericainTable(container, { room, player, state });
-    return renderTableNow(container, { room, player, state });
+    if (isTrouduc) return renderTrouducTable(container, { room, player, state, onLeave });
+    if (isAmericain) return renderAmericainTable(container, { room, player, state, onLeave });
+    return renderTableNow(container, { room, player, state, onLeave });
   }
   if (state.status === 'finished') {
     if (isTrouduc) return renderTrouducEnd(container, { room, player, state, onLeave });
@@ -345,7 +371,7 @@ function vibrate(pattern) {
 }
 
 function renderDrawReveal(container, { previousState, newState, player, room, onLeave }) {
-  renderTableNow(container, { room: { ...room, state: previousState }, player, state: previousState });
+  renderTableNow(container, { room: { ...room, state: previousState }, player, state: previousState, onLeave });
 
   const draw = newState.lastDraw;
   const drawer = previousState.players.find((p) => p.id === draw.by);
@@ -390,12 +416,12 @@ function renderDrawReveal(container, { previousState, newState, player, room, on
     if (newState.status === 'finished') {
       renderEndScreen(container, { room, player, onLeave });
     } else {
-      renderTableNow(container, { room, player, state: newState });
+      renderTableNow(container, { room, player, state: newState, onLeave });
     }
   }, reduceMotion ? 500 : isOddCard || safeNames.length ? 1900 : 1400);
 }
 
-function renderTableNow(container, { room, player, state }) {
+function renderTableNow(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
   const isMyTurn = state.currentPlayerId === player.id;
   // La cible (chez qui on pioche ce tour-ci) est toujours calculable, pas
@@ -476,28 +502,24 @@ function renderTableNow(container, { room, player, state }) {
         </details>
 
         <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
-        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+        <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
       </div>
     </div>
   `;
 
   container.querySelector('#btn-toggle-reveal')?.addEventListener('click', () => {
     revealHands = !revealHands;
-    renderTableNow(container, { room, player, state });
+    renderTableNow(container, { room, player, state, onLeave });
   });
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
-  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
-    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
-      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
-    }
-  });
+  wireAbandonButton(container, { room, player, state, onLeave });
 
   const myHandEl = container.querySelector('.my-hand__cards');
   if (myHandEl) {
     enableHandDrag(myHandEl, {
       onDrop: (cardId, index) => {
         moveCard('pouilleux', cardId, index);
-        renderTableNow(container, { room, player, state });
+        renderTableNow(container, { room, player, state, onLeave });
       }
     });
   }
@@ -568,7 +590,7 @@ let exchangeSelectedCardIds = new Set();
  * Cul et le Secrétaire attendent, sans connaître les cartes précises en jeu
  * chez le binôme adverse.
  */
-function renderTrouducExchange(container, { room, player, state }) {
+function renderTrouducExchange(container, { room, player, state, onLeave }) {
   const ex = state.exchange;
   const me = state.players.find((p) => p.id === player.id);
 
@@ -629,17 +651,13 @@ function renderTrouducExchange(container, { room, player, state }) {
         </div>
 
         <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
-        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+        <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
       </div>
     </div>
   `;
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
-  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
-    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
-      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
-    }
-  });
+  wireAbandonButton(container, { room, player, state, onLeave });
 
   if (needsToChoose) {
     container.querySelectorAll('.hand-card').forEach((el) => {
@@ -650,7 +668,7 @@ function renderTrouducExchange(container, { room, player, state }) {
         } else if (exchangeSelectedCardIds.size < requiredCount) {
           exchangeSelectedCardIds.add(id);
         }
-        renderTrouducExchange(container, { room, player, state });
+        renderTrouducExchange(container, { room, player, state, onLeave });
       });
     });
 
@@ -677,7 +695,7 @@ let lastCelebratedMoveId = null;
 let expiredPileClearedId = null;
 let pileClearTimerFor = null;
 
-function renderTrouducTable(container, { room, player, state }) {
+function renderTrouducTable(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
   // Place les 3 adversaires dans l'ordre du tour à partir de moi (siège gauche
   // = joueur suivant, milieu = celui d'après, droite = celui juste avant moi),
@@ -722,7 +740,7 @@ function renderTrouducTable(container, { room, player, state }) {
     window.setTimeout(() => {
       expiredPileClearedId = idToExpire;
       pileClearTimerFor = null;
-      renderTrouducTable(container, { room, player, state });
+      renderTrouducTable(container, { room, player, state, onLeave });
     }, 1000);
   }
 
@@ -912,20 +930,16 @@ function renderTrouducTable(container, { room, player, state }) {
       </details>
 
       <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
-      <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+      <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
     </div>
   `;
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
-  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
-    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
-      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
-    }
-  });
+  wireAbandonButton(container, { room, player, state, onLeave });
 
   container.querySelector('#btn-toggle-reveal')?.addEventListener('click', () => {
     revealHands = !revealHands;
-    renderTrouducTable(container, { room, player, state });
+    renderTrouducTable(container, { room, player, state, onLeave });
   });
 
   if (isMyTurn) {
@@ -944,7 +958,7 @@ function renderTrouducTable(container, { room, player, state }) {
         } else {
           selectedCardIds.add(id);
         }
-        renderTrouducTable(container, { room, player, state });
+        renderTrouducTable(container, { room, player, state, onLeave });
       });
     });
   }
@@ -1020,7 +1034,7 @@ let pendingEightCardId = null;
 
 const SUIT_ORDER = ['S', 'H', 'D', 'C'];
 
-function renderAmericainTable(container, { room, player, state }) {
+function renderAmericainTable(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
   const others = state.players.filter((p) => p.id !== player.id);
   const isMyTurn = state.currentPlayerId === player.id;
@@ -1138,17 +1152,13 @@ function renderAmericainTable(container, { room, player, state }) {
         </details>
 
         <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
-        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+        <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
       </div>
     </div>
   `;
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
-  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
-    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
-      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
-    }
-  });
+  wireAbandonButton(container, { room, player, state, onLeave });
 
   container.querySelector('#btn-draw')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
@@ -1161,7 +1171,7 @@ function renderAmericainTable(container, { room, player, state }) {
 
   container.querySelector('#btn-cancel-eight')?.addEventListener('click', () => {
     pendingEightCardId = null;
-    renderAmericainTable(container, { room, player, state });
+    renderAmericainTable(container, { room, player, state, onLeave });
   });
 
   container.querySelectorAll('.americain-suit-picker__option').forEach((btn) => {
@@ -1186,7 +1196,7 @@ function renderAmericainTable(container, { room, player, state }) {
         const card = me.hand.find((c) => c.id === id);
         if (card.rank === '8') {
           pendingEightCardId = id;
-          renderAmericainTable(container, { room, player, state });
+          renderAmericainTable(container, { room, player, state, onLeave });
           return;
         }
         try {
@@ -1203,7 +1213,7 @@ function renderAmericainTable(container, { room, player, state }) {
     enableHandDrag(myHandEl, {
       onDrop: (cardId, index) => {
         moveCard('americain', cardId, index);
-        renderAmericainTable(container, { room, player, state });
+        renderAmericainTable(container, { room, player, state, onLeave });
       }
     });
   }
@@ -1333,7 +1343,7 @@ function renderBlackjackTable(container, { room, player, state, onLeave }) {
         </details>
 
         <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
-        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+        <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
       </div>
     </div>
   `;
@@ -1373,11 +1383,7 @@ function renderBlackjackTable(container, { room, player, state, onLeave }) {
   wireEndGameActions(container, room);
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
-  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
-    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
-      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
-    }
-  });
+  wireAbandonButton(container, { room, player, state, onLeave });
 }
 
 /* ============================== Flip 7 ============================== */
@@ -1464,7 +1470,7 @@ function renderFlip7Table(container, { room, player, state, onLeave }) {
         </details>
 
         <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
-        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+        <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
       </div>
     </div>
   `;
@@ -1492,11 +1498,7 @@ function renderFlip7Table(container, { room, player, state, onLeave }) {
   wireEndGameActions(container, room);
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
-  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
-    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
-      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
-    }
-  });
+  wireAbandonButton(container, { room, player, state, onLeave });
 }
 
 /* ============================== Skyjo ============================== */
@@ -1634,7 +1636,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
         </details>
 
         <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
-        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+        <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
       </div>
 
       <div class="skyjo-my-grid-dock">
@@ -1738,11 +1740,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
   wireEndGameActions(container, room);
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
-  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
-    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
-      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
-    }
-  });
+  wireAbandonButton(container, { room, player, state, onLeave });
 }
 
 /* ========================== La Suite Infernale ========================== */
@@ -1997,7 +1995,7 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
         </details>
 
         <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
-        <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+        <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
       </div>
     </div>
   `;
@@ -2175,11 +2173,7 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
   wireEndGameActions(container, room);
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
-  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
-    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
-      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
-    }
-  });
+  wireAbandonButton(container, { room, player, state, onLeave });
 }
 
 function cinqRoisCardHtml(card, trumpRank, selected = false) {
@@ -2306,17 +2300,13 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
       </details>
 
       <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
-      <button class="btn btn--link" id="btn-abandon">Abandonner la partie</button>
+      <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
     </div>`;
 
   if (isFinished) wireEndGameActions(container, room);
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal('cinqrois'));
-  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
-    if (window.confirm("Abandonner la partie en cours et revenir en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
-      playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
-    }
-  });
+  wireAbandonButton(container, { room, player, state, onLeave });
 
   let selectedCardId = null;
   const refreshSelection = () => {

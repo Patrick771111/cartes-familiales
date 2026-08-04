@@ -192,9 +192,13 @@ export async function renameLocalPlayer(room, profile, newName) {
 }
 
 /**
- * Retire le profil local de la liste des joueurs de la table. Impossible en pleine
- * partie (ça casserait la distribution/l'ordre du tour) : uniquement en salle
- * d'attente ou une fois la manche terminée.
+ * Retire le profil local de la liste des joueurs de la table. En pleine partie
+ * (ce qui casserait la distribution/l'ordre du tour si le joueur disparaissait
+ * purement), il est remplacé par un bot à sa place plutôt que retiré, pour ne
+ * pas bloquer les autres — sauf si c'est l'hôte : le perdre casserait la table
+ * pour tout le monde (relais WebRTC, voir webrtc/relay.js), donc on abandonne
+ * proprement la manche à sa place, comme avec "Abandonner la partie". Hors
+ * partie (salle d'attente ou manche terminée), retrait complet classique.
  */
 /** Choisit le nouvel hôte parmi les joueurs restants : toujours un humain en priorité (un bot ne peut pas cliquer sur "Lancer la partie"). */
 function pickNewHost(remainingPlayers) {
@@ -206,8 +210,25 @@ export async function leaveTable(room, profile) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const fresh = await fetchRoomById(room.id);
     if (!fresh.state.players.some((p) => p.id === profile.id)) return fresh; // déjà parti
-    if (fresh.state.status === 'playing' || fresh.state.status === 'exchange') {
-      throw new Error('Impossible de quitter en pleine partie — attends la fin de la manche.');
+
+    const isMidGame = fresh.state.status !== 'lobby' && fresh.state.status !== 'finished';
+
+    if (isMidGame && fresh.state.hostId === profile.id) {
+      return playAgain(fresh);
+    }
+
+    if (isMidGame) {
+      const newState = {
+        ...fresh.state,
+        players: fresh.state.players.map((p) => (p.id === profile.id ? { ...p, isBot: true } : p)),
+        log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} a quitté en pleine partie — remplacé·e par un bot.` }]
+      };
+      try {
+        return await updateRoomState(fresh.id, fresh.version, newState);
+      } catch (e) {
+        if (!(e instanceof ConflictError)) throw e;
+        continue;
+      }
     }
 
     const remainingPlayers = fresh.state.players.filter((p) => p.id !== profile.id);
