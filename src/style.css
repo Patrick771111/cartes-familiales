@@ -1837,6 +1837,7 @@ h1 {
   justify-content: center;
 }
 .cinqrois-card {
+  position: relative;
   width: 40px;
   height: 56px;
   border-radius: 6px;
@@ -1877,6 +1878,37 @@ h1 {
 }
 .cinqrois-card__rank { line-height: 1; }
 .cinqrois-card__suit { font-size: 14px; line-height: 1.1; }
+
+/* Thème "Marques auto" (voir cardThemes.js) : illustration en fond plutôt
+   que le rang+symbole texte centrés. Le rang reste affiché (indispensable
+   pour jouer), en petit badge dans un coin plutôt que centré en grand,
+   pour laisser l'illustration respirer sur une carte aussi petite. */
+.cinqrois-card--illustrated {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: #1a1a1a;
+}
+.cinqrois-card--illustrated .cinqrois-card__suit { display: none; }
+.cinqrois-card--illustrated .cinqrois-card__rank {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  background: rgba(245, 240, 230, 0.88);
+  border-radius: 3px;
+  padding: 0 3px;
+  font-size: 11px;
+  line-height: 1.3;
+}
+.cinqrois-card--joker.cinqrois-card--illustrated {
+  border: 2px solid var(--brass, #c9a227);
+}
+.cinqrois-card--back-illustrated {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-color: rgba(0,0,0,0.15);
+}
 .cinqrois-actions {
   display: flex;
   flex-wrap: wrap;

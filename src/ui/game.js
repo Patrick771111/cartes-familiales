@@ -45,6 +45,7 @@ import {
   suitInfo as cinqRoisSuitInfo
 } from '../game/cinqrois.js';
 import { suitInfo } from '../game/deck.js';
+import { suitCardImage, cardBackImage, jokerImage } from './cardThemes.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
 import { enableHandDrag } from './dragReorder.js';
 import { enableDragToZone } from './dragToZone.js';
@@ -2212,16 +2213,43 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
   wireAbandonButton(container, { room, player, state, onLeave });
 }
 
+function cinqRoisRoleForRank(rank) {
+  if (rank === 11) return 'valet';
+  if (rank === 12) return 'dame';
+  if (rank === 13) return 'roi';
+  return 'number';
+}
+
 function cinqRoisCardHtml(card, trumpRank, selected = false) {
+  const theme = document.documentElement.dataset.cardTheme;
+
   if (card.isJoker) {
-    return `<div class="cinqrois-card cinqrois-card--joker ${selected ? 'cinqrois-card--selected' : ''}" data-card-id="${card.id}">!</div>`;
+    const illustration = jokerImage(theme, card.id);
+    const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
+    return `<div class="cinqrois-card cinqrois-card--joker ${illustration ? 'cinqrois-card--illustrated' : ''} ${selected ? 'cinqrois-card--selected' : ''}" data-card-id="${card.id}"${style}>${illustration ? '' : '!'}</div>`;
   }
+
   const info = cinqRoisSuitInfo(card.suit);
   const isTrump = card.rank === trumpRank;
-  return `<div class="cinqrois-card ${info?.color === 'red' ? 'cinqrois-card--red' : info?.color === 'gold' ? 'cinqrois-card--gold' : 'cinqrois-card--dark'} ${isTrump ? 'cinqrois-card--trump' : ''} ${selected ? 'cinqrois-card--selected' : ''}" data-card-id="${card.id}">
+  const illustration = suitCardImage(theme, card.suit, cinqRoisRoleForRank(card.rank));
+  const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
+  const colorClass = illustration
+    ? 'cinqrois-card--illustrated'
+    : info?.color === 'red'
+      ? 'cinqrois-card--red'
+      : info?.color === 'gold'
+        ? 'cinqrois-card--gold'
+        : 'cinqrois-card--dark';
+  return `<div class="cinqrois-card ${colorClass} ${isTrump ? 'cinqrois-card--trump' : ''} ${selected ? 'cinqrois-card--selected' : ''}" data-card-id="${card.id}"${style}>
     <span class="cinqrois-card__rank">${cinqRoisRankLabel(card.rank)}</span>
     <span class="cinqrois-card__suit">${info?.symbol || ''}</span>
   </div>`;
+}
+
+function cinqRoisCardBackHtml() {
+  const illustration = cardBackImage(document.documentElement.dataset.cardTheme);
+  const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
+  return `<div class="cinqrois-card cinqrois-card--back ${illustration ? 'cinqrois-card--back-illustrated' : ''}"${style}></div>`;
 }
 
 function renderCinqRoisTable(container, { room, player, state, onLeave }) {
@@ -2244,7 +2272,7 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
         <div class="cinqrois-seat ${isTurn ? 'cinqrois-seat--turn' : ''} ${p.laidDown ? 'cinqrois-seat--laid' : ''}">
           <p class="cinqrois-seat__name">${p.name}${connectionBadge(state, p.id)} <span class="cinqrois-seat__score">(${p.score})</span></p>
           <p class="cinqrois-seat__status">${status}</p>
-          <div class="cinqrois-seat__backs">${Array(Math.min(p.hand.length, 13)).fill('<div class="cinqrois-card cinqrois-card--back"></div>').join('')}</div>
+          <div class="cinqrois-seat__backs">${Array(Math.min(p.hand.length, 13)).fill(cinqRoisCardBackHtml()).join('')}</div>
         </div>`;
     })
     .join('');
@@ -2304,7 +2332,7 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
       <div class="cinqrois-opponents">${othersHtml || '<p class="cinqrois-empty">Aucun adversaire</p>'}</div>
       <div class="cinqrois-center">
         <div class="cinqrois-pile">
-          <div class="cinqrois-card cinqrois-card--back"></div>
+          ${cinqRoisCardBackHtml()}
           <span class="cinqrois-pile__label">Pioche ${state.stock.length}</span>
         </div>
         <div class="cinqrois-discard">
