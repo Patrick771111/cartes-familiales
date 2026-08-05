@@ -1701,8 +1701,12 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
       onDrop: async (id, zone) => {
         if (id !== 'discard-pile' || zone.dropzone !== 'skyjo-cell') return;
         try {
-          await drawSkyjoFromDiscard(room, player.id);
-          await placeSkyjoCard(room, player.id, Number(zone.index));
+          // `room` capture le state d'AVANT la pioche (drawnCard encore nul) :
+          // il faut enchaîner sur le room mis à jour que renvoie l'appel
+          // précédent, sinon la pose suivante croit qu'aucune carte n'a été
+          // piochée ("Pioche d'abord une carte.") et échoue systématiquement.
+          const drawn = await drawSkyjoFromDiscard(room, player.id);
+          await placeSkyjoCard(drawn, player.id, Number(zone.index));
         } catch (err) {
           alert(err.message || 'Impossible de prendre la défausse et de la poser.');
         }
