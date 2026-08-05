@@ -1259,15 +1259,15 @@ h1 {
 
 .skyjo-cell {
   position: relative;
-  width: 40px;
-  height: 40px;
-  border-radius: 7px;
+  width: 50px;
+  height: 50px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
   font-family: var(--font-mono);
-  font-size: 16px;
+  font-size: 20px;
   box-shadow: 0 2px 6px rgba(0,0,0,0.3);
 }
 
@@ -1293,7 +1293,11 @@ h1 {
 .opponent--compact .skyjo-cell { width: 20px; height: 20px; font-size: 10px; border-radius: 4px; }
 .opponent--compact .skyjo-grid { gap: 3px; margin-bottom: 6px; }
 
-.skyjo-draw-area { display: flex; justify-content: center; gap: 24px; margin-bottom: 12px; }
+/* Une seule rangée pour tout le cycle de pioche : défausse, puis soit la
+   pioche face cachée (avant de piocher) soit la carte piochée (après,
+   remplace la pioche au même endroit plutôt que d'ouvrir une zone à part),
+   et le bouton Flip à droite quand il s'applique — voir renderSkyjoTable. */
+.skyjo-draw-area { display: flex; justify-content: center; align-items: flex-start; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
 .skyjo-pile {
   appearance: none;
   -webkit-appearance: none;
@@ -1316,24 +1320,15 @@ h1 {
 .skyjo-pile--pickable .skyjo-cell { box-shadow: 0 0 0 3px var(--brass-soft), 0 6px 16px rgba(0,0,0,0.4); }
 .skyjo-pile__label { font-family: var(--font-mono); font-size: 11px; color: rgba(247, 241, 225, 0.7); }
 
-.skyjo-pending {
-  background: rgba(201, 162, 39, 0.1);
-  border: 1px solid var(--brass);
-  border-radius: 12px;
-  padding: 12px;
-  margin-bottom: 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-.skyjo-pending__label { font-family: var(--font-mono); font-size: 12px; color: rgba(247, 241, 225, 0.75); margin: 0; }
-.skyjo-pending .skyjo-cell { width: 48px; height: 48px; font-size: 20px; }
-.skyjo-pending__hint { font-size: 13px; color: var(--brass-soft); margin: 0; text-align: center; }
-.skyjo-drawn-card .skyjo-cell { cursor: grab; touch-action: none; }
-.skyjo-drawn-card .skyjo-cell.is-dragging-away { cursor: grabbing; }
+/* Défausse une fois la pioche faite : plus prenable ce tour-ci, mais reste
+   visible (grisée) plutôt que de disparaître. */
+.skyjo-pile--dimmed { opacity: 0.35; }
 
-.skyjo-pending__actions { display: flex; align-items: center; gap: 14px; }
+/* Carte piochée : prend la place de la pioche (même position, même taille),
+   reste "active" (opacité pleine) puisque c'est elle qu'on doit jouer. */
+.skyjo-pile--drawn { opacity: 1; }
+.skyjo-pile--drawn .skyjo-cell { cursor: grab; touch-action: none; }
+.skyjo-pile--drawn .skyjo-cell.is-dragging-away { cursor: grabbing; }
 
 /* Carte piochée et bouton Flip : deux "sources" côte à côte pour le
    glisser-déposer/tap-puis-tap (voir enableDragToZone dans game.js). */
