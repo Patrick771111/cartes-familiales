@@ -1361,6 +1361,22 @@ h1 {
   color: var(--felt-900);
   box-shadow: 0 0 0 3px var(--brass-soft), 0 6px 16px rgba(0,0,0,0.4);
 }
+/* Toujours affiché (voir renderSkyjoTable), grisé plutôt que retiré du DOM
+   quand non jouable — évite que la ligne pioche/défausse se redimensionne. */
+.skyjo-flip-btn--dimmed {
+  opacity: 0.35;
+  cursor: default;
+}
+.skyjo-flip-btn--illustrated {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-style: solid;
+  border-color: rgba(0,0,0,0.2);
+}
+.skyjo-flip-btn--illustrated.skyjo-flip-btn--armed {
+  box-shadow: 0 0 0 3px var(--brass), 0 6px 16px rgba(0,0,0,0.4);
+}
 
 /* ---------- La Suite Infernale ---------- */
 

@@ -45,7 +45,7 @@ import {
   suitInfo as cinqRoisSuitInfo
 } from '../game/cinqrois.js';
 import { suitInfo } from '../game/deck.js';
-import { suitCardImage, cardBackImage, jokerImage, suiteInfernaleSpecialImage } from './cardThemes.js';
+import { suitCardImage, cardBackImage, jokerImage, suiteInfernaleSpecialImage, flipButtonImage } from './cardThemes.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
 import { enableHandDrag } from './dragReorder.js';
 import { enableDragToZone } from './dragToZone.js';
@@ -1587,6 +1587,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
   const myClickableClassFor = (cell, i) => (canAct && cell ? 'skyjo-cell--placeable' : '');
   const canFlip = canAct && state.drawnCard.source === 'deck';
   const myFlipTargetFor = (cell) => Boolean(canFlip && skyjoPendingMode === 'flip' && cell && !cell.faceUp);
+  const skyjoFlipIllustration = flipButtonImage(document.documentElement.dataset.cardTheme);
   const myVisibleSum = skyjoVisibleSum(me.grid);
 
   container.innerHTML = `
@@ -1619,13 +1620,12 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
                  </button>`
           }
 
-          ${
-            canFlip
-              ? `<button type="button" class="skyjo-flip-btn ${skyjoPendingMode === 'flip' ? 'skyjo-flip-btn--armed' : ''}" id="skyjo-flip-btn" data-card-id="flip">
-                   <span class="skyjo-flip-btn__icon">🔄</span><span>Flip</span>
-                 </button>`
-              : ''
-          }
+          <!-- Toujours affiché à une position fixe (grisé quand non jouable),
+               plutôt que d'apparaître/disparaître — évite que la ligne se
+               redimensionne selon l'état. -->
+          <button type="button" class="skyjo-flip-btn ${skyjoPendingMode === 'flip' ? 'skyjo-flip-btn--armed' : ''} ${canFlip ? '' : 'skyjo-flip-btn--dimmed'} ${skyjoFlipIllustration ? 'skyjo-flip-btn--illustrated' : ''}" id="skyjo-flip-btn" ${canFlip ? 'data-card-id="flip"' : 'disabled'} ${skyjoFlipIllustration ? `style="background-image:url('${skyjoFlipIllustration}')"` : ''}>
+            ${skyjoFlipIllustration ? '' : '<span class="skyjo-flip-btn__icon">🔄</span><span>Flip</span>'}
+          </button>
         </div>
 
         <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">

@@ -135,6 +135,12 @@ export function jokerImage(themeId, seed) {
   return stablePick(AUTO_BRANDS.jokers, seed);
 }
 
+/** Icône du bouton "Flip" à Skyjo (retourner une case cachée). Uniquement dessinée pour "mascotte". */
+export function flipButtonImage(themeId) {
+  if (themeId !== 'mascotte') return null;
+  return MASCOTTE.byRole.flip || null;
+}
+
 /**
  * Habillage décoratif "carte numérotée" pour les jeux sans famille (Skyjo,
  * numéros de la Suite Infernale) : une marque au hasard (stable par `seed`,
