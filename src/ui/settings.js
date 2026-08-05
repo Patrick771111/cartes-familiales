@@ -15,7 +15,8 @@ export const CARD_THEMES = [
   { id: 'moderne', label: 'Moderne', hint: 'Grande lettre minimaliste.' },
   { id: 'retro', label: 'Rétro', hint: 'Cadre double, style ancien.' },
   { id: 'royal', label: 'Royal', hint: 'Icônes pour les figures (V/D/R).' },
-  { id: 'autoBrands', label: 'Marques auto', hint: 'Une marque par famille, illustrée.' }
+  { id: 'autoBrands', label: 'Marques auto', hint: 'Une marque par famille, illustrée.' },
+  { id: 'mascotte', label: 'Mascotte', hint: 'Croquis dessinés à la main pour les figures et les cartes spéciales.' }
 ];
 
 export const SUITE_INFERNALE_INTERACTIONS = [

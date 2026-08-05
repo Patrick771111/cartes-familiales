@@ -1,11 +1,12 @@
 import { suitInfo } from '../game/deck.js';
-import { CARD_ILLUSTRATION_THEME_ID, suitCardImage, cardBackImage } from './cardThemes.js';
+import { suitCardImage, cardBackImage } from './cardThemes.js';
 
 function activeCardTheme() {
   return document.documentElement.dataset.cardTheme;
 }
 
 function roleForRank(rank) {
+  if (rank === 'A') return 'as';
   if (rank === 'J') return 'valet';
   if (rank === 'Q') return 'dame';
   if (rank === 'K') return 'roi';
@@ -27,7 +28,7 @@ function roleForRank(rank) {
 export function cardFaceHtml(card, themeOverride) {
   const theme = typeof themeOverride === 'string' ? themeOverride : activeCardTheme();
   const suit = suitInfo(card.suit);
-  const illustration = theme === CARD_ILLUSTRATION_THEME_ID ? suitCardImage(theme, card.suit, roleForRank(card.rank)) : null;
+  const illustration = suitCardImage(theme, card.suit, roleForRank(card.rank));
   const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
   return `
     <div class="card card--${suit.color} ${illustration ? 'card--illustrated' : ''}" data-card-id="${card.id}" data-rank="${card.rank}"${style}>
@@ -41,7 +42,7 @@ export function cardFaceHtml(card, themeOverride) {
 /** Retourne le HTML d'une carte face cachée (dos de carte). Même logique de `themeOverride` que `cardFaceHtml`. */
 export function cardBackHtml(themeOverride) {
   const theme = typeof themeOverride === 'string' ? themeOverride : activeCardTheme();
-  const illustration = theme === CARD_ILLUSTRATION_THEME_ID ? cardBackImage(theme) : null;
+  const illustration = cardBackImage(theme);
   const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
   return `<div class="card card--back ${illustration ? 'card--back-illustrated' : ''}"${style}><span class="card__back-pattern"></span></div>`;
 }

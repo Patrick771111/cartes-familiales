@@ -45,7 +45,7 @@ import {
   suitInfo as cinqRoisSuitInfo
 } from '../game/cinqrois.js';
 import { suitInfo } from '../game/deck.js';
-import { suitCardImage, cardBackImage, jokerImage } from './cardThemes.js';
+import { suitCardImage, cardBackImage, jokerImage, suiteInfernaleSpecialImage } from './cardThemes.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
 import { enableHandDrag } from './dragReorder.js';
 import { enableDragToZone } from './dragToZone.js';
@@ -1772,9 +1772,12 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
 const SUITE_INFERNALE_SLOT_TARGETED_TYPES = ['retirerUne', 'volerUne'];
 
 function suiteInfernaleCardHtml(card) {
+  const theme = document.documentElement.dataset.cardTheme;
   if (card.kind === 'number') return `<div class="suiteinfernale-card suiteinfernale-card--number">${card.value}</div>`;
   const label = SUITE_INFERNALE_SPECIAL_TYPES[card.type]?.label || card.type;
-  return `<div class="suiteinfernale-card suiteinfernale-card--special">${label}</div>`;
+  const illustration = suiteInfernaleSpecialImage(theme, card.type, card.id);
+  const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
+  return `<div class="suiteinfernale-card suiteinfernale-card--special ${illustration ? 'suiteinfernale-card--illustrated' : ''}" title="${label}"${style}>${illustration ? '' : label}</div>`;
 }
 
 // Une case remplie par un Joker doit rester visuellement distincte d'un

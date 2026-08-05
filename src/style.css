@@ -1441,6 +1441,12 @@ h1 {
   line-height: 1.2;
   padding: 4px;
 }
+.suiteinfernale-card--illustrated {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-color: rgba(0,0,0,0.2);
+}
 .hand-card--selected .suiteinfernale-card { box-shadow: 0 0 0 2px var(--brass), 0 10px 16px rgba(0,0,0,0.45); }
 .hand-card--unplayable .suiteinfernale-card { filter: grayscale(0.6); }
 
