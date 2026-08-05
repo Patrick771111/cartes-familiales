@@ -14,7 +14,8 @@ export const CARD_THEMES = [
   { id: 'classique', label: 'Classique', hint: 'Lettre + symbole, sobre.' },
   { id: 'moderne', label: 'Moderne', hint: 'Grande lettre minimaliste.' },
   { id: 'retro', label: 'Rétro', hint: 'Cadre double, style ancien.' },
-  { id: 'royal', label: 'Royal', hint: 'Icônes pour les figures (V/D/R).' }
+  { id: 'royal', label: 'Royal', hint: 'Icônes pour les figures (V/D/R).' },
+  { id: 'autoBrands', label: 'Marques auto', hint: 'Une marque par famille, illustrée.' }
 ];
 
 export const SUITE_INFERNALE_INTERACTIONS = [
@@ -123,7 +124,7 @@ export function openSettingsModal() {
           ${CARD_THEMES.map(
             (t) => `
             <button type="button" class="settings-card-theme ${settings.cardTheme === t.id ? 'settings-card-theme--active' : ''}" data-card-theme-option="${t.id}">
-              <span class="settings-card-theme__preview" data-card-theme="${t.id}">${cardFaceHtml({ id: `preview-${t.id}`, rank: 'K', suit: 'H' })}</span>
+              <span class="settings-card-theme__preview" data-card-theme="${t.id}">${cardFaceHtml({ id: `preview-${t.id}`, rank: 'K', suit: 'H' }, t.id)}</span>
               <span class="settings-card-theme__text">
                 <strong>${t.label}</strong>
                 <small>${t.hint}</small>

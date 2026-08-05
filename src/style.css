@@ -759,10 +759,35 @@ h1 {
 
 /* ---------- Thèmes de cartes (réglage d'affichage) ----------
    Par défaut ("classique", pas d'attribut ou data-card-theme="classique") rien
-   ne change. Les 3 autres thèmes n'habillent que les figures (Valet/Dame/Roi) —
-   les cartes numérales restent identiques dans tous les thèmes. Les sélecteurs
-   ciblent [data-card-theme] sans exiger :root, pour pouvoir aussi être appliqués
-   localement (aperçu dans la modale de réglages). */
+   ne change. "moderne"/"retro"/"royal" n'habillent que les figures (Valet/
+   Dame/Roi) — les cartes numérales restent identiques. "autoBrands" est à
+   part : illustration plein cadre sur TOUTES les cartes (numérales comprises),
+   fournie en JS par cardFaceHtml/cardBackHtml (voir cards.js + cardThemes.js)
+   puisque les URLs des images sont générées par Vite, pas figées en CSS. Les
+   sélecteurs ciblent [data-card-theme] sans exiger :root, pour pouvoir aussi
+   être appliqués localement (aperçu dans la modale de réglages). */
+
+.card--illustrated {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.card--illustrated .card__pip,
+.card--illustrated .card__figure { display: none; }
+.card--illustrated .card__corner {
+  background: rgba(245, 240, 230, 0.88);
+  color: var(--felt-900, #1a1a1a);
+  border-radius: 4px;
+  padding: 0 3px;
+  line-height: 1.15;
+}
+.card--back-illustrated {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-color: transparent;
+}
+.card--back-illustrated .card__back-pattern { display: none; }
 
 .card__figure {
   position: absolute;
