@@ -775,8 +775,10 @@ h1 {
 .card--illustrated .card__pip,
 .card--illustrated .card__figure { display: none; }
 .card--illustrated .card__corner {
+  /* Fond opaque pour la lisibilité par-dessus l'illustration, mais surtout
+     PAS de `color` ici : ça écraserait le rouge/noir hérité de .card--red /
+     .card--dark plus haut dans la cascade et afficherait tout en noir. */
   background: rgba(245, 240, 230, 0.88);
-  color: var(--felt-900, #1a1a1a);
   border-radius: 4px;
   padding: 0 3px;
   line-height: 1.15;
