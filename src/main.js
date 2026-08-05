@@ -1,12 +1,13 @@
 import './style.css';
-import { renderNamePrompt, renderLeftTable } from './ui/lobby.js';
+import { renderNamePrompt, renderLeftTable, renderRoomList } from './ui/lobby.js';
 import { renderGame, renderSpectatorGame } from './ui/game.js';
 import { applySettings, mountSettingsButton, setPlayerNameController } from './ui/settings.js';
 import {
   getLocalProfile,
-  ensureFamilyRoom,
+  listActiveRooms,
+  createNewRoom,
+  createLocalIdentity,
   ensureMembership,
-  createIdentityAndJoin,
   renameLocalPlayer,
   leaveTable,
   kickPlayer,
@@ -65,6 +66,9 @@ let lastReportedRelayActive = null;
 // une attente pendant qu'une partie tournait sans nous. Fixé une fois à l'entrée
 // sur cet écran, pour ne pas changer de message à chaque re-rendu.
 let leftScreenIsWaiting = false;
+// Rafraîchissement périodique de l'écran des salons (pas d'abonnement Realtime
+// large sur toute la table, juste un sondage léger — voir showRoomList).
+let roomListPollHandle = null;
 
 // Évite que ce même appareil ne programme deux fois le coup d'un bot pour le
 // même état de partie (plusieurs appareils peuvent chacun tenter le coup ;
@@ -696,7 +700,11 @@ function draw(room) {
   // met à jour tout seul, plutôt que de tomber dans le rendu normal (qui suppose
   // toujours que le joueur local fait partie de la partie, et plante sinon).
   if (!stillMember && room.state.status === 'playing') {
-    renderSpectatorGame(app, { room, gameLabel: GAME_TITLES[room.game] });
+    renderSpectatorGame(app, {
+      room,
+      gameLabel: GAME_TITLES[room.game],
+      onBackToRooms: () => backToRoomList({ leaveFirst: false })
+    });
     return;
   }
 
@@ -739,7 +747,8 @@ function draw(room) {
         } catch (err) {
           alert(err.message || 'Impossible de retirer ce joueur.');
         }
-      }
+      },
+      onBackToRooms: () => backToRoomList({ leaveFirst: room.state.status === 'lobby' })
     });
   } catch (err) {
     console.error('Erreur de rendu, affichage de l\'écran de récupération :', err);
@@ -766,6 +775,83 @@ function enterRoom(room, player) {
   unsubscribe = watchRoom(room.id, (freshRow) => draw(freshRow));
 }
 
+function stopRoomListPolling() {
+  if (roomListPollHandle) {
+    window.clearInterval(roomListPollHandle);
+    roomListPollHandle = null;
+  }
+}
+
+/**
+ * Écran "salons" : liste les tables actives et laisse `profile` en rejoindre
+ * une ou en créer une nouvelle. Rafraîchi par un simple sondage (pas
+ * d'abonnement Realtime large sur toute la table `game_rooms`), cohérent
+ * avec les battements de cœur déjà utilisés ailleurs dans ce fichier.
+ */
+async function showRoomList(profile) {
+  currentPlayer = profile;
+  document.title = 'Cartes en famille';
+  stopRoomListPolling();
+
+  const renderList = async () => {
+    const rooms = await listActiveRooms();
+    renderRoomList(app, {
+      rooms,
+      onJoinRoom: async (roomId) => {
+        const room = await fetchRoomById(roomId);
+        if (!room) throw new Error('Ce salon n\'existe plus — réessaie.');
+        const joined = await ensureMembership(room, profile);
+        const reclaimed = await reclaimStaleHost(joined, profile);
+        stopRoomListPolling();
+        enterRoom(reclaimed, profile);
+      },
+      onCreateRoom: async () => {
+        const created = await createNewRoom();
+        const joined = await ensureMembership(created, profile);
+        stopRoomListPolling();
+        enterRoom(joined, profile);
+      }
+    });
+  };
+
+  await renderList();
+  roomListPollHandle = window.setInterval(() => {
+    renderList().catch(() => {
+      // Pas grave, on retentera au prochain sondage.
+    });
+  }, 5000);
+}
+
+/**
+ * Quitte le salon courant (désabonnement Realtime + remise à zéro de tout
+ * l'état de session propre à une table) et revient à l'écran des salons.
+ * `leaveFirst` : true si le joueur était bien dans `state.players` de ce
+ * salon (salle d'attente) — il faut alors appeler `leaveTable` pour que le
+ * compteur de joueurs reste juste pour les autres. false pour un
+ * spectateur, jamais ajouté à `state.players`, donc rien à annuler côté
+ * serveur.
+ */
+async function backToRoomList({ leaveFirst }) {
+  if (leaveFirst && currentRoomRef && currentPlayer) {
+    try {
+      await leaveTable(currentRoomRef, currentPlayer);
+    } catch (err) {
+      // Pas grave si ça échoue (ex: déjà retiré) — on quitte l'écran quand même.
+    }
+  }
+  if (unsubscribe) {
+    unsubscribe();
+    unsubscribe = null;
+  }
+  currentRoomId = null;
+  currentRoomRef = null;
+  hasLeftTable = false;
+  leftScreenIsWaiting = false;
+  lastRelayHostId = undefined;
+  lastReportedRelayActive = null;
+  await showRoomList(currentPlayer);
+}
+
 applySettings();
 mountSettingsButton();
 
@@ -774,23 +860,19 @@ async function boot() {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
-  const room = await ensureFamilyRoom();
   const profile = getLocalProfile();
 
   if (!profile) {
     renderNamePrompt(app, {
       onSubmit: async (name) => {
-        const { room: joinedRoom, player } = await createIdentityAndJoin(room, name);
-        const reclaimed = await reclaimStaleHost(joinedRoom, player);
-        enterRoom(reclaimed, player);
+        const newProfile = createLocalIdentity(name);
+        await showRoomList(newProfile);
       }
     });
     return;
   }
 
-  const joinedRoom = await ensureMembership(room, profile);
-  const reclaimed = await reclaimStaleHost(joinedRoom, profile);
-  enterRoom(reclaimed, profile);
+  await showRoomList(profile);
 }
 
 // Battement de cœur : tant que cet appareil est ouvert et que son utilisateur

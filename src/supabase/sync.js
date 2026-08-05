@@ -70,6 +70,24 @@ export async function fetchRoomById(id) {
 }
 
 /**
+ * Liste les salons les plus récemment actifs (écran "salons"), triés par
+ * activité récente et bornés pour ne pas remonter des salons abandonnés
+ * depuis des mois. Renvoie les lignes brutes (state complet, y compris les
+ * mains) : la projection "sûre" pour l'affichage se fait dans engine.js
+ * (`listActiveRooms`), pas ici — ce fichier reste un simple miroir de la
+ * table Supabase comme le reste du fichier.
+ */
+export async function listRooms(limit = 20) {
+  const { data, error } = await supabase
+    .from('game_rooms')
+    .select('id, code, game, state, updated_at')
+    .order('updated_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data;
+}
+
+/**
  * Met à jour l'état d'une partie avec verrou optimiste basé sur `version`.
  * `extraColumns` permet de modifier d'autres colonnes en même temps (ex: `game`
  * au moment de lancer une nouvelle partie). Si quelqu'un d'autre a écrit entre

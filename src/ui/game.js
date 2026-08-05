@@ -139,7 +139,7 @@ function wireEndGameActions(container, room) {
  * `room` = ligne courante (state + type de jeu inclus), `player` = profil local.
  * Le changement de prénom se fait désormais depuis la modale de réglages (settings.js).
  */
-export function renderGame(container, { room, player, onLeave, onKick } = {}) {
+export function renderGame(container, { room, player, onLeave, onKick, onBackToRooms } = {}) {
   const state = room.state;
 
   if (state.status === 'lobby') {
@@ -156,7 +156,7 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
     suiteInfernaleResolutionBanner = null;
     resetHandOrder('pouilleux');
     revealHands = false;
-    return renderWaitingRoom(container, { room, player, onLeave, onKick });
+    return renderWaitingRoom(container, { room, player, onLeave, onKick, onBackToRooms });
   }
 
   if (state.status === 'exchange') {
@@ -214,7 +214,7 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
 // si elle n'était pas mémorisée en dehors de la fonction de rendu.
 let selectedGameIdByRoom = null;
 
-function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
+function renderWaitingRoom(container, { room, player, onLeave, onKick, onBackToRooms }) {
   const state = room.state;
   if (selectedGameIdByRoom?.roomId !== room.id) selectedGameIdByRoom = null;
   const selectedGameId = selectedGameIdByRoom?.gameId || AVAILABLE_GAMES[0].id;
@@ -282,6 +282,7 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
         }
         <p class="lobby-card__rename-hint">Ce n'est pas ${me?.name || 'toi'} ? Change de prénom dans les réglages ⚙️ (en haut à droite).</p>
         <button class="btn btn--link" id="btn-leave">Quitter la table</button>
+        <button class="btn btn--link" id="btn-back-to-rooms">← Retour aux salons</button>
       </div>
     </div>
   `;
@@ -338,6 +339,10 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
 
   container.querySelector('#btn-leave')?.addEventListener('click', () => {
     if (window.confirm('Quitter la table ?')) onLeave?.();
+  });
+
+  container.querySelector('#btn-back-to-rooms')?.addEventListener('click', () => {
+    if (window.confirm('Quitter ce salon et revenir à la liste ?')) onBackToRooms?.();
   });
 
   container.querySelectorAll('.player-list__kick').forEach((btn) => {
@@ -2430,7 +2435,7 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
  * simplifiée par rapport à la table "joueur" (pas de main perso à afficher, pas
  * besoin de gérer les cas où le spectateur ne fait pas partie de `state.players`).
  */
-export function renderSpectatorGame(container, { room, gameLabel }) {
+export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms }) {
   const state = room.state;
   const isTrouduc = room.game === 'trouduc';
   const currentName = state.players.find((p) => p.id === state.currentPlayerId)?.name;
@@ -2448,6 +2453,7 @@ export function renderSpectatorGame(container, { room, gameLabel }) {
     <div class="screen screen--table">
       <div class="table-felt">
         <p class="eyebrow">Tu regardes — ${gameLabel || 'partie'} en cours</p>
+        <button class="btn btn--link btn--small" id="btn-back-to-rooms">← Retour aux salons</button>
 
         <ul class="spectator-players">
           ${state.players
@@ -2488,6 +2494,10 @@ export function renderSpectatorGame(container, { room, gameLabel }) {
 
   container.querySelector('#btn-toggle-reveal')?.addEventListener('click', () => {
     revealHands = !revealHands;
-    renderSpectatorGame(container, { room, gameLabel });
+    renderSpectatorGame(container, { room, gameLabel, onBackToRooms });
+  });
+
+  container.querySelector('#btn-back-to-rooms')?.addEventListener('click', () => {
+    onBackToRooms?.();
   });
 }

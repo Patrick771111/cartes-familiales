@@ -1,10 +1,10 @@
-// `getOrCreateRoomByCode` reste toujours du Supabase direct (uniquement
-// utilisé par `ensureFamilyRoom`, à la toute première connexion — avant même
-// qu'une liaison directe ait pu s'établir). Le reste passe par
-// `webrtc/relay.js`, qui accélère les coups via une liaison directe entre
-// appareils une fois établie, avec repli automatique et transparent sur
-// Supabase sinon (voir ce fichier pour le détail).
-import { getOrCreateRoomByCode } from '../supabase/sync.js';
+// `createRoom`/`listRooms` restent toujours du Supabase direct (création
+// d'un salon et écran "salons", avant même qu'une liaison directe ait pu
+// s'établir). Le reste passe par `webrtc/relay.js`, qui accélère les coups
+// via une liaison directe entre appareils une fois établie, avec repli
+// automatique et transparent sur Supabase sinon (voir ce fichier pour le
+// détail).
+import { createRoom, listRooms } from '../supabase/sync.js';
 import { fetchRoomById, updateRoomState, subscribeRoom, ConflictError, initRelay, isRelayActive } from '../webrtc/relay.js';
 import { initGame as initPouilleux, applyDraw } from './pouilleux.js';
 import { initGame as initTrouduc, applyPlay as applyTrouducPlay, applyPass as applyTrouducPass, applyExchangeChoice } from './trouduc.js';
@@ -56,11 +56,6 @@ export const AVAILABLE_GAMES = [
   { id: 'suiteinfernale', label: 'La Suite Infernale', hint: '2 à 4 joueurs, construis ta suite de 1 à 10', minPlayers: 2 },
   { id: 'cinqrois', label: 'Les Cinq Rois', hint: '2 à 7 joueurs — moins de points gagne', minPlayers: 2 }
 ];
-
-// Code fixe de la table familiale : personne n'a besoin de le saisir ni de le
-// partager, tout le monde retombe automatiquement sur la même table.
-// Modifiable via VITE_FAMILY_CODE si un jour tu veux plusieurs tables séparées.
-const FAMILY_CODE = (import.meta.env.VITE_FAMILY_CODE || 'FAMILLE-BLAVIER').toUpperCase();
 
 const PROFILE_KEY = 'cartes-familiales:profile';
 
@@ -118,9 +113,21 @@ function isHostStale(state) {
   return Date.now() - (state.hostLastSeen || 0) > HOST_STALE_MS;
 }
 
-/** Récupère la table familiale, la crée si c'est la toute première connexion. */
-export async function ensureFamilyRoom() {
-  return getOrCreateRoomByCode(FAMILY_CODE, emptyLobbyState(), 'pouilleux');
+/** Salons actifs pour l'écran "salons" — projection minimale (jamais les mains, même si RLS permettrait de lire `state` en entier, voir README "Limite connue"). */
+export async function listActiveRooms() {
+  const rows = await listRooms();
+  return rows.map((row) => ({
+    id: row.id,
+    game: row.game,
+    status: row.state.status,
+    players: (row.state.players || []).map((p) => ({ name: p.name, isBot: p.isBot || false })),
+    updatedAt: row.updated_at
+  }));
+}
+
+/** Crée un nouveau salon vide (salle d'attente), pour l'écran "salons". */
+export async function createNewRoom() {
+  return createRoom(emptyLobbyState(), 'pouilleux');
 }
 
 /**
@@ -159,12 +166,11 @@ export async function ensureMembership(room, profile) {
   throw new Error('Impossible de rejoindre la table, réessaie.');
 }
 
-/** Première connexion sur cet appareil : crée l'identité locale et rejoint la table. */
-export async function createIdentityAndJoin(room, name) {
+/** Première connexion sur cet appareil : crée et mémorise l'identité locale (le salon se choisit séparément, une fois sur l'écran des salons). */
+export function createLocalIdentity(name) {
   const profile = { id: uuid(), name };
   saveLocalProfile(profile);
-  const joinedRoom = await ensureMembership(room, profile);
-  return { room: joinedRoom, player: profile };
+  return profile;
 }
 
 /** Change le prénom mémorisé sur cet appareil, et le répercute sur la table si on y est déjà. */

@@ -1,26 +1,4 @@
-/**
- * Affiché quand quelqu'un arrive (ou revient) alors qu'une partie est déjà en
- * cours et qu'il n'en fait pas partie : on ne peut pas le faire rejoindre au
- * milieu, donc on attend la fin de la manche. Se met à jour tout seul (appelé à
- * chaque changement d'état via l'abonnement temps réel), pas besoin de bouton.
- */
-export function renderSpectatorWait(container, { room, gameLabel } = {}) {
-  const state = room.state;
-  const playerNames = state.players.map((p) => p.name).join(', ');
-
-  container.innerHTML = `
-    <div class="screen screen--lobby">
-      <div class="lobby-card">
-        <p class="eyebrow">Cartes en famille</p>
-        <h1>Partie en cours</h1>
-        <p class="lobby-card__intro">
-          ${gameLabel || 'Une partie'} est en cours (${state.players.length} joueur${state.players.length > 1 ? 's' : ''}${playerNames ? ` : ${playerNames}` : ''}).
-          Tu pourras rejoindre dès la fin de cette manche — cette page se met à jour toute seule, pas besoin de recharger.
-        </p>
-      </div>
-    </div>
-  `;
-}
+import { AVAILABLE_GAMES } from '../game/engine.js';
 
 /**
  * Affiché après qu'un joueur ait quitté la table : lui permet d'y revenir
@@ -56,7 +34,9 @@ export function renderLeftTable(container, { name, onRejoin, wasWaiting = false 
 
 /**
  * Écran affiché une seule fois par appareil : demande juste le prénom.
- * `onSubmit(name)` doit créer l'identité locale et rejoindre la table familiale.
+ * `onSubmit(name)` doit créer l'identité locale, puis afficher l'écran des
+ * salons (voir `renderRoomList`) — le prénom est propre à l'appareil, pas à
+ * un salon en particulier.
  */
 export function renderNamePrompt(container, { onSubmit } = {}) {
   container.innerHTML = `
@@ -93,6 +73,78 @@ export function renderNamePrompt(container, { onSubmit } = {}) {
       errorEl.textContent = err.message || 'Une erreur est survenue.';
       errorEl.hidden = false;
       btn.disabled = false;
+    }
+  });
+}
+
+/**
+ * Écran "salons" : liste des tables actives, avec la possibilité d'en
+ * rejoindre une ou d'en créer une nouvelle. Nouveau point d'entrée après le
+ * prénom (remplace l'ancienne salle familiale unique).
+ */
+export function renderRoomList(container, { rooms, onJoinRoom, onCreateRoom } = {}) {
+  const statusLabel = (status) => (status === 'lobby' ? 'En attente' : status === 'finished' ? 'Manche terminée' : 'En cours');
+  const joinLabel = (status) => (status === 'lobby' ? 'Rejoindre' : 'Regarder');
+  const gameLabel = (r) => (r.status === 'lobby' ? 'Salon en attente' : AVAILABLE_GAMES.find((g) => g.id === r.game)?.label || r.game);
+
+  container.innerHTML = `
+    <div class="screen screen--lobby">
+      <div class="lobby-card">
+        <p class="eyebrow">Cartes en famille</p>
+        <h1>Salons</h1>
+        <p class="lobby-card__intro">
+          ${rooms.length ? 'Rejoins un salon en cours, ou crée le tien.' : "Aucun salon ouvert pour l'instant — crée le premier."}
+        </p>
+
+        <ul class="room-list">
+          ${rooms
+            .map((r) => {
+              const names = r.players.map((p) => `${p.name}${p.isBot ? ' 🤖' : ''}`).join(', ') || 'personne pour l’instant';
+              return `
+                <li class="room-list__item">
+                  <div class="room-list__info">
+                    <p class="room-list__game">${gameLabel(r)}</p>
+                    <p class="room-list__meta">${statusLabel(r.status)} · ${r.players.length} joueur${r.players.length > 1 ? 's' : ''} · ${names}</p>
+                  </div>
+                  <button class="btn btn--primary btn--small" data-join-room="${r.id}">${joinLabel(r.status)}</button>
+                </li>`;
+            })
+            .join('')}
+        </ul>
+
+        <button id="btn-create-room" class="btn btn--ghost">+ Créer un salon</button>
+        <p id="room-list-error" class="lobby-error" hidden></p>
+      </div>
+    </div>
+  `;
+
+  const errorEl = container.querySelector('#room-list-error');
+  const showError = (err, fallback) => {
+    errorEl.textContent = err.message || fallback;
+    errorEl.hidden = false;
+  };
+
+  container.querySelectorAll('[data-join-room]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      errorEl.hidden = true;
+      btn.disabled = true;
+      try {
+        await onJoinRoom(btn.dataset.joinRoom);
+      } catch (err) {
+        showError(err, 'Impossible de rejoindre ce salon.');
+        btn.disabled = false;
+      }
+    });
+  });
+
+  container.querySelector('#btn-create-room')?.addEventListener('click', async (e) => {
+    errorEl.hidden = true;
+    e.target.disabled = true;
+    try {
+      await onCreateRoom();
+    } catch (err) {
+      showError(err, 'Impossible de créer un salon.');
+      e.target.disabled = false;
     }
   });
 }

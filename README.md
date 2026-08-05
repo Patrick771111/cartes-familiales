@@ -203,10 +203,15 @@ total). Les bots jouent tout seuls après un court délai :
 
 ## Comment ça marche
 
-- Il n'y a **qu'une seule table**, identifiée par un code fixe caché dans le code
-  (`FAMILY_CODE` dans `src/game/engine.js`, personnalisable via `VITE_FAMILY_CODE`).
-  Personne n'a besoin de créer ou saisir de code : le premier appareil qui ouvre
-  l'appli la crée automatiquement, les suivants la rejoignent.
+- Au chargement, chaque appareil voit un **écran de salons** : la liste des
+  tables actives (jeu, statut, joueurs présents), avec la possibilité d'en
+  rejoindre une ou d'en créer une nouvelle (`src/ui/lobby.js`,
+  `renderRoomList`). Un salon est juste une ligne `game_rooms` de plus — le
+  code aléatoire à 4 caractères généré par `createRoom`
+  (`src/supabase/sync.js`) n'a pas besoin d'être tapé ou partagé, la liste
+  sert de point d'entrée. Rejoindre un salon dont la partie a déjà démarré
+  bascule automatiquement en mode spectateur (lecture seule) plutôt que de
+  bloquer.
 - Chaque appareil mémorise son prénom dans `localStorage` dès la première visite
   (modifiable à tout moment depuis la modale de réglages ⚙️, en haut à droite de l'écran).
 - Modale de réglages (`src/ui/settings.js`) : prénom, couleur du tapis et style des
@@ -260,7 +265,8 @@ semble ne pas partir. `src/webrtc/relay.js` ajoute une couche de fiabilité
 
 ## Déroulé d'une partie
 
-1. Chacun ouvre l'appli sur son téléphone. Premier arrivé = hôte.
+1. Chacun ouvre l'appli, choisit un salon existant ou en crée un nouveau.
+   Dans un salon nouvellement créé, le créateur devient hôte.
    Si l'hôte quitte l'appli sans prévenir (batterie morte, oubli...), la
    première personne qui recharge la page après 2 minutes d'inactivité de
    l'hôte reprend automatiquement la main — pas besoin d'attendre qu'il
@@ -293,15 +299,24 @@ facilement si besoin).
 
 ## Limite connue (MVP)
 
-L'état de la partie (y compris les mains de tous les joueurs) transite par une
-ligne Supabase lisible par quiconque connaît le code de la table. Ce code est
-maintenant fixe et écrit en clair dans le bundle JS (`FAMILY_CODE`), donc la
-seule vraie barrière est de ne pas rendre l'URL de l'appli publique. Suffisant
-pour un usage familial derrière une URL non indexée comme `cartes.blavier.one`.
-Si un jour tu veux un vrai "fair-play" (empêcher un joueur curieux d'inspecter
-les mains adverses dans les devtools), il faudrait déplacer la logique de
-pioche côté serveur (Edge Function Supabase) pour ne renvoyer à chaque client
-que sa propre main. Pas fait ici pour garder le MVP simple.
+L'état de chaque salon (y compris les mains de tous ses joueurs) transite par
+une ligne Supabase, et la table `game_rooms` entière est lisible par
+quiconque connaît (ou devine) l'URL de l'appli — RLS y est intentionnellement
+ouverte (`select`/`insert`/`update` avec `using (true)`), la seule vraie
+barrière est de ne pas rendre l'URL publique. Suffisant pour un usage
+familial derrière une URL non indexée comme `cartes.blavier.one`. L'écran de
+liste des salons (`listActiveRooms` dans `src/game/engine.js`) n'affiche que
+les prénoms et le statut de chaque salon — jamais les mains — même si la
+requête sous-jacente (`listRooms` dans `src/supabase/sync.js`) reçoit
+techniquement la colonne `state` complète pour chaque salon listé (au plus
+20, triés par activité récente) : ça reste dans le navigateur sans jamais
+s'afficher, mais ce n'est pas une vraie barrière de confidentialité, cohérent
+avec la note ci-dessus. Si un jour tu veux un vrai "fair-play" (empêcher un
+joueur curieux d'inspecter les mains adverses, y compris celles d'un salon
+auquel il n'a jamais joué, dans les devtools), il faudrait déplacer la
+logique de pioche côté serveur (Edge Function Supabase) et/ou exposer la
+liste des salons via une vue Postgres ne projetant que `status`/`players`.
+Pas fait ici pour garder le MVP simple.
 
 ## Étendre à d'autres jeux
 
