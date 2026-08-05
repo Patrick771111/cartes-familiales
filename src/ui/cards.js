@@ -15,11 +15,17 @@ function roleForRank(rank) {
 /**
  * Retourne le HTML d'une carte face visible. `data-rank` permet aux thèmes de
  * cartes (voir settings.js) d'habiller différemment les figures (V/D/R) en CSS.
- * `theme`, uniquement pour l'aperçu dans la modale de réglages (qui doit
- * afficher chaque thème indépendamment du thème actif) — les jeux appellent
- * cette fonction sans second argument, qui retombe alors sur le thème actif.
+ * `themeOverride`, uniquement pour l'aperçu dans la modale de réglages (qui
+ * doit afficher chaque thème indépendamment du thème actif) — les jeux
+ * appellent cette fonction sans second argument, qui retombe alors sur le
+ * thème actif. Un garde de type est nécessaire (pas juste `= activeCardTheme()`
+ * en valeur par défaut) car cette fonction est très souvent passée telle
+ * quelle à `.map(cardFaceHtml)` : `Array.prototype.map` appelle le callback
+ * avec (élément, index, tableau), et cet index numérique écraserait sinon la
+ * valeur par défaut à chaque fois.
  */
-export function cardFaceHtml(card, theme = activeCardTheme()) {
+export function cardFaceHtml(card, themeOverride) {
+  const theme = typeof themeOverride === 'string' ? themeOverride : activeCardTheme();
   const suit = suitInfo(card.suit);
   const illustration = theme === CARD_ILLUSTRATION_THEME_ID ? suitCardImage(theme, card.suit, roleForRank(card.rank)) : null;
   const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
@@ -32,8 +38,9 @@ export function cardFaceHtml(card, theme = activeCardTheme()) {
     </div>`;
 }
 
-/** Retourne le HTML d'une carte face cachée (dos de carte). Même logique de `theme` que `cardFaceHtml`. */
-export function cardBackHtml(theme = activeCardTheme()) {
+/** Retourne le HTML d'une carte face cachée (dos de carte). Même logique de `themeOverride` que `cardFaceHtml`. */
+export function cardBackHtml(themeOverride) {
+  const theme = typeof themeOverride === 'string' ? themeOverride : activeCardTheme();
   const illustration = theme === CARD_ILLUSTRATION_THEME_ID ? cardBackImage(theme) : null;
   const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
   return `<div class="card card--back ${illustration ? 'card--back-illustrated' : ''}"${style}><span class="card__back-pattern"></span></div>`;
