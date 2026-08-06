@@ -108,6 +108,17 @@ export async function updateRoomState(roomId, expectedVersion, newState, extraCo
 }
 
 /**
+ * Supprime un salon (plus personne d'humain dedans — voir `leaveTable` dans
+ * engine.js). Pas de verrou optimiste ici : une suppression n'a pas besoin
+ * d'être rejouée si quelqu'un d'autre a écrit entre-temps, contrairement à
+ * `updateRoomState`.
+ */
+export async function deleteRoom(id) {
+  const { error } = await supabase.from('game_rooms').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/**
  * S'abonne aux changements d'une partie. Appelle onChange(row) à chaque mise à jour,
  * et une première fois immédiatement avec l'état courant.
  * Retourne une fonction de désinscription.

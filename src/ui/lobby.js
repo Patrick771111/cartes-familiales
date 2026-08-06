@@ -85,7 +85,7 @@ export function renderNamePrompt(container, { onSubmit } = {}) {
 export function renderRoomList(container, { rooms, onJoinRoom, onCreateRoom } = {}) {
   const statusLabel = (status) => (status === 'lobby' ? 'En attente' : status === 'finished' ? 'Manche terminée' : 'En cours');
   const joinLabel = (status) => (status === 'lobby' ? 'Rejoindre' : 'Regarder');
-  const gameLabel = (r) => (r.status === 'lobby' ? 'Salon en attente' : AVAILABLE_GAMES.find((g) => g.id === r.game)?.label || r.game);
+  const gameTypeLabel = (r) => (r.status === 'lobby' ? 'Salon en attente' : AVAILABLE_GAMES.find((g) => g.id === r.game)?.label || r.game);
 
   container.innerHTML = `
     <div class="screen screen--lobby">
@@ -99,12 +99,15 @@ export function renderRoomList(container, { rooms, onJoinRoom, onCreateRoom } = 
         <ul class="room-list">
           ${rooms
             .map((r) => {
-              const names = r.players.map((p) => `${p.name}${p.isBot ? ' 🤖' : ''}`).join(', ') || 'personne pour l’instant';
+              const chips = r.players.length
+                ? r.players.map((p) => `<span class="room-list__chip">${p.name}${p.isBot ? ' 🤖' : ''}</span>`).join('')
+                : `<span class="room-list__chip room-list__chip--empty">personne pour l’instant</span>`;
               return `
                 <li class="room-list__item">
                   <div class="room-list__info">
-                    <p class="room-list__game">${gameLabel(r)}</p>
-                    <p class="room-list__meta">${statusLabel(r.status)} · ${r.players.length} joueur${r.players.length > 1 ? 's' : ''} · ${names}</p>
+                    <p class="room-list__game">${r.roomEmoji || '🎲'} ${r.roomName || 'Salon'}</p>
+                    <p class="room-list__meta">${gameTypeLabel(r)} · ${statusLabel(r.status)} · ${r.players.length} joueur${r.players.length > 1 ? 's' : ''}</p>
+                    <div class="room-list__players">${chips}</div>
                   </div>
                   <button class="btn btn--primary btn--small" data-join-room="${r.id}">${joinLabel(r.status)}</button>
                 </li>`;

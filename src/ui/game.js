@@ -229,7 +229,7 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick, onBackToR
     <div class="screen screen--waiting">
       <div class="lobby-card">
         <p class="eyebrow">Cartes en famille</p>
-        <h1>Table ouverte</h1>
+        <h1>${state.roomEmoji || '🎲'} ${state.roomName || 'Table ouverte'}</h1>
         <p class="lobby-card__intro">
           ${
             hostIsBot

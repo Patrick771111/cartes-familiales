@@ -733,7 +733,13 @@ function draw(room) {
       player: currentPlayer,
       onLeave: async () => {
         try {
-          await leaveTable(room, currentPlayer);
+          const after = await leaveTable(room, currentPlayer);
+          if (after === null) {
+            // Plus aucun humain dans ce salon : `leaveTable` l'a fermé — pas de
+            // salon à ré-afficher, on revient directement à la liste.
+            await resetRoomSessionAndShowList();
+            return;
+          }
           hasLeftTable = true;
           leftScreenIsWaiting = false;
           draw(room);
@@ -839,6 +845,17 @@ async function backToRoomList({ leaveFirst }) {
       // Pas grave si ça échoue (ex: déjà retiré) — on quitte l'écran quand même.
     }
   }
+  await resetRoomSessionAndShowList();
+}
+
+/**
+ * Remise à zéro de tout l'état de session propre à une table (désabonnement
+ * Realtime compris) puis retour à l'écran des salons. Ne s'occupe PAS de
+ * quitter le salon côté serveur — c'est à l'appelant de le faire avant, si
+ * besoin (voir `backToRoomList` et le `onLeave` de `draw()`, qui appellent
+ * `leaveTable` chacun à leur façon avant d'arriver ici).
+ */
+async function resetRoomSessionAndShowList() {
   if (unsubscribe) {
     unsubscribe();
     unsubscribe = null;

@@ -4,7 +4,7 @@
 // via une liaison directe entre appareils une fois établie, avec repli
 // automatique et transparent sur Supabase sinon (voir ce fichier pour le
 // détail).
-import { createRoom, listRooms } from '../supabase/sync.js';
+import { createRoom, listRooms, deleteRoom } from '../supabase/sync.js';
 import { fetchRoomById, updateRoomState, subscribeRoom, ConflictError, initRelay, isRelayActive } from '../webrtc/relay.js';
 import { initGame as initPouilleux, applyDraw } from './pouilleux.js';
 import { initGame as initTrouduc, applyPlay as applyTrouducPlay, applyPass as applyTrouducPass, applyExchangeChoice } from './trouduc.js';
@@ -104,6 +104,37 @@ function emptyLobbyState() {
   };
 }
 
+// Noms de salons (avec emoji assorti) attribués au hasard à la création —
+// permet de différencier les salons dans la liste sans avoir à les nommer
+// soi-même. Rangé dans `state.roomName`/`state.roomEmoji` plutôt qu'une
+// colonne dédiée, pour ne pas avoir à toucher au schéma Supabase.
+const ROOM_NAME_POOL = [
+  { name: 'Renard', emoji: '🦊' },
+  { name: 'Panda', emoji: '🐼' },
+  { name: 'Loutre', emoji: '🦦' },
+  { name: 'Hibou', emoji: '🦉' },
+  { name: 'Koala', emoji: '🐨' },
+  { name: 'Dauphin', emoji: '🐬' },
+  { name: 'Manchot', emoji: '🐧' },
+  { name: 'Hérisson', emoji: '🦔' },
+  { name: 'Ours', emoji: '🐻' },
+  { name: 'Loup', emoji: '🐺' },
+  { name: 'Lapin', emoji: '🐰' },
+  { name: 'Perroquet', emoji: '🦜' },
+  { name: 'Kangourou', emoji: '🦘' },
+  { name: 'Tigre', emoji: '🐯' },
+  { name: 'Lion', emoji: '🦁' },
+  { name: 'Zèbre', emoji: '🦓' },
+  { name: 'Girafe', emoji: '🦒' },
+  { name: 'Écureuil', emoji: '🐿️' },
+  { name: 'Faucon', emoji: '🦅' },
+  { name: 'Pieuvre', emoji: '🐙' }
+];
+
+function pickRoomName() {
+  return ROOM_NAME_POOL[Math.floor(Math.random() * ROOM_NAME_POOL.length)];
+}
+
 // Au bout de ce délai sans nouvelles de l'hôte (en salle d'attente), n'importe
 // qui peut reprendre la main automatiquement au prochain chargement de l'appli.
 export const HOST_STALE_MS = 2 * 60 * 1000;
@@ -120,14 +151,18 @@ export async function listActiveRooms() {
     id: row.id,
     game: row.game,
     status: row.state.status,
+    roomName: row.state.roomName || 'Salon',
+    roomEmoji: row.state.roomEmoji || '🎲',
     players: (row.state.players || []).map((p) => ({ name: p.name, isBot: p.isBot || false })),
     updatedAt: row.updated_at
   }));
 }
 
-/** Crée un nouveau salon vide (salle d'attente), pour l'écran "salons". */
+/** Crée un nouveau salon vide (salle d'attente), avec un nom au hasard pour le différencier dans la liste des salons. */
 export async function createNewRoom() {
-  return createRoom(emptyLobbyState(), 'pouilleux');
+  const { name, emoji } = pickRoomName();
+  const state = { ...emptyLobbyState(), roomName: name, roomEmoji: emoji };
+  return createRoom(state, 'pouilleux');
 }
 
 /**
@@ -198,13 +233,20 @@ export async function renameLocalPlayer(room, profile, newName) {
 }
 
 /**
- * Retire le profil local de la liste des joueurs de la table. En pleine partie
- * (ce qui casserait la distribution/l'ordre du tour si le joueur disparaissait
- * purement), il est remplacé par un bot à sa place plutôt que retiré, pour ne
- * pas bloquer les autres — sauf si c'est l'hôte : le perdre casserait la table
- * pour tout le monde (relais WebRTC, voir webrtc/relay.js), donc on abandonne
- * proprement la manche à sa place, comme avec "Abandonner la partie". Hors
- * partie (salle d'attente ou manche terminée), retrait complet classique.
+ * Retire le profil local de la liste des joueurs du salon. Trois cas :
+ * - **Plus aucun humain ne resterait** (que des bots, ou personne du tout) :
+ *   le salon n'a plus de raison d'exister — on le **ferme** (suppression de
+ *   la ligne) plutôt que de le laisser tourner à vide ("salon fantôme").
+ *   Renvoie `null` dans ce cas — l'appelant doit revenir à l'écran des
+ *   salons plutôt que d'afficher un écran "revenir à la table".
+ * - **Au moins un humain reste, en pleine partie** : remplacé par un bot à
+ *   sa place plutôt que retiré, pour ne pas bloquer les autres — sauf si
+ *   c'est l'hôte : le perdre casserait la table pour tout le monde (relais
+ *   WebRTC, voir webrtc/relay.js), donc on abandonne proprement la manche
+ *   (retour en salle d'attente) et on le retire vraiment, avec un nouvel
+ *   hôte humain.
+ * - **Hors partie** (salle d'attente ou manche terminée) : retrait complet
+ *   classique.
  */
 /** Choisit le nouvel hôte parmi les joueurs restants : toujours un humain en priorité (un bot ne peut pas cliquer sur "Lancer la partie"). */
 function pickNewHost(remainingPlayers) {
@@ -217,10 +259,32 @@ export async function leaveTable(room, profile) {
     const fresh = await fetchRoomById(room.id);
     if (!fresh.state.players.some((p) => p.id === profile.id)) return fresh; // déjà parti
 
+    const remainingHumans = fresh.state.players.filter((p) => p.id !== profile.id && !p.isBot);
+    if (remainingHumans.length === 0) {
+      await deleteRoom(fresh.id);
+      return null;
+    }
+
     const isMidGame = fresh.state.status !== 'lobby' && fresh.state.status !== 'finished';
 
     if (isMidGame && fresh.state.hostId === profile.id) {
-      return playAgain(fresh);
+      const remainingPlayers = fresh.state.players.filter((p) => p.id !== profile.id);
+      const newState = {
+        ...fresh.state,
+        status: 'lobby',
+        players: remainingPlayers.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false, hand: [] })),
+        hostId: pickNewHost(remainingPlayers),
+        hostLastSeen: Date.now(),
+        turnOrder: [],
+        currentPlayerId: null,
+        log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} (hôte) a quitté — retour à la salle d'attente.` }].slice(-40)
+      };
+      try {
+        return await updateRoomState(fresh.id, fresh.version, newState);
+      } catch (e) {
+        if (!(e instanceof ConflictError)) throw e;
+        continue;
+      }
     }
 
     if (isMidGame) {
@@ -626,6 +690,7 @@ export async function playAgain(room) {
   const players = room.state.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false }));
 
   const newState = {
+    ...room.state,
     status: 'lobby',
     players: players.map((p) => ({ ...p, hand: [] })),
     hostId: room.state.hostId,

@@ -234,20 +234,38 @@ h1 {
   border-radius: 10px;
   padding: 12px 14px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
-.room-list__info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.room-list__info { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
 .room-list__game { margin: 0; font-size: 15px; font-weight: 600; }
 .room-list__meta {
   margin: 0;
   font-size: 12px;
   font-family: var(--font-mono);
   color: rgba(247, 241, 225, 0.7);
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+.room-list__players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 1px;
+}
+.room-list__chip {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background: rgba(247, 241, 225, 0.1);
+  color: var(--cream);
+  padding: 2px 8px;
+  border-radius: 20px;
   white-space: nowrap;
+}
+.room-list__chip--empty {
+  background: transparent;
+  color: rgba(247, 241, 225, 0.5);
+  padding-left: 0;
+  font-style: italic;
 }
 
 .tag {
