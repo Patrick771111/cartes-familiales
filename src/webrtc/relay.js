@@ -17,38 +17,28 @@ let backingStore = {
 };
 
 /**
- * Couche de fiabilité transparente : chaque invité établit une liaison
- * WebRTC vers l'hôte ; les coups passent par cette liaison quand elle est
- * prête, sinon repli silencieux sur Supabase.
+ * Couche de fiabilité pour réseau local défaillant vers Internet :
+ * chaque invité établit une liaison WebRTC *pair-à-pair* vers l'hôte.
+ * Une fois établie, les coups ne passent plus par Supabase (utile en
+ * hotspot / Wi‑Fi camping). Pas de TURN distant — cela dépendrait encore
+ * d'Internet et annulerait l'intérêt.
  *
- * Correctifs vs version précédente :
- * - file d'attente des candidats ICE (arrivés avant setRemoteDescription)
- * - plusieurs serveurs STUN
- * - reconnexion automatique si la liaison tombe (même hôte)
- * - health-check plus tolérant + nouvel essai
- * - offer/answer idempotents côté hôte
+ * Limite connue : la *signalisation* (offre/réponse initiale) passe encore
+ * par Supabase Realtime ; il faut donc un bref moment de connectivité pour
+ * accrocher la liaison. Ensuite le jeu peut tenir en local.
+ *
+ * Mécanismes : file ICE, STUN seulement, reconnexion auto, health-check,
+ * re-offer si l'hôte a raté le signal.
  */
 
+// Uniquement STUN (découverte d'adresse). Pas de TURN distant : le but de
+// la liaison directe est de jouer en pair-à-pair sur le même réseau local
+// (hotspot / Wi‑Fi camping) quand Internet est mauvais — un relais cloud
+// réintroduireait exactement cette dépendance.
 const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    // TURN public (Metered openrelay) : indispensable iOS↔Android / hotspot,
-    // où les candidats locaux en .local (mDNS) ne se résolvent souvent pas.
-    {
-      urls: [
-        'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:443',
-        'turn:openrelay.metered.ca:443?transport=tcp'
-      ],
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:80?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    }
+    { urls: 'stun:stun1.l.google.com:19302' }
   ],
   iceCandidatePoolSize: 4
 };
