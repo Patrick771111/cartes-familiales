@@ -213,7 +213,8 @@ export function initGame(players, previousScores = null, handSize = 3) {
       isBot: p.isBot || false,
       hand,
       score: previousScores ? previousScores[p.id] || 0 : 0,
-      laidDown: false
+      laidDown: false,
+      laidCards: []
     };
   });
 
@@ -348,7 +349,9 @@ export function applyDiscard(state, playerId, cardId, goOut = false) {
   const canAttemptGoOut = state.status === 'playing' || state.status === 'last_turns';
   if (goOut && canAttemptGoOut && canGoOut(current.hand, state.trumpRank)) {
     current.laidDown = true;
-    current.hand = []; // les cartes posées ne sont plus "en main" (sinon elles restent visibles à tort pendant les derniers tours)
+    // Conserve les cartes posées pour que les autres joueurs puissent les voir.
+    current.laidCards = current.hand.slice();
+    current.hand = [];
     logMessage += ` ${current.name} pose sa main !`;
     nextState.lastMove.goOut = true;
     nextState.log = [...state.log, { ts: Date.now(), message: logMessage }].slice(-40);

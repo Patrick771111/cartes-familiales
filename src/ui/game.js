@@ -1523,7 +1523,8 @@ function renderFlip7Table(container, { room, player, state, onLeave }) {
 // renderSkyjoTable. `null` = aucune action armée (le tap sur une case pose
 // directement, comme avant) ; `'flip'` = armé après un tap sur le bouton
 // Flip, en attente d'une case cachée à toucher.
-let skyjoPendingMode = null; // 'flip' | null
+let skyjoPendingMode = null;
+let cinqRoisShownLayId = null; // 'flip' | null
 
 function skyjoValueClass(v) {
   if (v <= -1) return 'skyjo-cell--neg';
@@ -2267,11 +2268,22 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
       const isTurn = state.currentPlayerId === p.id;
       let status = p.laidDown ? 'Posé ✓' : isTurn ? 'À jouer…' : `${p.hand.length} cartes`;
       if (isFinished && state.roundScores) status = `+${state.roundScores[p.id] ?? 0} · total ${p.score}`;
+
+      let cardsHtml;
+      if (p.laidDown && p.laidCards?.length) {
+        cardsHtml = p.laidCards.map((c) => cinqRoisCardHtml(c, state.trumpRank)).join('');
+      } else if (isFinished && p.hand.length) {
+        // Fin de manche : on révèle les mains non posées le temps de voir les scores.
+        cardsHtml = p.hand.map((c) => cinqRoisCardHtml(c, state.trumpRank)).join('');
+      } else {
+        cardsHtml = Array(Math.min(p.hand.length, 13)).fill(cinqRoisCardBackHtml()).join('');
+      }
+
       return `
         <div class="cinqrois-seat ${isTurn ? 'cinqrois-seat--turn' : ''} ${p.laidDown ? 'cinqrois-seat--laid' : ''}">
           <p class="cinqrois-seat__name">${p.name}${connectionBadge(state, p.id)} <span class="cinqrois-seat__score">(${p.score})</span></p>
           <p class="cinqrois-seat__status">${status}</p>
-          <div class="cinqrois-seat__backs">${Array(Math.min(p.hand.length, 13)).fill(cinqRoisCardBackHtml()).join('')}</div>
+          <div class="cinqrois-seat__backs">${cardsHtml}</div>
         </div>`;
     })
     .join('');
@@ -2346,7 +2358,11 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
       <div class="cinqrois-me ${isMyTurn ? 'cinqrois-me--turn' : ''} ${me?.laidDown ? 'cinqrois-me--laid' : ''}">
         <p class="cinqrois-me__name">Toi${connectionBadge(state, me?.id)} (${me?.score ?? 0} pts)${me?.laidDown ? ' — posé ✓' : ''}${myStatus}</p>
         <div class="cinqrois-me__hand" id="cinqrois-hand">
-          ${sortedHand.map((c) => cinqRoisCardHtml(c, state.trumpRank)).join('') || '<p class="cinqrois-empty">—</p>'}
+          ${
+            me?.laidDown && me.laidCards?.length
+              ? me.laidCards.map((c) => cinqRoisCardHtml(c, state.trumpRank)).join('')
+              : sortedHand.map((c) => cinqRoisCardHtml(c, state.trumpRank)).join('') || '<p class="cinqrois-empty">—</p>'
+          }
         </div>
       </div>
       ${actionsHtml}
@@ -2431,6 +2447,27 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
       alert(err.message || 'Impossible de poser.');
     }
   });
+
+  // Aperçu 2 s de la main posée (tous les appareils) avant de continuer le tour.
+  const layMove = state.lastMove;
+  if (layMove?.goOut && layMove.id && layMove.id !== cinqRoisShownLayId) {
+    const layer = state.players.find((p) => p.id === layMove.by);
+    const cards = layer?.laidCards || [];
+    if (cards.length) {
+      cinqRoisShownLayId = layMove.id;
+      const overlay = document.createElement('div');
+      overlay.className = 'cinqrois-lay-overlay';
+      overlay.innerHTML = `
+        <div class="cinqrois-lay-overlay__panel">
+          <p class="cinqrois-lay-overlay__title">${layer.name} pose sa main !</p>
+          <div class="cinqrois-lay-overlay__cards">
+            ${cards.map((c) => cinqRoisCardHtml(c, state.trumpRank)).join('')}
+          </div>
+        </div>`;
+      container.appendChild(overlay);
+      window.setTimeout(() => overlay.remove(), 2000);
+    }
+  }
 }
 
 /**

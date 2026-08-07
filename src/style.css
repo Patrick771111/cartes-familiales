@@ -2187,3 +2187,65 @@ h1 {
   margin-top: 12px;
   flex-wrap: wrap;
 }
+
+/* Cinq Rois — révélation d'une main posée */
+.cinqrois-seat__backs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  max-width: 220px;
+}
+.cinqrois-seat__backs .cinqrois-card {
+  width: 28px;
+  height: 40px;
+  font-size: 10px;
+  margin-left: 0;
+}
+.cinqrois-seat__backs .cinqrois-card__rank { font-size: 10px; }
+.cinqrois-seat__backs .cinqrois-card__suit { font-size: 11px; }
+.cinqrois-seat--laid { opacity: 1; }
+.cinqrois-seat--laid .cinqrois-seat__status { color: var(--brass, #c9a227); }
+
+.cinqrois-lay-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  animation: cinqrois-lay-fade 2s ease forwards;
+  pointer-events: none;
+}
+.cinqrois-lay-overlay__panel {
+  background: var(--felt-700, #1a3d2e);
+  border: 2px solid var(--brass, #c9a227);
+  border-radius: 16px;
+  padding: 18px 20px;
+  max-width: 92vw;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+.cinqrois-lay-overlay__title {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--cream, #f7f1e1);
+}
+.cinqrois-lay-overlay__cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+.cinqrois-lay-overlay__cards .cinqrois-card {
+  width: 44px;
+  height: 62px;
+  font-size: 14px;
+}
+@keyframes cinqrois-lay-fade {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
