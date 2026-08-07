@@ -1,9 +1,7 @@
 import { shuffle } from './deck.js';
 
-// Reconstitution du jeu physique Skyjo à partir de mémoire — décomptes de
-// cartes et score cible sont une approximation raisonnable *(hypothèse — à
-// ajuster ici si votre exemplaire diffère)*. 150 cartes : -2 (×5), -1 (×10),
-// 0 (×15), 1 à 12 (×10 chacune).
+// Répartition officielle du jeu physique Skyjo : 150 cartes — -2 (×5),
+// -1 (×10), 0 (×15), 1 à 12 (×10 chacune).
 export const TARGET_SCORE = 100;
 
 const COUNTS = { '-2': 5, '-1': 10, 0: 15 };
