@@ -275,7 +275,8 @@ export async function ensureMembership(room, profile) {
           continue;
         }
       }
-      if (fresh.state.status === 'playing') return fresh; // spectateur, jusqu'à la prochaine manche
+      // Toute partie deja lancee (playing, last_turns, finished) : spectateur.
+      return fresh;
     }
 
     const becomesHost = !fresh.state.hostId;
