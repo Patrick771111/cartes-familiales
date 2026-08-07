@@ -36,6 +36,8 @@ import {
   submitExchangeGift,
   reclaimStaleHost,
   pingHostPresence,
+  pingPlayerPresence,
+  reclaimStalePlayers,
   reportRelayStatus,
   playAgain,
   fetchRoomById,
@@ -733,16 +735,11 @@ function draw(room) {
       player: currentPlayer,
       onLeave: async () => {
         try {
-          const after = await leaveTable(room, currentPlayer);
-          if (after === null) {
-            // Plus aucun humain dans ce salon : `leaveTable` l'a fermé — pas de
-            // salon à ré-afficher, on revient directement à la liste.
-            await resetRoomSessionAndShowList();
-            return;
-          }
-          hasLeftTable = true;
-          leftScreenIsWaiting = false;
-          draw(room);
+          // Quitter une partie (en cours ou en salle d'attente) ramène toujours
+          // directement à la liste des salons — que le salon ait été fermé
+          // (dernier humain) ou non (bot-remplacement, ou retrait simple).
+          await leaveTable(room, currentPlayer);
+          await resetRoomSessionAndShowList();
         } catch (err) {
           alert(err.message || 'Impossible de quitter la table.');
         }
@@ -753,8 +750,7 @@ function draw(room) {
         } catch (err) {
           alert(err.message || 'Impossible de retirer ce joueur.');
         }
-      },
-      onBackToRooms: () => backToRoomList({ leaveFirst: room.state.status === 'lobby' })
+      }
     });
   } catch (err) {
     console.error('Erreur de rendu, affichage de l\'écran de récupération :', err);
@@ -895,10 +891,23 @@ async function boot() {
 // Battement de cœur : tant que cet appareil est ouvert et que son utilisateur
 // est hôte d'une table en salle d'attente, on signale régulièrement sa présence
 // pour éviter qu'un autre appareil ne le remplace par erreur au bout de 2 minutes.
+// Doublé d'un battement plus général (n'importe quel joueur, n'importe quel
+// statut) qui alimente `reclaimStalePlayers` : un appareil actif dans le salon
+// remplace automatiquement par un bot (ou ferme le salon, ou interrompt la
+// partie côté hôte — voir `computeLeaveOutcome`) toute personne qui n'a plus
+// donné signe de vie depuis 2 minutes, sans qu'elle ait cliqué sur "quitter"
+// (onglet fermé, téléphone verrouillé, réseau perdu…).
 window.setInterval(async () => {
   if (!currentRoomRef || !currentPlayer) return;
   try {
     currentRoomRef = await pingHostPresence(currentRoomRef, currentPlayer);
+    currentRoomRef = await pingPlayerPresence(currentRoomRef, currentPlayer);
+    const afterSweep = await reclaimStalePlayers(currentRoomRef, currentPlayer);
+    if (afterSweep === null) {
+      await resetRoomSessionAndShowList();
+      return;
+    }
+    currentRoomRef = afterSweep;
   } catch (err) {
     // Pas grave, on retentera au prochain battement.
   }

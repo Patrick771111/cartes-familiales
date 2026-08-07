@@ -144,6 +144,16 @@ function isHostStale(state) {
   return Date.now() - (state.hostLastSeen || 0) > HOST_STALE_MS;
 }
 
+// Même idée que HOST_STALE_MS, mais pour n'importe quel joueur : couvre
+// l'abandon silencieux (onglet fermé, téléphone verrouillé) sans clic sur
+// "quitter" — voir `reclaimStalePlayers`.
+export const PLAYER_STALE_MS = 2 * 60 * 1000;
+
+function isPlayerStale(p) {
+  if (p.isBot || !p.lastSeen) return false; // pas de battement reçu pour l'instant (salon créé avant ce mécanisme, ou vient de rejoindre) : pas de verdict prématuré, on attend le prochain battement pour se prononcer.
+  return Date.now() - p.lastSeen > PLAYER_STALE_MS;
+}
+
 /** Salons actifs pour l'écran "salons" — projection minimale (jamais les mains, même si RLS permettrait de lire `state` en entier, voir README "Limite connue"). */
 export async function listActiveRooms() {
   const rows = await listRooms();
@@ -166,21 +176,84 @@ export async function createNewRoom() {
 }
 
 /**
- * S'assure que le profil local fait partie des joueurs de la table.
- * Idempotent : si déjà présent, ne fait rien. Gère les écritures concurrentes
- * (plusieurs membres de la famille qui ouvrent l'appli en même temps).
+ * Change tout au plus une entrée de `players` : `id` (le bot qui reprend
+ * l'identité de la personne) et references croisées (`hostId`,
+ * `currentPlayerId`, `turnOrder`, `connections`) qui pointaient vers l'ancien
+ * id. Utilisé quand on reprend la place d'un bot qui portait notre nom sur un
+ * autre appareil (voir `ensureMembership`) — le `hand`/`grid`/`score`, etc.
+ * du joueur restent inchangés puisqu'ils vivent sur l'entrée `players`
+ * elle-même, pas dans une structure séparée indexée par id.
+ */
+function reassignPlayerId(state, oldId, newId) {
+  return {
+    ...state,
+    players: state.players.map((p) => (p.id === oldId ? { ...p, id: newId } : p)),
+    hostId: state.hostId === oldId ? newId : state.hostId,
+    currentPlayerId: state.currentPlayerId === oldId ? newId : state.currentPlayerId,
+    turnOrder: (state.turnOrder || []).map((id) => (id === oldId ? newId : id)),
+    connections: state.connections
+      ? Object.fromEntries(Object.entries(state.connections).map(([id, v]) => [id === oldId ? newId : id, v]))
+      : state.connections
+  };
+}
+
+/**
+ * S'assure que le profil local fait partie des joueurs de la table. Idempotent
+ * si déjà membre actif. Gère aussi la reprise de contrôle :
+ * - **Même appareil** (notre id est déjà dans `players`, mais marqué `isBot`
+ *   — on avait été remplacé après un départ en pleine partie) : on redevient
+ *   humain sur cette même entrée.
+ * - **Autre appareil / identité recréée**, partie en cours ou terminée : si
+ *   un bot présent porte notre nom ET a le marqueur `replacedHuman` (posé
+ *   uniquement quand un humain est remplacé après un départ — jamais sur un
+ *   bot ajouté volontairement via `addBot`, pour ne pas voler sa place par
+ *   simple coïncidence de prénom), on reprend cette place plutôt que de
+ *   rester spectateur.
+ * - Sinon, partie en cours : mode spectateur (lecture seule).
+ * - Sinon (salle d'attente ou manche terminée, aucun bot à reprendre) : ajout
+ *   classique comme nouveau joueur.
  */
 export async function ensureMembership(room, profile) {
-  if (room.state.players.some((p) => p.id === profile.id)) return room;
+  const existing = room.state.players.find((p) => p.id === profile.id);
+  if (existing && !existing.isBot) return room;
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const fresh = await fetchRoomById(room.id);
-    if (fresh.state.players.some((p) => p.id === profile.id)) return fresh;
+    const mine = fresh.state.players.find((p) => p.id === profile.id);
 
-    if (fresh.state.status === 'playing') {
-      // Une partie est déjà en cours : on ne peut pas rejoindre au milieu,
-      // on affichera la table telle quelle et on rejoindra à la prochaine manche.
-      return fresh;
+    if (mine && !mine.isBot) return fresh;
+
+    if (mine && mine.isBot) {
+      const newState = {
+        ...fresh.state,
+        players: fresh.state.players.map((p) => (p.id === profile.id ? { ...p, isBot: false, replacedHuman: false, lastSeen: Date.now() } : p)),
+        log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} reprend sa place.` }]
+      };
+      try {
+        return await updateRoomState(fresh.id, fresh.version, newState);
+      } catch (e) {
+        if (!(e instanceof ConflictError)) throw e;
+        continue;
+      }
+    }
+
+    if (fresh.state.status !== 'lobby') {
+      const botMatch = fresh.state.players.find((p) => p.isBot && p.replacedHuman && p.name === profile.name);
+      if (botMatch) {
+        const reassigned = reassignPlayerId(fresh.state, botMatch.id, profile.id);
+        const newState = {
+          ...reassigned,
+          players: reassigned.players.map((p) => (p.id === profile.id ? { ...p, isBot: false, replacedHuman: false, lastSeen: Date.now() } : p)),
+          log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} reprend la place du bot qui le remplaçait.` }]
+        };
+        try {
+          return await updateRoomState(fresh.id, fresh.version, newState);
+        } catch (e) {
+          if (!(e instanceof ConflictError)) throw e;
+          continue;
+        }
+      }
+      if (fresh.state.status === 'playing') return fresh; // spectateur, jusqu'à la prochaine manche
     }
 
     const becomesHost = !fresh.state.hostId;
@@ -188,7 +261,7 @@ export async function ensureMembership(room, profile) {
       ...fresh.state,
       hostId: fresh.state.hostId || profile.id,
       hostLastSeen: becomesHost ? Date.now() : fresh.state.hostLastSeen,
-      players: [...fresh.state.players, { id: profile.id, name: profile.name, hand: [] }],
+      players: [...fresh.state.players, { id: profile.id, name: profile.name, hand: [], lastSeen: Date.now() }],
       log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} a rejoint la table.` }]
     };
 
@@ -232,26 +305,80 @@ export async function renameLocalPlayer(room, profile, newName) {
   throw new Error('Impossible de changer le prénom, réessaie.');
 }
 
-/**
- * Retire le profil local de la liste des joueurs du salon. Trois cas :
- * - **Plus aucun humain ne resterait** (que des bots, ou personne du tout) :
- *   le salon n'a plus de raison d'exister — on le **ferme** (suppression de
- *   la ligne) plutôt que de le laisser tourner à vide ("salon fantôme").
- *   Renvoie `null` dans ce cas — l'appelant doit revenir à l'écran des
- *   salons plutôt que d'afficher un écran "revenir à la table".
- * - **Au moins un humain reste, en pleine partie** : remplacé par un bot à
- *   sa place plutôt que retiré, pour ne pas bloquer les autres — sauf si
- *   c'est l'hôte : le perdre casserait la table pour tout le monde (relais
- *   WebRTC, voir webrtc/relay.js), donc on abandonne proprement la manche
- *   (retour en salle d'attente) et on le retire vraiment, avec un nouvel
- *   hôte humain.
- * - **Hors partie** (salle d'attente ou manche terminée) : retrait complet
- *   classique.
- */
 /** Choisit le nouvel hôte parmi les joueurs restants : toujours un humain en priorité (un bot ne peut pas cliquer sur "Lancer la partie"). */
 function pickNewHost(remainingPlayers) {
   const human = remainingPlayers.find((p) => !p.isBot);
   return human?.id || remainingPlayers[0]?.id || null;
+}
+
+/**
+ * Calcule l'état du salon après le départ (volontaire ou constaté par
+ * inactivité — voir `reclaimStalePlayers`) d'un joueur donné, sans effectuer
+ * l'écriture elle-même. Centralise les règles pour que `leaveTable` et le
+ * repli sur inactivité appliquent exactement le même sort :
+ * - **Plus aucun humain ne resterait** (que des bots, ou personne) : le
+ *   salon n'a plus de raison d'exister → fermeture (`closeRoom: true`).
+ * - **L'hôte part en pleine partie** : le perdre casserait la table pour
+ *   tout le monde (relais WebRTC, voir webrtc/relay.js) — la manche est
+ *   interrompue, tout le monde retourne en salle d'attente avec un nouvel
+ *   hôte humain. Les bots qui ne faisaient que remplacer un humain absent
+ *   (`replacedHuman`) sont purgés au passage : ils ne représentent personne
+ *   dans une salle d'attente.
+ * - **Un autre joueur part en pleine partie** : remplacé par un bot à sa
+ *   place (marqué `replacedHuman` pour pouvoir le reprendre plus tard, voir
+ *   `ensureMembership`), pour ne pas bloquer les autres.
+ * - **Hors partie** (salle d'attente ou manche terminée) : retrait complet
+ *   classique.
+ */
+function computeLeaveOutcome(state, leavingId, leavingName, reasonSuffix = '') {
+  const remainingHumans = state.players.filter((p) => p.id !== leavingId && !p.isBot);
+  if (remainingHumans.length === 0) {
+    return { closeRoom: true };
+  }
+
+  const isMidGame = state.status !== 'lobby' && state.status !== 'finished';
+  const suffix = reasonSuffix ? ` (${reasonSuffix})` : '';
+
+  if (isMidGame && state.hostId === leavingId) {
+    const remainingPlayers = state.players.filter((p) => p.id !== leavingId && !p.replacedHuman);
+    return {
+      closeRoom: false,
+      newState: {
+        ...state,
+        status: 'lobby',
+        players: remainingPlayers.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false, hand: [] })),
+        hostId: pickNewHost(remainingPlayers),
+        hostLastSeen: Date.now(),
+        turnOrder: [],
+        currentPlayerId: null,
+        log: [...state.log, { ts: Date.now(), message: `${leavingName} (hôte) a quitté${suffix} — partie interrompue, retour à la salle d'attente.` }].slice(-40)
+      }
+    };
+  }
+
+  if (isMidGame) {
+    return {
+      closeRoom: false,
+      newState: {
+        ...state,
+        players: state.players.map((p) => (p.id === leavingId ? { ...p, isBot: true, replacedHuman: true } : p)),
+        log: [...state.log, { ts: Date.now(), message: `${leavingName} a quitté en pleine partie${suffix} — remplacé·e par un bot.` }]
+      }
+    };
+  }
+
+  const remainingPlayers = state.players.filter((p) => p.id !== leavingId);
+  const hostChanged = state.hostId === leavingId;
+  return {
+    closeRoom: false,
+    newState: {
+      ...state,
+      players: remainingPlayers,
+      hostId: hostChanged ? pickNewHost(remainingPlayers) : state.hostId,
+      hostLastSeen: hostChanged ? Date.now() : state.hostLastSeen,
+      log: [...state.log, { ts: Date.now(), message: `${leavingName} a quitté la table${suffix}.` }]
+    }
+  };
 }
 
 export async function leaveTable(room, profile) {
@@ -259,61 +386,14 @@ export async function leaveTable(room, profile) {
     const fresh = await fetchRoomById(room.id);
     if (!fresh.state.players.some((p) => p.id === profile.id)) return fresh; // déjà parti
 
-    const remainingHumans = fresh.state.players.filter((p) => p.id !== profile.id && !p.isBot);
-    if (remainingHumans.length === 0) {
+    const outcome = computeLeaveOutcome(fresh.state, profile.id, profile.name);
+    if (outcome.closeRoom) {
       await deleteRoom(fresh.id);
       return null;
     }
 
-    const isMidGame = fresh.state.status !== 'lobby' && fresh.state.status !== 'finished';
-
-    if (isMidGame && fresh.state.hostId === profile.id) {
-      const remainingPlayers = fresh.state.players.filter((p) => p.id !== profile.id);
-      const newState = {
-        ...fresh.state,
-        status: 'lobby',
-        players: remainingPlayers.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false, hand: [] })),
-        hostId: pickNewHost(remainingPlayers),
-        hostLastSeen: Date.now(),
-        turnOrder: [],
-        currentPlayerId: null,
-        log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} (hôte) a quitté — retour à la salle d'attente.` }].slice(-40)
-      };
-      try {
-        return await updateRoomState(fresh.id, fresh.version, newState);
-      } catch (e) {
-        if (!(e instanceof ConflictError)) throw e;
-        continue;
-      }
-    }
-
-    if (isMidGame) {
-      const newState = {
-        ...fresh.state,
-        players: fresh.state.players.map((p) => (p.id === profile.id ? { ...p, isBot: true } : p)),
-        log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} a quitté en pleine partie — remplacé·e par un bot.` }]
-      };
-      try {
-        return await updateRoomState(fresh.id, fresh.version, newState);
-      } catch (e) {
-        if (!(e instanceof ConflictError)) throw e;
-        continue;
-      }
-    }
-
-    const remainingPlayers = fresh.state.players.filter((p) => p.id !== profile.id);
-    const hostChanged = fresh.state.hostId === profile.id;
-    const newHostId = hostChanged ? pickNewHost(remainingPlayers) : fresh.state.hostId;
-    const newState = {
-      ...fresh.state,
-      players: remainingPlayers,
-      hostId: newHostId,
-      hostLastSeen: hostChanged ? Date.now() : fresh.state.hostLastSeen,
-      log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} a quitté la table.` }]
-    };
-
     try {
-      return await updateRoomState(fresh.id, fresh.version, newState);
+      return await updateRoomState(fresh.id, fresh.version, outcome.newState);
     } catch (e) {
       if (!(e instanceof ConflictError)) throw e;
     }
@@ -468,6 +548,61 @@ export async function pingHostPresence(room, profile) {
     if (e instanceof ConflictError) return room;
     throw e;
   }
+}
+
+/**
+ * Battement de cœur de n'importe quel joueur (pas seulement l'hôte), dans
+ * n'importe quel statut de salon — contrairement à `pingHostPresence`,
+ * l'abandon silencieux peut arriver en pleine partie, pas seulement en salle
+ * d'attente. Alimente `reclaimStalePlayers`.
+ */
+export async function pingPlayerPresence(room, profile) {
+  if (!room.state.players.some((p) => p.id === profile.id)) return room;
+  try {
+    return await updateRoomState(room.id, room.version, {
+      ...room.state,
+      players: room.state.players.map((p) => (p.id === profile.id ? { ...p, lastSeen: Date.now() } : p))
+    });
+  } catch (e) {
+    if (e instanceof ConflictError) return room;
+    throw e;
+  }
+}
+
+/**
+ * Repli passif pour l'abandon silencieux (onglet fermé sans cliquer
+ * "quitter") : n'importe quel appareil actif dans un salon vérifie
+ * périodiquement si un AUTRE joueur n'a plus donné signe de vie depuis
+ * `PLAYER_STALE_MS`, et lui applique alors exactement le même sort qu'un
+ * départ volontaire — voir `computeLeaveOutcome`, partagée avec `leaveTable`.
+ * Ne traite qu'un joueur à la fois (au prochain battement, le suivant sera
+ * traité) pour rester simple face aux écritures concurrentes.
+ */
+export async function reclaimStalePlayers(room, profile) {
+  const suspect = room.state.players.find((p) => p.id !== profile.id && isPlayerStale(p));
+  if (!suspect) return room;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const fresh = await fetchRoomById(room.id);
+    const target = fresh.state.players.find((p) => p.id === suspect.id);
+    if (!target || target.isBot || !isPlayerStale(target)) return fresh; // quelqu'un d'autre s'en est déjà occupé, ou reconnecté
+
+    const outcome = computeLeaveOutcome(fresh.state, target.id, target.name, 'inactif depuis plus de 2 minutes');
+    if (outcome.closeRoom) {
+      // Ne devrait pas arriver ici : `profile` est forcément un humain actif
+      // et compte donc parmi les humains restants — filet de sécurité si
+      // jamais le raisonnement change un jour.
+      await deleteRoom(fresh.id);
+      return null;
+    }
+
+    try {
+      return await updateRoomState(fresh.id, fresh.version, outcome.newState);
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+    }
+  }
+  return room; // pas grave, retentera au prochain battement
 }
 
 export async function startGame(room, gameType = 'pouilleux') {
@@ -687,7 +822,12 @@ export async function discardCinqRois(room, playerId, cardId, goOut = false) {
  * manche en conservant ce contexte, voir `continueGame`.
  */
 export async function playAgain(room) {
-  const players = room.state.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false }));
+  // Les bots qui ne faisaient que remplacer un humain parti (`replacedHuman`)
+  // n'ont rien à faire dans une salle d'attente — seuls les vrais joueurs
+  // (humains, ou bots ajoutés volontairement via `addBot`) y retournent.
+  const players = room.state.players
+    .filter((p) => !p.replacedHuman)
+    .map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false }));
 
   const newState = {
     ...room.state,

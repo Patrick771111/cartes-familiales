@@ -139,7 +139,7 @@ function wireEndGameActions(container, room) {
  * `room` = ligne courante (state + type de jeu inclus), `player` = profil local.
  * Le changement de prénom se fait désormais depuis la modale de réglages (settings.js).
  */
-export function renderGame(container, { room, player, onLeave, onKick, onBackToRooms } = {}) {
+export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   const state = room.state;
 
   if (state.status === 'lobby') {
@@ -156,7 +156,7 @@ export function renderGame(container, { room, player, onLeave, onKick, onBackToR
     suiteInfernaleResolutionBanner = null;
     resetHandOrder('pouilleux');
     revealHands = false;
-    return renderWaitingRoom(container, { room, player, onLeave, onKick, onBackToRooms });
+    return renderWaitingRoom(container, { room, player, onLeave, onKick });
   }
 
   if (state.status === 'exchange') {
@@ -214,7 +214,7 @@ export function renderGame(container, { room, player, onLeave, onKick, onBackToR
 // si elle n'était pas mémorisée en dehors de la fonction de rendu.
 let selectedGameIdByRoom = null;
 
-function renderWaitingRoom(container, { room, player, onLeave, onKick, onBackToRooms }) {
+function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   const state = room.state;
   if (selectedGameIdByRoom?.roomId !== room.id) selectedGameIdByRoom = null;
   const selectedGameId = selectedGameIdByRoom?.gameId || AVAILABLE_GAMES[0].id;
@@ -282,7 +282,6 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick, onBackToR
         }
         <p class="lobby-card__rename-hint">Ce n'est pas ${me?.name || 'toi'} ? Change de prénom dans les réglages ⚙️ (en haut à droite).</p>
         <button class="btn btn--link" id="btn-leave">Quitter la table</button>
-        <button class="btn btn--link" id="btn-back-to-rooms">← Retour aux salons</button>
       </div>
     </div>
   `;
@@ -339,10 +338,6 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick, onBackToR
 
   container.querySelector('#btn-leave')?.addEventListener('click', () => {
     if (window.confirm('Quitter la table ?')) onLeave?.();
-  });
-
-  container.querySelector('#btn-back-to-rooms')?.addEventListener('click', () => {
-    if (window.confirm('Quitter ce salon et revenir à la liste ?')) onBackToRooms?.();
   });
 
   container.querySelectorAll('.player-list__kick').forEach((btn) => {
