@@ -208,6 +208,7 @@ async function handleIncomingOffer(guestId, sdp) {
       onMessage: (raw) => handleHostChannelMessage(guestId, raw),
       onOpen: async () => {
         conn.ready = true;
+        emitRelayStatus();
         try {
           const row = await backingStore.fetchRoomById(myRoomId);
           if (conn.dc?.readyState === 'open') {
@@ -218,7 +219,10 @@ async function handleIncomingOffer(guestId, sdp) {
         }
       },
       onClose: () => {
-        if (hostConnections.get(guestId) === conn) hostConnections.delete(guestId);
+        if (hostConnections.get(guestId) === conn) {
+          hostConnections.delete(guestId);
+          emitRelayStatus();
+        }
       }
     });
   });
@@ -347,6 +351,7 @@ async function armGuestConnection() {
         .then(() => {
           if (guestLink === link && generation === guestConnectGeneration) {
             link.ready = true;
+            emitRelayStatus();
             // Snapshot initial
             return sendRequestOn(link, { type: 'fetch' }, REQUEST_TIMEOUT_MS).then((row) => {
               if (row && activeOnChange) activeOnChange(row);
@@ -574,7 +579,27 @@ export function subscribeRoom(roomId, onChange) {
   };
 }
 
-/** Pour l'indicateur "connexion directe" dans l'UI. */
+function hostHasReadyGuest() {
+  for (const conn of hostConnections.values()) {
+    if (conn.ready && conn.dc?.readyState === 'open') return true;
+  }
+  return false;
+}
+
+function emitRelayStatus() {
+  try {
+    window.dispatchEvent(new CustomEvent('cartes-relay-status', { detail: { active: isRelayActive() } }));
+  } catch (e) {
+    /* ignore (SSR / tests) */
+  }
+}
+
+/**
+ * True si CET appareil a une liaison directe opérationnelle :
+ * - invité : canal ouvert vers l'hôte
+ * - hôte : au moins un invité connecté en direct
+ */
 export function isRelayActive() {
+  if (myPlayerId && myPlayerId === currentHostId) return hostHasReadyGuest();
   return guestLinkReady();
 }

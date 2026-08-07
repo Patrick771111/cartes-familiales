@@ -1224,11 +1224,10 @@ window.setInterval(async () => {
   }
 }, 45000);
 
-// Battement de cœur dédié, plus rapproché : pousse dans `room.state.connections`
-// tout changement de `isRelayActive()` (liaison directe armée/coupée), pour que
-// le 🔌 à côté du prénom soit visible par tout le monde, pas seulement sur
-// l'appareil concerné. Ne pousse que sur un vrai changement de valeur.
-window.setInterval(async () => {
+// Pousse dans `room.state.connections` le statut de liaison directe, pour que
+// le 🔌 à côté du prénom soit visible par tout le monde. Déclenché dès qu'une
+// liaison s'ouvre/se ferme (événement) et en secours toutes les 3 s.
+async function pushRelayStatusIfChanged() {
   if (!currentRoomRef || !currentPlayer) return;
   const active = isRelayActive();
   if (active === lastReportedRelayActive) return;
@@ -1236,8 +1235,16 @@ window.setInterval(async () => {
     currentRoomRef = await reportRelayStatus(currentRoomRef, currentPlayer.id, active);
     lastReportedRelayActive = active;
   } catch (err) {
-    // Pas grave, on retentera au prochain battement.
+    // Pas grave, on retentera au prochain battement / événement.
   }
+}
+
+window.addEventListener('cartes-relay-status', () => {
+  pushRelayStatusIfChanged();
+});
+
+window.setInterval(() => {
+  pushRelayStatusIfChanged();
 }, 3000);
 
 boot();
