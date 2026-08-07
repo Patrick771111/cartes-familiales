@@ -189,14 +189,21 @@ function isHostStale(state) {
   return Date.now() - (state.hostLastSeen || 0) > HOST_STALE_MS;
 }
 
-// Même idée que HOST_STALE_MS, mais pour n'importe quel joueur : couvre
-// l'abandon silencieux (onglet fermé, téléphone verrouillé) sans clic sur
-// "quitter" — voir `reclaimStalePlayers`.
-export const PLAYER_STALE_MS = 2 * 60 * 1000;
+// Délai de base d'inactivité par humain présent (× nombre d'humains).
+// Ex. 2 humains → 2 min, 4 humains → 4 min. Les bots ne comptent pas.
+export const PLAYER_STALE_MS_PER_HUMAN = 60 * 1000;
+/** Conservé pour compat : équivalent à 2 humains. Préférer `playerStaleMs(state)`. */
+export const PLAYER_STALE_MS = 2 * PLAYER_STALE_MS_PER_HUMAN;
 
-function isPlayerStale(p) {
-  if (p.isBot || !p.lastSeen) return false; // pas de battement reçu pour l'instant (salon créé avant ce mécanisme, ou vient de rejoindre) : pas de verdict prématuré, on attend le prochain battement pour se prononcer.
-  return Date.now() - p.lastSeen > PLAYER_STALE_MS;
+/** Délai avant remplacement par un bot : 1 minute × nombre d'humains dans le salon. */
+export function playerStaleMs(state) {
+  const humans = (state.players || []).filter((p) => !p.isBot).length;
+  return Math.max(1, humans) * PLAYER_STALE_MS_PER_HUMAN;
+}
+
+function isPlayerStale(p, state) {
+  if (p.isBot || !p.lastSeen) return false; // pas de battement reçu pour l'instant : pas de verdict prématuré.
+  return Date.now() - p.lastSeen > playerStaleMs(state);
 }
 
 /** Salons actifs pour l'écran "salons" — projection minimale (jamais les mains, même si RLS permettrait de lire `state` en entier, voir README "Limite connue"). */
@@ -622,7 +629,7 @@ export async function pingPlayerPresence(room, profile) {
  * Repli passif pour l'abandon silencieux (onglet fermé sans cliquer
  * "quitter") : n'importe quel appareil actif dans un salon vérifie
  * périodiquement si un AUTRE joueur n'a plus donné signe de vie depuis
- * `PLAYER_STALE_MS`, et lui applique alors exactement le même sort qu'un
+ * `playerStaleMs` (1 min × nb d'humains), et lui applique alors le même sort qu'un
  * départ volontaire — voir `computeLeaveOutcome`, partagée avec `leaveTable`.
  * Ne traite qu'un joueur à la fois (au prochain battement, le suivant sera
  * traité) pour rester simple face aux écritures concurrentes.
@@ -631,12 +638,12 @@ export async function pingPlayerPresence(room, profile) {
  * toute première seconde d'existence) n'est PAS pour autant immunisé pour
  * toujours : on lui amorce un `lastSeen` fraîchement daté dès qu'on le
  * remarque (ce passage-ci ne le considère pas encore inactif — délai de
- * grâce), pour qu'il redevienne un candidat normal 2 minutes plus tard s'il
+ * grâce), pour qu'il redevienne un candidat normal après le délai dynamique s'il
  * ne s'est toujours pas manifesté. Sans ça, un joueur disparu avant même le
  * déploiement de ce mécanisme resterait un fantôme définitivement protégé.
  */
 export async function reclaimStalePlayers(room, profile) {
-  const suspect = room.state.players.find((p) => p.id !== profile.id && isPlayerStale(p));
+  const suspect = room.state.players.find((p) => p.id !== profile.id && isPlayerStale(p, room.state));
   const needsBootstrap = room.state.players.find((p) => p.id !== profile.id && !p.isBot && !p.lastSeen);
   if (!suspect && !needsBootstrap) return room;
 
@@ -658,10 +665,11 @@ export async function reclaimStalePlayers(room, profile) {
       }
     }
 
-    const target = fresh.state.players.find((p) => p.id !== profile.id && isPlayerStale(p));
+    const target = fresh.state.players.find((p) => p.id !== profile.id && isPlayerStale(p, fresh.state));
     if (!target || target.isBot) return fresh; // quelqu'un d'autre s'en est déjà occupé, ou reconnecté
 
-    const outcome = computeLeaveOutcome(fresh.state, target.id, target.name, 'inactif depuis plus de 2 minutes');
+    const staleMin = Math.round(playerStaleMs(fresh.state) / 60000);
+    const outcome = computeLeaveOutcome(fresh.state, target.id, target.name, `inactif depuis plus de ${staleMin} minute${staleMin > 1 ? 's' : ''}`);
     if (outcome.closeRoom) {
       // Ne devrait pas arriver ici : `profile` est forcément un humain actif
       // et compte donc parmi les humains restants — filet de sécurité si
