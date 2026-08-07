@@ -2448,18 +2448,24 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
     if (goOutBtn) goOutBtn.disabled = !canGoOutWith(selectedCardId);
   };
 
+  let drawBusy = false;
   const doDrawStock = async () => {
+    if (drawBusy) return;
+    drawBusy = true;
     try {
       await drawCinqRoisFromStock(room, player.id);
     } catch (err) {
+      drawBusy = false;
       alert(err.message || 'Impossible de piocher.');
     }
   };
   const doDrawDiscard = async () => {
-    if (!topDiscard) return;
+    if (!topDiscard || drawBusy) return;
+    drawBusy = true;
     try {
       await drawCinqRoisFromDiscard(room, player.id);
     } catch (err) {
+      drawBusy = false;
       alert(err.message || 'Impossible de prendre la défausse.');
     }
   };
@@ -2473,26 +2479,36 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
   };
 
   if (isMyTurn && state.phase === 'draw') {
-    container.querySelector('#cinqrois-stock')?.addEventListener('click', (e) => {
-      e.preventDefault();
-      doDrawStock();
+    // Un seul chemin d'entrée (pointerup) pour éviter le double déclenchement
+    // clic + onTap qui faisait "Tu as déjà pioché".
+    const stockEl = container.querySelector('#cinqrois-stock');
+    const discardEl = container.querySelector('#cinqrois-discard-pile');
+    // La carte visible de la défausse a son propre data-card-id (id réel) :
+    // on le neutralise pour que le tap cible bien la pile "discard".
+    discardEl?.querySelectorAll('[data-card-id]').forEach((el) => {
+      if (el !== discardEl) el.removeAttribute('data-card-id');
     });
-    container.querySelector('#cinqrois-discard-pile')?.addEventListener('click', (e) => {
-      e.preventDefault();
-      doDrawDiscard();
-    });
-    // Tap / glisser depuis les piles (même zone)
-    const center = container.querySelector('.cinqrois-center');
-    if (center) {
-      enableDragToZone(center, {
-        dragEnabled: isCardDragEnabled(),
-        onTap: (id) => {
-          if (id === 'stock') doDrawStock();
-          else if (id === 'discard') doDrawDiscard();
-        },
-        onDrop: () => {}
+    const bindPileTap = (el, action) => {
+      if (!el) return;
+      el.style.cursor = 'pointer';
+      let ptr = null;
+      el.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        ptr = { x: e.clientX, y: e.clientY };
       });
-    }
+      el.addEventListener('pointerup', (e) => {
+        if (!ptr) return;
+        const dx = Math.abs(e.clientX - ptr.x);
+        const dy = Math.abs(e.clientY - ptr.y);
+        ptr = null;
+        if (dx > 12 || dy > 12) return;
+        e.preventDefault();
+        e.stopPropagation();
+        action();
+      });
+    };
+    bindPileTap(stockEl, doDrawStock);
+    bindPileTap(discardEl, doDrawDiscard);
   }
 
   if (isMyTurn && state.phase === 'discard') {
@@ -2500,7 +2516,6 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
     handEl?.querySelectorAll('.cinqrois-card[data-card-id]').forEach((el) => {
       el.style.cursor = isCardDragEnabled() ? 'grab' : 'pointer';
     });
-    // Sélection au tap + dépôt sur la défausse
     if (handEl) {
       enableDragToZone(handEl, {
         dragEnabled: isCardDragEnabled(),
@@ -2513,8 +2528,22 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
         }
       });
     }
-    container.querySelector('#cinqrois-discard-pile')?.addEventListener('click', (e) => {
-      e.preventDefault();
+    // Tap sur la défausse pour confirmer la carte sélectionnée (sans double handler)
+    const discardEl = container.querySelector('#cinqrois-discard-pile');
+    discardEl?.querySelectorAll('[data-card-id]').forEach((el) => {
+      if (el !== discardEl) el.removeAttribute('data-card-id');
+    });
+    let ptr = null;
+    discardEl?.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      ptr = { x: e.clientX, y: e.clientY };
+    });
+    discardEl?.addEventListener('pointerup', (e) => {
+      if (!ptr) return;
+      const dx = Math.abs(e.clientX - ptr.x);
+      const dy = Math.abs(e.clientY - ptr.y);
+      ptr = null;
+      if (dx > 12 || dy > 12) return;
       if (selectedCardId) doDiscard(selectedCardId, false);
     });
   }
