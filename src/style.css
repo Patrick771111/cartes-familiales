@@ -2115,7 +2115,16 @@ body.is-card-dragging * {
   color: #1a3a1a;
   box-shadow: 0 3px 8px rgba(0,0,0,0.25);
 }
+.lucky-pile--drawn[data-card-id] {
+  cursor: grab;
+  touch-action: none;
+}
+.lucky-discard-tile[data-card-id]:not(:disabled) {
+  cursor: grab;
+  touch-action: none;
+}
 .lucky-cell--drawn {
+
   box-shadow: 0 0 0 3px var(--brass-soft), 0 4px 12px rgba(0,0,0,0.35);
 }
 .lucky-cell--empty {
