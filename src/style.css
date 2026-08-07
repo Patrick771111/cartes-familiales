@@ -2044,7 +2044,28 @@ body.is-card-dragging * {
 }
 
 /* ——— Lucky Numbers ——— */
-.lucky-screen { padding-bottom: 24px; }
+.lucky-screen {
+  padding-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  gap: 8px;
+}
+.lucky-top {
+  flex: 0 0 auto;
+  text-align: center;
+  padding: 8px 8px 0;
+}
+.lucky-bottom {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 8px;
+  text-align: center;
+}
 .lucky-felt { padding: 16px 12px; text-align: center; }
 .lucky-draw-area {
   display: flex;
@@ -2137,7 +2158,8 @@ body.is-card-dragging * {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  margin-bottom: 16px;
+  margin: 0;
+  width: 100%;
 }
 .lucky-discard-label {
   font-family: var(--font-mono);
@@ -2178,9 +2200,15 @@ body.is-card-dragging * {
 .lucky-opponents {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
   justify-content: center;
-  margin-bottom: 18px;
+  margin: 8px 0 4px;
+  align-items: flex-start;
+}
+.lucky-opponents__empty {
+  opacity: 0.4;
+  font-size: 13px;
+  margin: 0;
 }
 .lucky-opponent {
   background: rgba(0,0,0,0.18);
@@ -2210,7 +2238,7 @@ body.is-card-dragging * {
   background: rgba(0,0,0,0.22);
   border-radius: 16px;
   padding: 12px;
-  margin: 0 auto 12px;
+  margin: 0 auto;
   width: max-content;
   max-width: 100%;
 }

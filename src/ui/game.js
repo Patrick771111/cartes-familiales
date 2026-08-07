@@ -2730,8 +2730,17 @@ function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
     isMyTurn && hasDrawn ? luckyValidPlacements(me?.board || [], state.drawnTile.value) : [];
   const currentName = state.players.find((p) => p.id === state.currentPlayerId)?.name;
 
-  const opponentsHtml = state.players
-    .filter((p) => p.id !== player.id)
+  // Adversaires dans l'ordre de jeu, en partant du joueur suivant le local.
+  const turnOrder = state.turnOrder || state.players.map((p) => p.id);
+  const myOrderIdx = Math.max(0, turnOrder.indexOf(player.id));
+  const orderedOpponents = [];
+  for (let step = 1; step < turnOrder.length; step++) {
+    const id = turnOrder[(myOrderIdx + step) % turnOrder.length];
+    const p = state.players.find((x) => x.id === id);
+    if (p) orderedOpponents.push(p);
+  }
+
+  const opponentsHtml = orderedOpponents
     .map((p) => {
       const empty = p.board.filter((c) => !c).length;
       const isTurn = p.id === state.currentPlayerId;
@@ -2774,10 +2783,13 @@ function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
 
   container.innerHTML = `
     <div class="screen screen--table lucky-screen">
-      <div class="table-felt lucky-felt">
+      <div class="lucky-top">
         ${winnerBanner}
         <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">${actionHint}</div>
+        <div class="lucky-opponents">${opponentsHtml || '<p class="lucky-opponents__empty">—</p>'}</div>
+      </div>
 
+      <div class="lucky-bottom">
         <div class="lucky-draw-area">
           <button type="button" class="lucky-pile lucky-pile--stock" id="btn-lucky-draw" ${
             isMyTurn && !hasDrawn && state.stock.length > 0 ? '' : 'disabled'
@@ -2791,17 +2803,14 @@ function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
                    <div class="lucky-cell lucky-cell--tile lucky-cell--drawn">${state.drawnTile.value}</div>
                    <span class="lucky-pile__label">Piochée</span>
                  </div>
-                 <button type="button" class="btn btn--secondary" id="btn-lucky-discard-drawn">Défausser</button>`
+                 <button type="button" class="btn btn--ghost btn--small" id="btn-lucky-discard-drawn">Défausser</button>`
               : ''
           }
+          <div class="lucky-discard-row">
+            <span class="lucky-discard-label">Défausse</span>
+            <div class="lucky-discard-list">${discardHtml}</div>
+          </div>
         </div>
-
-        <div class="lucky-discard-row">
-          <span class="lucky-discard-label">Défausse</span>
-          <div class="lucky-discard-list">${discardHtml}</div>
-        </div>
-
-        <div class="lucky-opponents">${opponentsHtml}</div>
 
         ${
           me
