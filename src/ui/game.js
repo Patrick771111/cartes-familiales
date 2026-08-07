@@ -2574,22 +2574,13 @@ function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
         ? 'Pioche un trèfle caché, ou choisis un trèfle visible puis une case.'
         : 'Pioche un trèfle caché.';
 
+  const finished = state.status === 'finished';
+
   container.innerHTML = `
     <div class="screen screen--table lucky-screen">
-      <header class="table-header">
-        <div>
-          <p class="eyebrow">Lucky Numbers</p>
-          <h1 class="table-title">Jardin 4×4</h1>
-        </div>
-        <div class="table-header__actions">
-          <button id="btn-rules" class="btn btn--ghost btn--small">Règles</button>
-          <button id="btn-leave" class="btn btn--ghost btn--small">Quitter</button>
-        </div>
-      </header>
-
       <div class="table-felt lucky-felt">
         ${winnerBanner}
-        <p class="turn-banner">${actionHint}</p>
+        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">${actionHint}</div>
 
         <div class="lucky-draw-area">
           <button type="button" class="lucky-pile lucky-pile--stock" id="btn-lucky-draw" ${
@@ -2631,48 +2622,26 @@ function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
             : ''
         }
 
-        ${
-          state.status === 'finished'
-            ? `<div class="lucky-end-actions">
-                 <button id="btn-continue" class="btn btn--primary">Rejouer</button>
-                 <button id="btn-lobby" class="btn btn--secondary">Salon</button>
-               </div>`
-            : ''
-        }
-      </div>
+        ${finished ? endGameActionsHtml() : ''}
 
-      <details class="log">
-        <summary>Journal</summary>
-        <ul>${state.log
-          .slice()
-          .reverse()
-          .map((l) => `<li>${l.message}</li>`)
-          .join('')}</ul>
-      </details>
+        <details class="log">
+          <summary>Journal de la partie</summary>
+          <ul>${state.log
+            .slice()
+            .reverse()
+            .map((l) => `<li>${l.message}</li>`)
+            .join('')}</ul>
+        </details>
+
+        <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
+        <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
+      </div>
     </div>
   `;
 
+  wireEndGameActions(container, room);
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
-  container.querySelector('#btn-leave')?.addEventListener('click', () => onLeave?.());
-
-  container.querySelector('#btn-continue')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try {
-      await continueGame(room);
-    } catch (err) {
-      alert(err.message || String(err));
-      e.target.disabled = false;
-    }
-  });
-  container.querySelector('#btn-lobby')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try {
-      await playAgain(room);
-    } catch (err) {
-      alert(err.message || String(err));
-      e.target.disabled = false;
-    }
-  });
+  wireAbandonButton(container, { room, player, state, onLeave });
 
   container.querySelector('#btn-lucky-draw')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
