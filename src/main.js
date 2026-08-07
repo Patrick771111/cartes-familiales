@@ -33,6 +33,10 @@ import {
   drawCinqRoisFromStock,
   drawCinqRoisFromDiscard,
   discardCinqRois,
+  drawLuckyNumbersFromStock,
+  takeLuckyNumbersFromDiscard,
+  placeLuckyNumbersDrawn,
+  discardLuckyNumbersDrawn,
   submitExchangeGift,
   reclaimStaleHost,
   pingHostPresence,
@@ -594,6 +598,98 @@ function chooseCinqRoisMove(state, botId) {
 
 let scheduledCinqRoisBotMove = null;
 
+
+// Politique du bot à Lucky Numbers : défausse utile → pioche → place / défausse.
+function lnValidPlacements(board, value) {
+  const DIM = 4;
+  const out = [];
+  for (let index = 0; index < 16; index++) {
+    const row = Math.floor(index / DIM);
+    const col = index % DIM;
+    let ok = true;
+    for (let c = 0; c < DIM && ok; c++) {
+      const i = row * DIM + c;
+      if (i === index || !board[i]) continue;
+      if (c < col && board[i].value >= value) ok = false;
+      if (c > col && board[i].value <= value) ok = false;
+    }
+    for (let r = 0; r < DIM && ok; r++) {
+      const i = r * DIM + col;
+      if (i === index || !board[i]) continue;
+      if (r < row && board[i].value >= value) ok = false;
+      if (r > row && board[i].value <= value) ok = false;
+    }
+    if (ok) out.push(index);
+  }
+  return out;
+}
+
+function chooseLuckyNumbersMove(state, botId) {
+  const bot = state.players.find((p) => p.id === botId);
+  if (!bot) return { type: 'discard' };
+
+  if (state.drawnTile) {
+    const tile = state.drawnTile;
+    const placements = lnValidPlacements(bot.board, tile.value);
+    if (!placements.length) return { type: 'discard' };
+    placements.sort((a, b) => {
+      const emptyA = bot.board[a] ? 1 : 0;
+      const emptyB = bot.board[b] ? 1 : 0;
+      if (emptyA !== emptyB) return emptyA - emptyB;
+      return (bot.board[b]?.value || 0) - (bot.board[a]?.value || 0);
+    });
+    return { type: 'place', index: placements[0] };
+  }
+
+  for (const tile of state.discard.slice().reverse()) {
+    const empties = lnValidPlacements(bot.board, tile.value).filter((i) => !bot.board[i]);
+    if (empties.length) return { type: 'take', tileId: tile.id, index: empties[0] };
+  }
+  for (const tile of state.discard.slice().reverse()) {
+    const swaps = lnValidPlacements(bot.board, tile.value).filter((i) => bot.board[i]);
+    if (swaps.length) {
+      swaps.sort((a, b) => (bot.board[b]?.value || 0) - (bot.board[a]?.value || 0));
+      return { type: 'take', tileId: tile.id, index: swaps[0] };
+    }
+  }
+  if (state.stock.length > 0) return { type: 'draw' };
+  return { type: 'discard' };
+}
+
+let scheduledLuckyNumbersBotMove = null;
+
+function maybeScheduleLuckyNumbersBotMove(room) {
+  if (room.game !== 'luckynumbers' || room.state.status !== 'playing') return;
+
+  const currentId = room.state.currentPlayerId;
+  const bot = room.state.players.find((p) => p.id === currentId && p.isBot);
+  if (!bot) return;
+
+  const signature = `${room.id}:${room.version}`;
+  if (scheduledLuckyNumbersBotMove === signature) return;
+  scheduledLuckyNumbersBotMove = signature;
+
+  window.setTimeout(async () => {
+    try {
+      const fresh = await fetchRoomById(room.id);
+      if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId) return;
+
+      const move = chooseLuckyNumbersMove(fresh.state, currentId);
+      if (move.type === 'draw') {
+        await drawLuckyNumbersFromStock(fresh, currentId);
+      } else if (move.type === 'take') {
+        await takeLuckyNumbersFromDiscard(fresh, currentId, move.tileId, move.index);
+      } else if (move.type === 'place') {
+        await placeLuckyNumbersDrawn(fresh, currentId, move.index);
+      } else if (fresh.state.drawnTile) {
+        await discardLuckyNumbersDrawn(fresh, currentId);
+      }
+    } catch (err) {
+      // Autre appareil a probablement déjà joué.
+    }
+  }, 900 + Math.random() * 700);
+}
+
 function maybeScheduleCinqRoisBotMove(room) {
   if (room.game !== 'cinqrois') return;
   if (room.state.status !== 'playing' && room.state.status !== 'last_turns') return;
@@ -623,7 +719,7 @@ function maybeScheduleCinqRoisBotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
-const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain', blackjack: 'Blackjack', flip7: 'Flip 7', skyjo: 'Skyjo', suiteinfernale: 'La Suite Infernale', cinqrois: 'Les Cinq Rois' };
+const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain', blackjack: 'Blackjack', flip7: 'Flip 7', skyjo: 'Skyjo', suiteinfernale: 'La Suite Infernale', cinqrois: 'Les Cinq Rois', luckynumbers: 'Lucky Numbers' };
 
 function updateDocumentTitle(room) {
   const gameLabel = GAME_TITLES[room.game];
@@ -694,6 +790,7 @@ function draw(room) {
   maybeScheduleSkyjoBotMove(room);
   maybeScheduleSuiteInfernaleBotMove(room);
   maybeScheduleCinqRoisBotMove(room);
+  maybeScheduleLuckyNumbersBotMove(room);
 
   const stillMember = room.state.players.some((p) => p.id === currentPlayer.id);
 

@@ -34,6 +34,13 @@ import {
   applyDiscard as applyCinqRoisDiscard,
   startNextRound as startCinqRoisNextRound
 } from './cinqrois.js';
+import {
+  initGame as initLuckyNumbers,
+  applyDrawFromStock as applyLuckyNumbersDrawStock,
+  applyTakeFromDiscard as applyLuckyNumbersTakeFromDiscard,
+  applyPlaceDrawn as applyLuckyNumbersPlaceDrawn,
+  applyDiscardDrawn as applyLuckyNumbersDiscardDrawn
+} from './luckynumbers.js';
 
 const GAME_INITIALIZERS = {
   pouilleux: initPouilleux,
@@ -43,7 +50,8 @@ const GAME_INITIALIZERS = {
   flip7: initFlip7,
   skyjo: initSkyjo,
   suiteinfernale: initSuiteInfernale,
-  cinqrois: initCinqRois
+  cinqrois: initCinqRois,
+  luckynumbers: initLuckyNumbers
 };
 
 export const AVAILABLE_GAMES = [
@@ -54,7 +62,8 @@ export const AVAILABLE_GAMES = [
   { id: 'flip7', label: 'Flip 7', hint: '2 à 6 joueurs, score cumulé', minPlayers: 2 },
   { id: 'skyjo', label: 'Skyjo', hint: '2 à 6 joueurs, moins de points c\'est mieux', minPlayers: 2 },
   { id: 'suiteinfernale', label: 'La Suite Infernale', hint: '2 à 4 joueurs, construis ta suite de 1 à 10', minPlayers: 2 },
-  { id: 'cinqrois', label: 'Les Cinq Rois', hint: '2 à 7 joueurs — moins de points gagne', minPlayers: 2 }
+  { id: 'cinqrois', label: 'Les Cinq Rois', hint: '2 à 7 joueurs — moins de points gagne', minPlayers: 2 },
+  { id: 'luckynumbers', label: 'Lucky Numbers', hint: '2 à 4 joueurs — remplis ton jardin en ordre croissant', minPlayers: 2, maxPlayers: 4 }
 ];
 
 const PROFILE_KEY = 'cartes-familiales:profile';
@@ -660,9 +669,13 @@ export async function startGame(room, gameType = 'pouilleux') {
     return updateRoomState(room.id, room.version, newState, { game: gameType });
   }
 
-  const minPlayers = AVAILABLE_GAMES.find((g) => g.id === gameType)?.minPlayers ?? 2;
+  const gameMeta = AVAILABLE_GAMES.find((g) => g.id === gameType);
+  const minPlayers = gameMeta?.minPlayers ?? 2;
   if (room.state.players.length < minPlayers) {
     throw new Error(`Il faut au moins ${minPlayers} joueur${minPlayers > 1 ? 's' : ''}.`);
+  }
+  if (gameMeta?.maxPlayers && room.state.players.length > gameMeta.maxPlayers) {
+    throw new Error(`${gameMeta.label} se joue au maximum à ${gameMeta.maxPlayers} joueurs.`);
   }
   // `bet` (Blackjack) est réglé par chacun dans le lobby via setBlackjackBet, et
   // déjà présent sur l'entrée du joueur — on le transmet, ignoré par les autres jeux.
@@ -849,6 +862,30 @@ export async function drawCinqRoisFromDiscard(room, playerId) {
 /** Défausse une carte aux Cinq Rois, en posant éventuellement toute sa main du même coup (`goOut`). */
 export async function discardCinqRois(room, playerId, cardId, goOut = false) {
   const newState = applyCinqRoisDiscard(room.state, playerId, cardId, goOut);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Lucky Numbers — pioche un trèfle face cachée. */
+export async function drawLuckyNumbersFromStock(room, playerId) {
+  const newState = applyLuckyNumbersDrawStock(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Lucky Numbers — prend un trèfle visible de la défausse et le place. */
+export async function takeLuckyNumbersFromDiscard(room, playerId, tileId, boardIndex) {
+  const newState = applyLuckyNumbersTakeFromDiscard(room.state, playerId, tileId, boardIndex);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Lucky Numbers — place la tuile piochée sur le plateau. */
+export async function placeLuckyNumbersDrawn(room, playerId, boardIndex) {
+  const newState = applyLuckyNumbersPlaceDrawn(room.state, playerId, boardIndex);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Lucky Numbers — défausse la tuile piochée face visible. */
+export async function discardLuckyNumbersDrawn(room, playerId) {
+  const newState = applyLuckyNumbersDiscardDrawn(room.state, playerId);
   return updateRoomState(room.id, room.version, newState);
 }
 

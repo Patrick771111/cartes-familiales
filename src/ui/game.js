@@ -24,6 +24,10 @@ import {
   drawCinqRoisFromStock,
   drawCinqRoisFromDiscard,
   discardCinqRois,
+  drawLuckyNumbersFromStock,
+  takeLuckyNumbersFromDiscard,
+  placeLuckyNumbersDrawn,
+  discardLuckyNumbersDrawn,
   playAgain,
   continueGame,
   addBot,
@@ -44,6 +48,7 @@ import {
   rankLabel as cinqRoisRankLabel,
   suitInfo as cinqRoisSuitInfo
 } from '../game/cinqrois.js';
+import { validPlacements as luckyValidPlacements, DIAGONAL_INDEXES as LUCKY_DIAGONAL } from '../game/luckynumbers.js';
 import { suitInfo } from '../game/deck.js';
 import { suitCardImage, cardBackImage, jokerImage, suiteInfernaleSpecialImage, flipButtonImage } from './cardThemes.js';
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
@@ -179,6 +184,7 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   const isSkyjo = room.game === 'skyjo';
   const isSuiteInfernale = room.game === 'suiteinfernale';
   const isCinqRois = room.game === 'cinqrois';
+  const isLuckyNumbers = room.game === 'luckynumbers';
   // Le Blackjack, Flip 7, Skyjo et la Suite Infernale n'ont pas d'écran de fin
   // séparé : la table (banque, mains/grilles/suites de tout le monde) reste
   // affichée telle quelle, seuls les résultats s'y ajoutent.
@@ -196,6 +202,9 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   }
   if (isCinqRois && (state.status === 'playing' || state.status === 'last_turns' || state.status === 'finished')) {
     return renderCinqRoisTable(container, { room, player, state, onLeave });
+  }
+  if (isLuckyNumbers && (state.status === 'playing' || state.status === 'finished')) {
+    return renderLuckyNumbersTable(container, { room, player, state, onLeave });
   }
   if (state.status === 'playing') {
     if (isTrouduc) return renderTrouducTable(container, { room, player, state, onLeave });
@@ -2494,5 +2503,234 @@ export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms 
 
   container.querySelector('#btn-back-to-rooms')?.addEventListener('click', () => {
     onBackToRooms?.();
+  });
+}
+
+function luckyTileHtml(tile, { selected = false, placeable = false, compact = false } = {}) {
+  if (!tile) {
+    return `<div class="lucky-cell lucky-cell--empty ${placeable ? 'lucky-cell--placeable' : ''}"></div>`;
+  }
+  return `<div class="lucky-cell lucky-cell--tile ${compact ? 'lucky-cell--compact' : ''} ${selected ? 'lucky-cell--selected' : ''} ${placeable ? 'lucky-cell--placeable' : ''}">${tile.value}</div>`;
+}
+
+function luckyBoardHtml(board, { interactive = false, placeableIndexes = [], selectedIndex = null, diagonal = false } = {}) {
+  const cells = board
+    .map((tile, i) => {
+      const isDiag = diagonal && LUCKY_DIAGONAL.includes(i);
+      const placeable = interactive && placeableIndexes.includes(i);
+      const selected = selectedIndex === i;
+      const inner = luckyTileHtml(tile, { selected, placeable });
+      return `<button type="button" class="lucky-cell-btn ${isDiag ? 'lucky-cell-btn--diag' : ''} ${placeable ? 'lucky-cell-btn--placeable' : ''}" data-board-index="${i}" ${interactive && placeable ? '' : 'disabled'}>${inner}</button>`;
+    })
+    .join('');
+  return `<div class="lucky-grid">${cells}</div>`;
+}
+
+function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
+  const me = state.players.find((p) => p.id === player.id);
+  const isMyTurn = state.status === 'playing' && state.currentPlayerId === player.id;
+  const hasDrawn = Boolean(state.drawnTile);
+  const placeableIndexes =
+    isMyTurn && hasDrawn ? luckyValidPlacements(me?.board || [], state.drawnTile.value) : [];
+  const currentName = state.players.find((p) => p.id === state.currentPlayerId)?.name;
+
+  const opponentsHtml = state.players
+    .filter((p) => p.id !== player.id)
+    .map((p) => {
+      const empty = p.board.filter((c) => !c).length;
+      const isTurn = p.id === state.currentPlayerId;
+      return `<div class="lucky-opponent ${isTurn ? 'lucky-opponent--turn' : ''}">
+        <p class="lucky-opponent__name">${p.name}${p.isBot ? ' 🤖' : ''} <span class="lucky-opponent__empty">${empty} libre${empty > 1 ? 's' : ''}</span></p>
+        ${luckyBoardHtml(p.board, { interactive: false, diagonal: true })}
+      </div>`;
+    })
+    .join('');
+
+  const discardHtml = state.discard.length
+    ? state.discard
+        .map(
+          (t) =>
+            `<button type="button" class="lucky-discard-tile" data-tile-id="${t.id}" ${
+              isMyTurn && !hasDrawn ? '' : 'disabled'
+            }>${t.value}</button>`
+        )
+        .join('')
+    : '<span class="lucky-discard-empty">Aucune</span>';
+
+  const winnerBanner =
+    state.status === 'finished' && state.winnerIds?.length
+      ? `<p class="flip7-banner flip7-banner--winner">🍀 ${state.winnerIds
+          .map((id) => state.players.find((p) => p.id === id)?.name || '?')
+          .join(', ')} gagne${state.winnerIds.length > 1 ? 'nt' : ''} !</p>`
+      : '';
+
+  const actionHint = !isMyTurn
+    ? `Tour de ${currentName || '…'}`
+    : hasDrawn
+      ? placeableIndexes.length
+        ? `Tuile ${state.drawnTile.value} — touche une case pour la placer, ou défausse-la.`
+        : `Tuile ${state.drawnTile.value} — aucune case valide, défausse-la.`
+      : state.discard.length
+        ? 'Pioche un trèfle caché, ou choisis un trèfle visible puis une case.'
+        : 'Pioche un trèfle caché.';
+
+  container.innerHTML = `
+    <div class="screen screen--table lucky-screen">
+      <header class="table-header">
+        <div>
+          <p class="eyebrow">Lucky Numbers</p>
+          <h1 class="table-title">Jardin 4×4</h1>
+        </div>
+        <div class="table-header__actions">
+          <button id="btn-rules" class="btn btn--ghost btn--small">Règles</button>
+          <button id="btn-leave" class="btn btn--ghost btn--small">Quitter</button>
+        </div>
+      </header>
+
+      <div class="table-felt lucky-felt">
+        ${winnerBanner}
+        <p class="turn-banner">${actionHint}</p>
+
+        <div class="lucky-draw-area">
+          <button type="button" class="lucky-pile lucky-pile--stock" id="btn-lucky-draw" ${
+            isMyTurn && !hasDrawn && state.stock.length > 0 ? '' : 'disabled'
+          }>
+            <div class="lucky-cell lucky-cell--back">🍀</div>
+            <span class="lucky-pile__label">Pioche (${state.stock.length})</span>
+          </button>
+          ${
+            hasDrawn
+              ? `<div class="lucky-pile lucky-pile--drawn">
+                   <div class="lucky-cell lucky-cell--tile lucky-cell--drawn">${state.drawnTile.value}</div>
+                   <span class="lucky-pile__label">Piochée</span>
+                 </div>
+                 <button type="button" class="btn btn--secondary" id="btn-lucky-discard-drawn">Défausser</button>`
+              : ''
+          }
+        </div>
+
+        <div class="lucky-discard-row">
+          <span class="lucky-discard-label">Défausse</span>
+          <div class="lucky-discard-list">${discardHtml}</div>
+        </div>
+
+        <div class="lucky-opponents">${opponentsHtml}</div>
+
+        ${
+          me
+            ? `<div class="lucky-my-board">
+                 <p class="lucky-my-board__label">Ton jardin · ${me.board.filter((c) => !c).length} case${
+                   me.board.filter((c) => !c).length > 1 ? 's' : ''
+                 } libre${me.board.filter((c) => !c).length > 1 ? 's' : ''}</p>
+                 ${luckyBoardHtml(me.board, {
+                   interactive: isMyTurn && hasDrawn,
+                   placeableIndexes,
+                   diagonal: true
+                 })}
+               </div>`
+            : ''
+        }
+
+        ${
+          state.status === 'finished'
+            ? `<div class="lucky-end-actions">
+                 <button id="btn-continue" class="btn btn--primary">Rejouer</button>
+                 <button id="btn-lobby" class="btn btn--secondary">Salon</button>
+               </div>`
+            : ''
+        }
+      </div>
+
+      <details class="log">
+        <summary>Journal</summary>
+        <ul>${state.log
+          .slice()
+          .reverse()
+          .map((l) => `<li>${l.message}</li>`)
+          .join('')}</ul>
+      </details>
+    </div>
+  `;
+
+  container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
+  container.querySelector('#btn-leave')?.addEventListener('click', () => onLeave?.());
+
+  container.querySelector('#btn-continue')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await continueGame(room);
+    } catch (err) {
+      alert(err.message || String(err));
+      e.target.disabled = false;
+    }
+  });
+  container.querySelector('#btn-lobby')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await playAgain(room);
+    } catch (err) {
+      alert(err.message || String(err));
+      e.target.disabled = false;
+    }
+  });
+
+  container.querySelector('#btn-lucky-draw')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await drawLuckyNumbersFromStock(room, player.id);
+    } catch (err) {
+      alert(err.message || String(err));
+    }
+  });
+
+  container.querySelector('#btn-lucky-discard-drawn')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await discardLuckyNumbersDrawn(room, player.id);
+    } catch (err) {
+      alert(err.message || String(err));
+      e.target.disabled = false;
+    }
+  });
+
+  // Sélection d'une tuile de défausse puis d'une case
+  let pendingDiscardTileId = null;
+
+  container.querySelectorAll('.lucky-discard-tile').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!isMyTurn || hasDrawn) return;
+      container.querySelectorAll('.lucky-discard-tile').forEach((b) => b.classList.remove('lucky-discard-tile--selected'));
+      pendingDiscardTileId = btn.dataset.tileId;
+      btn.classList.add('lucky-discard-tile--selected');
+
+      const tile = state.discard.find((t) => t.id === pendingDiscardTileId);
+      if (!tile || !me) return;
+      const indexes = luckyValidPlacements(me.board, tile.value);
+      // Re-render board buttons as placeable for discard flow
+      container.querySelectorAll('.lucky-my-board [data-board-index]').forEach((cellBtn) => {
+        const idx = Number(cellBtn.dataset.boardIndex);
+        const ok = indexes.includes(idx);
+        cellBtn.disabled = !ok;
+        cellBtn.classList.toggle('lucky-cell-btn--placeable', ok);
+        cellBtn.querySelector('.lucky-cell')?.classList.toggle('lucky-cell--placeable', ok);
+      });
+    });
+  });
+
+  container.querySelectorAll('.lucky-my-board [data-board-index]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!isMyTurn) return;
+      const index = Number(btn.dataset.boardIndex);
+      try {
+        if (hasDrawn) {
+          await placeLuckyNumbersDrawn(room, player.id, index);
+        } else if (pendingDiscardTileId) {
+          await takeLuckyNumbersFromDiscard(room, player.id, pendingDiscardTileId, index);
+          pendingDiscardTileId = null;
+        }
+      } catch (err) {
+        alert(err.message || String(err));
+      }
+    });
   });
 }

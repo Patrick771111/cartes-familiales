@@ -1998,3 +1998,192 @@ h1 {
   font-size: 13px;
   margin: 0;
 }
+
+/* ——— Lucky Numbers ——— */
+.lucky-screen { padding-bottom: 24px; }
+.lucky-felt { padding: 16px 12px; text-align: center; }
+.lucky-draw-area {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.lucky-pile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+.lucky-pile--stock:not(:disabled) { cursor: pointer; }
+.lucky-pile--stock:disabled { opacity: 0.4; }
+.lucky-pile__label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(247, 241, 225, 0.7);
+}
+.lucky-cell {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 18px;
+  font-family: var(--font-mono);
+  box-sizing: border-box;
+}
+.lucky-cell--back {
+  background: linear-gradient(145deg, #2f6b3a, #1e4a28);
+  border: 2px solid #8fd49a;
+  color: #c8f0d0;
+}
+.lucky-cell--tile {
+  background: radial-gradient(circle at 30% 30%, #e8f8e0, #9fd48a);
+  border: 2px solid #3a7a3a;
+  color: #1a3a1a;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+}
+.lucky-cell--drawn {
+  box-shadow: 0 0 0 3px var(--brass-soft), 0 4px 12px rgba(0,0,0,0.35);
+}
+.lucky-cell--empty {
+  background: rgba(255,255,255,0.06);
+  border: 1.5px dashed rgba(247, 241, 225, 0.35);
+}
+.lucky-cell--placeable {
+  box-shadow: 0 0 0 3px var(--brass), 0 0 12px rgba(212, 175, 55, 0.45);
+  cursor: pointer;
+}
+.lucky-cell--selected {
+  outline: 2px solid var(--brass);
+}
+.lucky-cell--compact {
+  width: 28px;
+  height: 28px;
+  font-size: 12px;
+}
+.lucky-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  width: max-content;
+  margin: 0 auto;
+}
+.lucky-cell-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: default;
+}
+.lucky-cell-btn--placeable { cursor: pointer; }
+.lucky-cell-btn--diag .lucky-cell--empty {
+  border-color: rgba(212, 175, 55, 0.55);
+}
+.lucky-cell-btn:disabled { opacity: 1; }
+.lucky-discard-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.lucky-discard-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: rgba(247, 241, 225, 0.65);
+}
+.lucky-discard-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  max-width: 100%;
+}
+.lucky-discard-tile {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid #3a7a3a;
+  background: radial-gradient(circle at 30% 30%, #e8f8e0, #9fd48a);
+  color: #1a3a1a;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0;
+}
+.lucky-discard-tile:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+.lucky-discard-tile--selected {
+  box-shadow: 0 0 0 3px var(--brass);
+}
+.lucky-discard-empty {
+  color: rgba(247, 241, 225, 0.4);
+  font-size: 13px;
+}
+.lucky-opponents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+.lucky-opponent {
+  background: rgba(0,0,0,0.18);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+.lucky-opponent--turn {
+  box-shadow: 0 0 0 2px var(--brass-soft);
+}
+.lucky-opponent__name {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.lucky-opponent__empty {
+  font-weight: 400;
+  opacity: 0.7;
+  font-size: 12px;
+}
+.lucky-opponent .lucky-cell {
+  width: 26px;
+  height: 26px;
+  font-size: 11px;
+}
+.lucky-opponent .lucky-grid { gap: 3px; }
+.lucky-my-board {
+  background: rgba(0,0,0,0.22);
+  border-radius: 16px;
+  padding: 12px;
+  margin: 0 auto 12px;
+  width: max-content;
+  max-width: 100%;
+}
+.lucky-my-board__label {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: rgba(247, 241, 225, 0.8);
+}
+.lucky-my-board .lucky-cell {
+  width: 56px;
+  height: 56px;
+  font-size: 22px;
+}
+.lucky-end-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
