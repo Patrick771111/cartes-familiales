@@ -131,8 +131,21 @@ const ROOM_NAME_POOL = [
   { name: 'Pieuvre', emoji: '🐙' }
 ];
 
-function pickRoomName() {
-  return ROOM_NAME_POOL[Math.floor(Math.random() * ROOM_NAME_POOL.length)];
+/**
+ * Choisit un nom encore libre parmi les salons actuellement listés (le but
+ * du nom est de pouvoir désigner un salon précis pour le rejoindre — un
+ * doublon rendrait ça ambigu). Repli sur un nom au hasard, doublon possible,
+ * si les 20 sont déjà pris (ne devrait pas arriver à l'échelle familiale).
+ * Reste une vérification "au mieux" : deux créations simultanées sur deux
+ * appareils pourraient en théorie choisir le même nom, comme partout
+ * ailleurs dans ce fichier (verrou optimiste par salon, pas de verrou global).
+ */
+async function pickAvailableRoomName() {
+  const rows = await listRooms();
+  const takenNames = new Set(rows.map((r) => r.state.roomName).filter(Boolean));
+  const free = ROOM_NAME_POOL.filter((n) => !takenNames.has(n.name));
+  const pool = free.length ? free : ROOM_NAME_POOL;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 // Au bout de ce délai sans nouvelles de l'hôte (en salle d'attente), n'importe
@@ -168,9 +181,9 @@ export async function listActiveRooms() {
   }));
 }
 
-/** Crée un nouveau salon vide (salle d'attente), avec un nom au hasard pour le différencier dans la liste des salons. */
+/** Crée un nouveau salon vide (salle d'attente), avec un nom encore libre pour le désigner sans ambiguïté dans la liste des salons. */
 export async function createNewRoom() {
-  const { name, emoji } = pickRoomName();
+  const { name, emoji } = await pickAvailableRoomName();
   const state = { ...emptyLobbyState(), roomName: name, roomEmoji: emoji };
   return createRoom(state, 'pouilleux');
 }
