@@ -2291,3 +2291,162 @@ body.is-card-dragging * {
   border: 1px dashed rgba(247, 241, 225, 0.35);
   color: transparent;
 }
+
+/* ===== Fonds thématiques par jeu =====
+   Objectif : remplacer le vert uni, rester discret pour la lisibilité des cartes.
+   Motifs en CSS / SVG data-URI (légers). Trou du Cul = illustrations de rôle. */
+
+.screen--table {
+  background-color: var(--felt-900);
+  background-image: radial-gradient(120% 140% at 50% -10%, var(--felt-600), var(--felt-900) 70%);
+  background-attachment: fixed;
+}
+
+/* --- Pouilleux : table de cuisine usée --- */
+.pouilleux-screen {
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 40%, rgba(70, 90, 55, 0.45), transparent 70%),
+    linear-gradient(165deg, #2a3a28 0%, #1a2418 45%, #121810 100%);
+}
+.pouilleux-screen .table-felt {
+  background:
+    radial-gradient(120% 100% at 50% 30%, rgba(55, 75, 48, 0.92), rgba(28, 40, 26, 0.95) 75%);
+}
+
+/* --- 8 américain : route / diner --- */
+.americain-screen {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 35%, rgba(40, 60, 100, 0.4), transparent 65%),
+    linear-gradient(160deg, #1a2740 0%, #121a2a 50%, #0c1018 100%);
+}
+.americain-felt {
+  background:
+    radial-gradient(120% 100% at 50% 30%, rgba(45, 70, 110, 0.9), rgba(22, 32, 50, 0.95) 75%) !important;
+}
+
+/* --- Blackjack : casino --- */
+.blackjack-screen {
+  background:
+    radial-gradient(ellipse 85% 55% at 50% 45%, rgba(30, 90, 50, 0.35), transparent 70%),
+    linear-gradient(170deg, #0f2a1c 0%, #0a1a12 55%, #06100b 100%);
+}
+.blackjack-felt {
+  background:
+    radial-gradient(ellipse 100% 80% at 50% 40%, rgba(25, 90, 55, 0.88), rgba(12, 40, 28, 0.96) 80%) !important;
+  box-shadow: inset 0 0 0 2px rgba(201, 162, 39, 0.22);
+}
+
+/* --- Flip 7 : arcade --- */
+.flip7-screen {
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 30%, rgba(90, 50, 140, 0.35), transparent 65%),
+    linear-gradient(155deg, #2a1850 0%, #1a1035 45%, #0e0a1c 100%);
+}
+.flip7-felt {
+  background:
+    radial-gradient(120% 100% at 50% 30%, rgba(70, 45, 120, 0.88), rgba(30, 18, 55, 0.95) 75%) !important;
+}
+
+/* --- Skyjo : ciel / grille --- */
+.skyjo-screen {
+  background:
+    radial-gradient(ellipse 100% 80% at 50% 0%, rgba(90, 130, 170, 0.28), transparent 55%),
+    linear-gradient(180deg, #2a3a4a 0%, #1a2835 50%, #121c28 100%);
+}
+.skyjo-felt {
+  background:
+    radial-gradient(120% 100% at 50% 30%, rgba(55, 80, 105, 0.9), rgba(28, 42, 58, 0.95) 75%) !important;
+}
+
+/* --- Suite Infernale : braise --- */
+.suiteinfernale-screen {
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 60%, rgba(120, 40, 30, 0.35), transparent 65%),
+    linear-gradient(170deg, #2a1210 0%, #1a0c0a 50%, #0e0808 100%);
+}
+.suiteinfernale-felt {
+  background:
+    radial-gradient(120% 100% at 50% 30%, rgba(90, 35, 30, 0.88), rgba(40, 15, 14, 0.95) 75%) !important;
+}
+
+/* --- Cinq Rois : pourpre royal --- */
+.cinqrois-screen {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 30%, rgba(100, 60, 130, 0.3), transparent 65%),
+    linear-gradient(165deg, #2a1838 0%, #1a1024 50%, #100c18 100%);
+}
+
+/* --- Lucky Numbers : jardin --- */
+.lucky-screen {
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 40%, rgba(60, 110, 55, 0.3), transparent 70%),
+    linear-gradient(160deg, #1e3a22 0%, #142818 50%, #0c1810 100%);
+}
+.lucky-felt {
+  background:
+    radial-gradient(120% 100% at 50% 30%, rgba(45, 90, 50, 0.88), rgba(22, 45, 28, 0.95) 75%) !important;
+}
+
+/* --- Trou du Cul : illustrations selon le rôle du joueur local --- */
+.trouduc-screen {
+  background-color: #1a1210;
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+  background-attachment: scroll;
+}
+.trouduc-screen .table-felt.trouduc-felt {
+  background:
+    radial-gradient(120% 100% at 50% 30%, rgba(40, 28, 30, 0.82), rgba(18, 12, 14, 0.9) 75%) !important;
+}
+
+.trouduc-role-president {
+  background-image:
+    linear-gradient(180deg, rgba(20, 12, 14, 0.72) 0%, rgba(12, 8, 10, 0.88) 100%),
+    url('/assets/backgrounds/trouduc/president.jpg');
+}
+.trouduc-role-vice {
+  background-image:
+    linear-gradient(180deg, rgba(16, 22, 32, 0.72) 0%, rgba(10, 14, 22, 0.88) 100%),
+    url('/assets/backgrounds/trouduc/vice.jpg');
+}
+.trouduc-role-secretaire {
+  background-image:
+    linear-gradient(180deg, rgba(22, 24, 26, 0.72) 0%, rgba(12, 14, 16, 0.88) 100%),
+    url('/assets/backgrounds/trouduc/secretaire.jpg');
+}
+.trouduc-role-larbin {
+  background-image:
+    linear-gradient(180deg, rgba(18, 22, 18, 0.72) 0%, rgba(10, 12, 10, 0.88) 100%),
+    url('/assets/backgrounds/trouduc/larbin.jpg');
+}
+.trouduc-role-default {
+  background-image:
+    linear-gradient(165deg, #2a1a1c 0%, #1a1012 50%, #100c0c 100%);
+}
+
+/* Teintes de felt par rôle (légère variation) */
+.trouduc-role-president .trouduc-felt {
+  background:
+    radial-gradient(120% 100% at 50% 30%, rgba(70, 35, 40, 0.85), rgba(28, 14, 18, 0.92) 75%) !important;
+}
+.trouduc-role-vice .trouduc-felt {
+  background:
+    radial-gradient(120% 100% at 50% 30%, rgba(40, 55, 85, 0.85), rgba(18, 24, 40, 0.92) 75%) !important;
+}
+.trouduc-role-secretaire .trouduc-felt {
+  background:
+    radial-gradient(120% 100% at 50% 30%, rgba(50, 55, 58, 0.85), rgba(22, 24, 26, 0.92) 75%) !important;
+}
+.trouduc-role-larbin .trouduc-felt {
+  background:
+    radial-gradient(120% 100% at 50% 30%, rgba(45, 60, 42, 0.85), rgba(18, 26, 18, 0.92) 75%) !important;
+}
+
+/* Fin de manche Trou du Cul : même illustration selon le rôle */
+.screen--end.trouduc-screen {
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+  min-height: 100dvh;
+}

@@ -584,6 +584,23 @@ function renderEndScreen(container, { room, player, onLeave }) {
 
 // Sélection de cartes en cours pour le joueur local (remise à zéro dès que ce
 // n'est plus son tour). Vit en dehors du DOM pour survivre aux re-rendus.
+
+/** Classe CSS de fond selon le rôle au Trou du Cul (illustrations). */
+function trouducRoleBgClass(role) {
+  switch (role) {
+    case 'Président':
+      return 'trouduc-screen trouduc-role-president';
+    case 'Vice-Président':
+      return 'trouduc-screen trouduc-role-vice';
+    case 'Secrétaire':
+      return 'trouduc-screen trouduc-role-secretaire';
+    case 'Trou du Cul':
+      return 'trouduc-screen trouduc-role-larbin';
+    default:
+      return 'trouduc-screen trouduc-role-default';
+  }
+}
+
 let selectedCardIds = new Set();
 
 // Bouton "Afficher les mains" : uniquement proposé à quelqu'un qui ne peut plus
@@ -635,8 +652,8 @@ function renderTrouducExchange(container, { room, player, state, onLeave }) {
   const receivedIds = isPresident ? ex.receivedByPresident : isVicePresident ? ex.receivedByVicePresident : [];
 
   container.innerHTML = `
-    <div class="screen screen--table">
-      <div class="table-felt">
+    <div class="screen screen--table ${trouducRoleBgClass(me?.role)}">
+      <div class="table-felt trouduc-felt">
         <p class="eyebrow">Nouvelle manche</p>
         <h1 class="exchange-title">Échange de cartes</h1>
         <p class="exchange-status">${statusMessage}</p>
@@ -859,7 +876,7 @@ function renderTrouducTable(container, { room, player, state, onLeave }) {
   const showFaces = isSafe && revealHands;
 
   container.innerHTML = `
-    <div class="screen screen--table">
+    <div class="screen screen--table ${trouducRoleBgClass(me?.role)}">
       <div class="table-felt trouduc-felt">
         <div class="trouduc-opponents">
           ${others
@@ -1044,7 +1061,7 @@ function renderTrouducEnd(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
 
   container.innerHTML = `
-    <div class="screen screen--end">
+    <div class="screen screen--end ${trouducRoleBgClass(me?.role)}">
       <div class="lobby-card lobby-card--end">
         <p class="eyebrow">Partie terminée</p>
         <h1>${trouducRankLabel(me?.rank)}${me?.rank === 1 ? ' 🏆' : ''}</h1>
