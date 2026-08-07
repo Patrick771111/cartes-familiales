@@ -6,6 +6,7 @@
 // détail).
 import { createRoom, listRooms, deleteRoom } from '../supabase/sync.js';
 import { fetchRoomById, updateRoomState, subscribeRoom, ConflictError, initRelay, isRelayActive } from '../webrtc/relay.js';
+export { ConflictError };
 import { initGame as initPouilleux, applyDraw } from './pouilleux.js';
 import { initGame as initTrouduc, applyPlay as applyTrouducPlay, applyPass as applyTrouducPass, applyExchangeChoice } from './trouduc.js';
 import { initGame as initAmericain, applyPlay as applyAmericainPlay, applyDraw as applyAmericainDraw } from './americain.js';
@@ -67,6 +68,28 @@ export const AVAILABLE_GAMES = [
 ];
 
 const PROFILE_KEY = 'cartes-familiales:profile';
+
+/**
+ * Applique une action pure sur l'état puis l'écrit avec verrou optimiste.
+ * En cas de conflit de version (ping présence, autre appareil, bot…),
+ * relit l'état frais et réessaie — si le tour a changé, `computeNewState`
+ * lève une erreur métier plus claire que ConflictError.
+ */
+async function commitGameAction(room, computeNewState, extraColumns = {}) {
+  let current = room;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const newState = computeNewState(current.state);
+      return await updateRoomState(current.id, current.version, newState, extraColumns);
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+      current = await fetchRoomById(room.id);
+      if (!current) throw e;
+    }
+  }
+  throw new ConflictError();
+}
+
 
 function uuid() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -580,7 +603,10 @@ export async function pingHostPresence(room, profile) {
  * d'attente. Alimente `reclaimStalePlayers`.
  */
 export async function pingPlayerPresence(room, profile) {
-  if (!room.state.players.some((p) => p.id === profile.id)) return room;
+  const me = room.state.players.find((p) => p.id === profile.id);
+  if (!me) return room;
+  // Évite de faire monter `version` trop souvent (sinon conflits sur les coups).
+  if (me.lastSeen && Date.now() - me.lastSeen < 25000) return room;
   try {
     return await updateRoomState(room.id, room.version, {
       ...room.state,
@@ -725,8 +751,7 @@ export async function setBlackjackBet(room, playerId, bet) {
  * l'action à l'aveugle.
  */
 export async function drawForCurrentPlayer(room, playerId, cardIndex) {
-  const newState = applyDraw(room.state, playerId, cardIndex);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applyDraw(state, playerId, cardIndex));
 }
 
 /** Le Président ou le Vice-Président choisit les cartes qu'il rend lors de l'échange privé. */
@@ -773,38 +798,32 @@ export async function standBlackjack(room, playerId) {
 
 /** Flippe une carte à Flip 7 (résout aussi, dans le même appel, tout Flip Three déclenché). */
 export async function hitFlip7(room, playerId) {
-  const newState = applyFlip7Hit(room.state, playerId);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applyFlip7Hit(state, playerId));
 }
 
 /** Reste sur sa main à Flip 7. */
 export async function stayFlip7(room, playerId) {
-  const newState = applyFlip7Stay(room.state, playerId);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applyFlip7Stay(state, playerId));
 }
 
 /** Pioche la carte du dessus de la pioche à Skyjo (à placer, ou à défausser en retournant une case, ensuite). */
 export async function drawSkyjoFromDeck(room, playerId) {
-  const newState = applySkyjoDrawDeck(room.state, playerId);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applySkyjoDrawDeck(state, playerId));
 }
 
 /** Prend la carte visible de la défausse à Skyjo (doit obligatoirement être placée sur la grille ensuite). */
 export async function drawSkyjoFromDiscard(room, playerId) {
-  const newState = applySkyjoDrawDiscard(room.state, playerId);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applySkyjoDrawDiscard(state, playerId));
 }
 
 /** Place la carte piochée à Skyjo sur une case de sa grille. */
 export async function placeSkyjoCard(room, playerId, gridIndex) {
-  const newState = applySkyjoPlaceCard(room.state, playerId, gridIndex);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applySkyjoPlaceCard(state, playerId, gridIndex));
 }
 
 /** Défausse la carte piochée du sabot à Skyjo (jamais celle de la défausse) et retourne une case cachée à la place. */
 export async function discardSkyjoAndReveal(room, playerId, gridIndex) {
-  const newState = applySkyjoDiscardAndReveal(room.state, playerId, gridIndex);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applySkyjoDiscardAndReveal(state, playerId, gridIndex));
 }
 
 /** Pioche 1 carte à la Suite Infernale (obligatoire avant de jouer ou de défausser). */
@@ -850,44 +869,37 @@ export async function discardSuiteInfernale(room, playerId, cardId) {
 
 /** Pioche la carte du dessus du talon aux Cinq Rois. */
 export async function drawCinqRoisFromStock(room, playerId) {
-  const newState = applyCinqRoisDrawStock(room.state, playerId);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applyCinqRoisDrawStock(state, playerId));
 }
 
 /** Prend la carte visible de la défausse aux Cinq Rois. */
 export async function drawCinqRoisFromDiscard(room, playerId) {
-  const newState = applyCinqRoisDrawDiscard(room.state, playerId);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applyCinqRoisDrawDiscard(state, playerId));
 }
 
 /** Défausse une carte aux Cinq Rois, en posant éventuellement toute sa main du même coup (`goOut`). */
 export async function discardCinqRois(room, playerId, cardId, goOut = false) {
-  const newState = applyCinqRoisDiscard(room.state, playerId, cardId, goOut);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applyCinqRoisDiscard(state, playerId, cardId, goOut));
 }
 
 /** Lucky Numbers — pioche un trèfle face cachée. */
 export async function drawLuckyNumbersFromStock(room, playerId) {
-  const newState = applyLuckyNumbersDrawStock(room.state, playerId);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applyLuckyNumbersDrawStock(state, playerId));
 }
 
 /** Lucky Numbers — prend un trèfle visible de la défausse et le place. */
 export async function takeLuckyNumbersFromDiscard(room, playerId, tileId, boardIndex) {
-  const newState = applyLuckyNumbersTakeFromDiscard(room.state, playerId, tileId, boardIndex);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applyLuckyNumbersTakeFromDiscard(state, playerId, tileId, boardIndex));
 }
 
 /** Lucky Numbers — place la tuile piochée sur le plateau. */
 export async function placeLuckyNumbersDrawn(room, playerId, boardIndex) {
-  const newState = applyLuckyNumbersPlaceDrawn(room.state, playerId, boardIndex);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applyLuckyNumbersPlaceDrawn(state, playerId, boardIndex));
 }
 
 /** Lucky Numbers — défausse la tuile piochée face visible. */
 export async function discardLuckyNumbersDrawn(room, playerId) {
-  const newState = applyLuckyNumbersDiscardDrawn(room.state, playerId);
-  return updateRoomState(room.id, room.version, newState);
+  return commitGameAction(room, (state) => applyLuckyNumbersDiscardDrawn(state, playerId));
 }
 
 /**

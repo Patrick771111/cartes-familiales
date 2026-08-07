@@ -34,7 +34,8 @@ import {
   setBlackjackBet,
   submitExchangeGift,
   claimHost,
-  HOST_STALE_MS
+  HOST_STALE_MS,
+  ConflictError
 } from '../game/engine.js';
 import { playerToDrawFrom as computeTarget } from '../game/pouilleux.js';
 import { rankValue as trouducRankValue, rankLabel as trouducRankLabel } from '../game/trouduc.js';
@@ -2762,7 +2763,8 @@ function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
     try {
       await drawLuckyNumbersFromStock(room, player.id);
     } catch (err) {
-      alert(err.message || String(err));
+      e.target.disabled = false;
+      if (!(err instanceof ConflictError)) alert(err.message || String(err));
     }
   });
 
@@ -2771,8 +2773,8 @@ function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
     try {
       await discardLuckyNumbersDrawn(room, player.id);
     } catch (err) {
-      alert(err.message || String(err));
       e.target.disabled = false;
+      if (!(err instanceof ConflictError)) alert(err.message || String(err));
     }
   });
 
@@ -2812,7 +2814,7 @@ function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
           pendingDiscardTileId = null;
         }
       } catch (err) {
-        alert(err.message || String(err));
+        if (!(err instanceof ConflictError)) alert(err.message || String(err));
       }
     });
   });
