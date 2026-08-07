@@ -43,7 +43,7 @@ export function renderNamePrompt(container, { onSubmit } = {}) {
     <div class="screen screen--lobby">
       <div class="lobby-card">
         <p class="eyebrow">Cartes en famille</p>
-        <h1>Le Pouilleux</h1>
+        <h1>Bienvenue</h1>
         <p class="lobby-card__intro">
           Comment tu t'appelles ? On ne te redemandera plus sur cet appareil.
         </p>

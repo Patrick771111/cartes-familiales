@@ -1,7 +1,7 @@
 {
   "name": "Cartes en famille",
   "short_name": "Cartes",
-  "description": "Jouez au Pouilleux (et bientôt d'autres jeux) à plusieurs, chacun sur son téléphone.",
+  "description": "Jeux de cartes en famille — Pouilleux, Skyjo, Flip 7, Cinq Rois et plus, chacun sur son téléphone.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
