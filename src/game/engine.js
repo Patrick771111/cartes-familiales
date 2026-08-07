@@ -359,7 +359,7 @@ function computeLeaveOutcome(state, leavingId, leavingName, reasonSuffix = '') {
       newState: {
         ...state,
         status: 'lobby',
-        players: remainingPlayers.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false, hand: [] })),
+        players: remainingPlayers.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false, hand: [], lastSeen: p.lastSeen })),
         hostId: pickNewHost(remainingPlayers),
         hostLastSeen: Date.now(),
         turnOrder: [],
@@ -590,15 +590,40 @@ export async function pingPlayerPresence(room, profile) {
  * départ volontaire — voir `computeLeaveOutcome`, partagée avec `leaveTable`.
  * Ne traite qu'un joueur à la fois (au prochain battement, le suivant sera
  * traité) pour rester simple face aux écritures concurrentes.
+ *
+ * Un joueur sans `lastSeen` (salon créé avant ce mécanisme, ou avant même sa
+ * toute première seconde d'existence) n'est PAS pour autant immunisé pour
+ * toujours : on lui amorce un `lastSeen` fraîchement daté dès qu'on le
+ * remarque (ce passage-ci ne le considère pas encore inactif — délai de
+ * grâce), pour qu'il redevienne un candidat normal 2 minutes plus tard s'il
+ * ne s'est toujours pas manifesté. Sans ça, un joueur disparu avant même le
+ * déploiement de ce mécanisme resterait un fantôme définitivement protégé.
  */
 export async function reclaimStalePlayers(room, profile) {
   const suspect = room.state.players.find((p) => p.id !== profile.id && isPlayerStale(p));
-  if (!suspect) return room;
+  const needsBootstrap = room.state.players.find((p) => p.id !== profile.id && !p.isBot && !p.lastSeen);
+  if (!suspect && !needsBootstrap) return room;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     const fresh = await fetchRoomById(room.id);
-    const target = fresh.state.players.find((p) => p.id === suspect.id);
-    if (!target || target.isBot || !isPlayerStale(target)) return fresh; // quelqu'un d'autre s'en est déjà occupé, ou reconnecté
+
+    const toBootstrap = fresh.state.players.filter((p) => p.id !== profile.id && !p.isBot && !p.lastSeen);
+    if (toBootstrap.length) {
+      const bootstrappedIds = new Set(toBootstrap.map((p) => p.id));
+      const newState = {
+        ...fresh.state,
+        players: fresh.state.players.map((p) => (bootstrappedIds.has(p.id) ? { ...p, lastSeen: Date.now() } : p))
+      };
+      try {
+        return await updateRoomState(fresh.id, fresh.version, newState);
+      } catch (e) {
+        if (!(e instanceof ConflictError)) throw e;
+        continue;
+      }
+    }
+
+    const target = fresh.state.players.find((p) => p.id !== profile.id && isPlayerStale(p));
+    if (!target || target.isBot) return fresh; // quelqu'un d'autre s'en est déjà occupé, ou reconnecté
 
     const outcome = computeLeaveOutcome(fresh.state, target.id, target.name, 'inactif depuis plus de 2 minutes');
     if (outcome.closeRoom) {
@@ -840,7 +865,7 @@ export async function playAgain(room) {
   // (humains, ou bots ajoutés volontairement via `addBot`) y retournent.
   const players = room.state.players
     .filter((p) => !p.replacedHuman)
-    .map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false }));
+    .map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false, lastSeen: p.lastSeen }));
 
   const newState = {
     ...room.state,
