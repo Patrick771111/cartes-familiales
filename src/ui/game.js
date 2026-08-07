@@ -2833,7 +2833,7 @@ function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
             <span class="lucky-pile__label">Pioche (${state.stock.length})</span>
           </button>
           ${
-            hasDrawn
+            isMyTurn && hasDrawn
               ? `<div class="lucky-pile lucky-pile--drawn" data-card-id="drawn" id="lucky-drawn-tile" title="Glisse vers une case ou la défausse">
                    <div class="lucky-cell lucky-cell--tile lucky-cell--drawn">${state.drawnTile.value}</div>
                    <span class="lucky-pile__label">Piochée</span>
