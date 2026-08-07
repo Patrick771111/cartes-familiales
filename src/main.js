@@ -111,11 +111,11 @@ function maybeScheduleBotMove(room) {
   }, 1000 + Math.random() * 700);
 }
 
-// Politique du bot au Trou du Cul (passe 2) :
-// - finit sa main dès que possible
-// - brûle (8/2) pour se débarrasser ou relancer si utile
-// - sinon égalise le pli / joue le plus petit surplus
-// - pli libre : vide le plus gros paquet du rang le plus faible
+// Politique du bot au Trou du Cul (passe 3) :
+// - finit dès que possible
+// - pli libre : préfère un rang dont on a beaucoup de cartes (vider la main)
+// - brûle (8/2) pour récupérer la main si on a peu de cartes restantes après
+// - égalise pour verrouiller si d'autres ont encore beaucoup de cartes
 function chooseTrouducMove(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   if (!bot) return { type: 'pass' };
@@ -126,32 +126,44 @@ function chooseTrouducMove(state, botId) {
   }
   const sortedGroups = [...groups.entries()].sort((a, b) => trouducRankValue(a[0]) - trouducRankValue(b[0]));
   const handSize = bot.hand.length;
+  const othersMaxHand = Math.max(
+    0,
+    ...state.players.filter((p) => p.id !== botId && !p.finished).map((p) => p.hand.length)
+  );
 
-  // Finir la main : si un groupe légal vide exactement la main, le jouer
   if (state.pileCount === 0) {
+    // Finir en un coup
     for (const [, cards] of sortedGroups) {
       if (cards.length === handSize) return { type: 'play', cardIds: cards.map((c) => c.id) };
     }
-    // Brûler pour relancer si on a 8 ou 2 et encore beaucoup de cartes
-    for (const rank of ['8', '2']) {
-      if (groups.has(rank) && handSize > groups.get(rank).length) {
-        // seulement si le rang faible restant est gênant — préfère d'abord vider le plus faible
+    // Préférer le rang le plus faible avec le plus de cartes (se délester)
+    let best = sortedGroups[0];
+    let bestScore = -Infinity;
+    for (const entry of sortedGroups) {
+      const [rank, cards] = entry;
+      const isBurn = rank === '8' || rank === '2';
+      let s = cards.length * 3 - trouducRankValue(rank);
+      // Brûler seulement si après on a ≤3 cartes (on rejoue aussitôt)
+      if (isBurn) s += handSize - cards.length <= 3 ? 8 : -6;
+      if (s > bestScore) {
+        bestScore = s;
+        best = entry;
       }
     }
-    const [, cards] = sortedGroups[0];
-    return { type: 'play', cardIds: cards.map((c) => c.id) };
+    return { type: 'play', cardIds: best[1].map((c) => c.id) };
   }
 
   const pileRankValue = trouducRankValue(state.pileRank);
   const need = state.pileCount;
 
-  // Finir exactement
-  for (const [rank, cards] of sortedGroups) {
-    if (cards.length !== need) continue;
-    if (cards.length !== handSize) continue;
-    const rv = trouducRankValue(rank);
-    const legal = state.rankLocked ? rv === pileRankValue : rv >= pileRankValue;
-    if (legal) return { type: 'play', cardIds: cards.map((c) => c.id) };
+  // Finir la main d'un coup si possible
+  if (handSize === need) {
+    for (const [rank, cards] of sortedGroups) {
+      if (cards.length < need) continue;
+      const rv = trouducRankValue(rank);
+      const legal = state.rankLocked ? rv === pileRankValue : rv >= pileRankValue;
+      if (legal) return { type: 'play', cardIds: cards.slice(0, need).map((c) => c.id) };
+    }
   }
 
   let best = null;
@@ -163,10 +175,10 @@ function chooseTrouducMove(state, botId) {
     if (!legal) continue;
     const isBurn = rank === '8' || rank === '2';
     const equals = rv === pileRankValue;
-    // Score : finir > égaliser > petit surplus > brûler (utile si main encore longue)
-    let score = (rv - pileRankValue) + (equals ? 0 : 8);
-    if (isBurn) score += handSize <= need + 2 ? -5 : 3; // brûler pour finir bientôt, sinon garder
-    if (cards.length === handSize) score -= 50;
+    let score = (rv - pileRankValue) + (equals ? 0 : 10);
+    if (equals && othersMaxHand >= 5) score -= 4; // verrouiller face à une grosse main
+    if (isBurn) score += handSize <= need + 3 ? -6 : 4;
+    if (handSize === need) score -= 50;
     if (score < bestScore) {
       bestScore = score;
       best = cards.slice(0, need).map((c) => c.id);
@@ -205,11 +217,10 @@ function maybeScheduleTrouducBotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
-// Politique du bot au 8 américain (passe 2) :
-// - priorise vider la main (1 carte légale = jouer)
-// - garde les 8 comme jokers de sortie
-// - dump les hautes cartes, privilégie la couleur dominante restante
-// - en jouant un 8, annonce la couleur la plus représentée
+// Politique du bot au 8 américain (passe 3) :
+// - finir dès que possible ; garder les 8
+// - 2 / As / Valet : joués de façon tactique (pénaliser le leader, etc.)
+// - dump des hautes cartes et couleurs isolées
 function chooseAmericainMove(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   if (!bot) return { type: 'draw' };
@@ -219,33 +230,52 @@ function chooseAmericainMove(state, botId) {
     if (r === 'K') return 13;
     if (r === 'Q') return 12;
     if (r === 'J') return 11;
-    if (r === '8') return -5;
+    if (r === '8') return -8;
+    if (r === '2') return 9;
     return parseInt(r, 10) || 0;
   };
 
   const legalCards = bot.hand.filter((c) => americainIsLegalCard(state, c));
   if (!legalCards.length) return { type: 'draw' };
 
-  // Une seule carte en main et légale → jouer pour finir
   if (bot.hand.length === 1) {
     const card = legalCards[0];
-    if (card.rank === '8') {
-      return { type: 'play', cardId: card.id, chosenSuit: card.suit || 'S' };
-    }
+    if (card.rank === '8') return { type: 'play', cardId: card.id, chosenSuit: card.suit || 'S' };
     return { type: 'play', cardId: card.id };
   }
+
+  // Joueur suivant dans le sens actuel (cible du 2 / As)
+  const order = state.turnOrder || state.players.map((p) => p.id);
+  const dir = state.direction || 1;
+  const myIdx = order.indexOf(botId);
+  const nextId = order[(myIdx + dir + order.length * 10) % order.length];
+  const nextPlayer = state.players.find((p) => p.id === nextId);
+  const nextHandSize = nextPlayer?.hand?.length ?? 7;
+  const leader = state.players
+    .filter((p) => p.id !== botId && !p.finished)
+    .sort((a, b) => (a.hand?.length ?? 99) - (b.hand?.length ?? 99))[0];
+  const leaderIsNext = leader && leader.id === nextId;
 
   const suitCounts = { S: 0, H: 0, D: 0, C: 0 };
   bot.hand.forEach((c) => { if (c.suit) suitCounts[c.suit] = (suitCounts[c.suit] || 0) + 1; });
 
   const nonEights = legalCards.filter((c) => c.rank !== '8');
-  const pool = nonEights.length ? nonEights : legalCards;
+  const pool = nonEights.length ? nonEights.slice() : legalCards.slice();
 
-  // Score : haut rang + bonus si on réduit une couleur minoritaire (diversifie moins)
   pool.sort((a, b) => {
-    const sa = rankWeight(a.rank) + (suitCounts[a.suit] <= 1 ? 3 : 0);
-    const sb = rankWeight(b.rank) + (suitCounts[b.suit] <= 1 ? 3 : 0);
-    return sb - sa;
+    const score = (c) => {
+      let s = rankWeight(c.rank) + (suitCounts[c.suit] <= 1 ? 4 : 0);
+      // 2 : fort si le suivant a peu de cartes (le ralentir)
+      if (c.rank === '2') s += nextHandSize <= 3 ? 12 : nextHandSize <= 5 ? 4 : -2;
+      // As : voler au leader s'il est le suivant
+      if (c.rank === 'A') s += leaderIsNext ? 10 : 2;
+      // Valet : utile surtout à 3+ joueurs pour changer le sens
+      if (c.rank === 'J') s += (state.players?.length || 0) >= 3 ? 3 : 0;
+      // Fin proche : privilégier n'importe quelle carte jouable non-8
+      if (bot.hand.length <= 2) s += 5;
+      return s;
+    };
+    return score(b) - score(a);
   });
   const card = pool[0];
 
@@ -362,10 +392,10 @@ function maybeScheduleBlackjackBotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
-// Politique du bot à Flip 7 (passe 2) :
-// - estime le risque de doublon (plus de uniques = plus risqué)
-// - tient compte du score de manche potentiel (somme des numéros) vs adversaires encore en jeu
-// - plus agressif en retard, prudent en avance ou si d'autres ont déjà stay avec un bon score
+// Politique du bot à Flip 7 (passe 3) :
+// - estime P(doublon) grossièrement (cartes 0–12, N apparaît N fois)
+// - reste si l'espérance devient mauvaise, ou si on bat déjà les stay adverses
+// - plus agressif en retard au score cumulé
 function chooseFlip7Move(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   if (!bot) return { type: 'stay' };
@@ -373,31 +403,59 @@ function chooseFlip7Move(state, botId) {
 
   const numbers = bot.display.filter((c) => c.kind === 'number');
   const uniqueCount = numbers.length;
-  if (uniqueCount >= 7) return { type: 'stay' }; // Flip 7 = bonus, on s'arrête
+  if (uniqueCount >= 7) return { type: 'stay' };
 
+  const have = new Set(numbers.map((c) => c.value));
   const roundSum = numbers.reduce((s, c) => s + (c.value || 0), 0);
-  const myScore = bot.score ?? 0;
+  const hasX2 = bot.display.some((c) => c.kind === 'modifier' && c.modType === 'x2');
+  const flatBonus = bot.display
+    .filter((c) => c.kind === 'modifier' && c.modType === 'flat')
+    .reduce((s, c) => s + (c.amount || 0), 0);
+  const currentRound = roundSum * (hasX2 ? 2 : 1) + flatBonus;
+
+  // Masse approximative du paquet restant (sans retirer précisément les cartes vues adverses)
+  // N apparaît N fois (0 une fois) → total numéros = 1+sum(1..12)=79
+  let danger = 0; // copies qui feraient bust
+  let safe = 0;
+  for (let v = 0; v <= 12; v++) {
+    const copies = v === 0 ? 1 : v;
+    if (have.has(v)) danger += copies;
+    else safe += copies;
+  }
+  // Réduire un peu pour les cartes déjà sorties (heuristique)
+  const seenFactor = Math.max(0.4, 1 - uniqueCount * 0.06);
+  const pBust = (danger * seenFactor) / Math.max(1, (danger + safe) * seenFactor);
+  const pSafe = 1 - pBust;
+
   const others = state.players.filter((p) => p.id !== botId);
   const bestOther = Math.max(0, ...others.map((p) => p.score ?? 0));
-  const behind = bestOther - myScore;
+  const behind = bestOther - (bot.score ?? 0);
+  const stayedRounds = others
+    .filter((p) => p.status === 'stayed' || p.status === 'done' || p.flip7)
+    .map((p) => {
+      const nums = (p.display || []).filter((c) => c.kind === 'number');
+      const sum = nums.reduce((s, c) => s + (c.value || 0), 0);
+      const x2 = (p.display || []).some((c) => c.kind === 'modifier' && c.modType === 'x2');
+      const flat = (p.display || [])
+        .filter((c) => c.kind === 'modifier' && c.modType === 'flat')
+        .reduce((s, c) => s + (c.amount || 0), 0);
+      return sum * (x2 ? 2 : 1) + flat + (p.flip7 ? 15 : 0);
+    });
+  const bestStayed = stayedRounds.length ? Math.max(...stayedRounds) : 0;
 
-  // Meilleur score de manche déjà « stay » chez les autres (pression)
-  const stayedScores = others
-    .filter((p) => p.status === 'stayed' || p.status === 'done')
-    .map((p) => (p.display || []).filter((c) => c.kind === 'number').reduce((s, c) => s + (c.value || 0), 0));
-  const bestStayedRound = stayedScores.length ? Math.max(...stayedScores) : 0;
+  // Espérance grossière : stay = currentRound ; hit ≈ pSafe * (currentRound+5) + pBust * 0
+  const expectedHit = pSafe * (currentRound + 5);
+  const stayValue = currentRound;
 
-  let stayAt = 5;
-  if (behind > 20) stayAt = 6;
-  else if (behind > 8) stayAt = 5;
-  else if (behind < -25) stayAt = 3;
-  else if (behind < -10) stayAt = 4;
-
-  // Si on bat déjà le meilleur stay adverse avec 4+ cartes, sécuriser
-  if (uniqueCount >= 4 && roundSum >= bestStayedRound + 5 && behind <= 10) stayAt = Math.min(stayAt, uniqueCount);
-
-  if (uniqueCount >= stayAt) return { type: 'stay' };
-  return { type: 'hit' };
+  // Ajustements situationnels
+  if (uniqueCount >= 6) return { type: 'stay' };
+  if (behind < -30 && uniqueCount >= 3) return { type: 'stay' };
+  if (currentRound >= bestStayed + 8 && uniqueCount >= 4 && behind <= 15) return { type: 'stay' };
+  if (bot.hasSecondChance && uniqueCount < 6) return { type: 'hit' }; // filet de sécurité
+  if (behind > 25 && uniqueCount < 6) return { type: 'hit' };
+  if (expectedHit < stayValue * 0.85 && uniqueCount >= 4) return { type: 'stay' };
+  if (uniqueCount >= 5 && pBust > 0.35) return { type: 'stay' };
+  return uniqueCount < 4 ? { type: 'hit' } : expectedHit >= stayValue ? { type: 'hit' } : { type: 'stay' };
 }
 
 let scheduledFlip7BotMove = null;
@@ -430,10 +488,10 @@ function maybeScheduleFlip7BotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
-// Politique du bot à Skyjo (passe 2) :
-// - défausse si ≤4, si bat une visible, ou si complète une colonne
-// - placement : priorité annulation de colonne, puis max de gain de points
-// - révèle les cases d'une colonne déjà « engagée » (1–2 visibles)
+// Politique du bot à Skyjo (passe 3) :
+// - course : si un adversaire a presque tout révélé, accélère
+// - colonnes : priorité annulation, évite de casser une colonne prometteuse
+// - défausse / placement selon gain de points net
 function skyjoColumnInfo(grid, col) {
   const idxs = [col, col + 4, col + 8];
   const cells = idxs.map((i) => grid[i]);
@@ -443,25 +501,36 @@ function skyjoColumnInfo(grid, col) {
   return { idxs, faceUp, hidden, vals };
 }
 
+function skyjoHiddenCount(grid) {
+  return grid.filter((c) => c && !c.faceUp).length;
+}
+
 function chooseSkyjoDrawSource(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   const topDiscard = state.discard[state.discard.length - 1];
   if (!topDiscard || !bot) return 'deck';
   const v = topDiscard.value;
 
-  // Complète une colonne de 2 identiques ?
   for (let col = 0; col < 4; col++) {
     const { vals } = skyjoColumnInfo(bot.grid, col);
     if (vals.length === 2 && vals[0] === vals[1] && v === vals[0]) return 'discard';
+    if (vals.length === 1 && vals[0] === v) return 'discard';
   }
 
   let worstVisible = -Infinity;
   for (const cell of bot.grid) {
     if (cell?.faceUp) worstVisible = Math.max(worstVisible, cell.card.value);
   }
-  if (v <= 4) return 'discard';
-  if (worstVisible > -Infinity && v < worstVisible - 1) return 'discard'; // gain net ≥ 2
-  if (v <= 6 && worstVisible >= 9) return 'discard';
+  if (v <= 3) return 'discard';
+  if (v <= 5 && worstVisible >= 8) return 'discard';
+  if (worstVisible > -Infinity && v <= worstVisible - 2) return 'discard';
+
+  // Fin de manche imminente chez un adversaire : accepter des cartes moyennes
+  const minOppHidden = Math.min(
+    12,
+    ...state.players.filter((p) => p.id !== botId).map((p) => skyjoHiddenCount(p.grid || []))
+  );
+  if (minOppHidden <= 2 && v <= 7 && worstVisible >= v + 1) return 'discard';
   return 'deck';
 }
 
@@ -469,26 +538,32 @@ function chooseSkyjoPlacement(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   const drawnValue = state.drawnCard.card.value;
   const grid = bot.grid;
+  const fromDeck = state.drawnCard.source === 'deck';
 
-  // 1) Compléter / préparer une colonne identique
+  // 1) Annulation / construction de colonne
   for (let col = 0; col < 4; col++) {
     const { vals, hidden, idxs } = skyjoColumnInfo(grid, col);
     if (vals.length === 2 && vals[0] === vals[1] && drawnValue === vals[0]) {
       if (hidden.length) return { type: 'place', index: hidden[0] };
-      const replaceable = idxs.find((i) => grid[i] && grid[i].faceUp);
-      if (replaceable !== undefined) return { type: 'place', index: replaceable };
+      const rep = idxs.find((i) => grid[i]?.faceUp);
+      if (rep !== undefined) return { type: 'place', index: rep };
     }
-    // 1 visible + draw égale → placer sur une cachée de la colonne pour viser l'annulation
     if (vals.length === 1 && vals[0] === drawnValue && hidden.length) {
       return { type: 'place', index: hidden[0] };
     }
   }
 
-  // 2) Meilleur remplacement visible (gain de points max)
+  // 2) Meilleur remplacement visible (sans casser une paire de colonne)
   let bestReplace = null;
   let bestGain = 0;
   grid.forEach((cell, i) => {
-    if (!cell || !cell.faceUp) return;
+    if (!cell?.faceUp) return;
+    const col = i % 4;
+    const { vals } = skyjoColumnInfo(grid, col);
+    // Ne pas casser une double identique sauf gain énorme
+    if (vals.length === 2 && vals[0] === vals[1] && cell.card.value === vals[0] && drawnValue !== vals[0]) {
+      if (cell.card.value - drawnValue < 8) return;
+    }
     const gain = cell.card.value - drawnValue;
     if (gain > bestGain) {
       bestGain = gain;
@@ -498,33 +573,37 @@ function chooseSkyjoPlacement(state, botId) {
   if (bestReplace !== null && bestGain >= 2) return { type: 'place', index: bestReplace };
 
   const hiddenIndexes = grid.map((c, i) => (c && !c.faceUp ? i : -1)).filter((i) => i !== -1);
+  const minOppHidden = Math.min(
+    12,
+    ...state.players.filter((p) => p.id !== botId).map((p) => skyjoHiddenCount(p.grid || []))
+  );
 
-  // 3) Pioche sabot : révéler une case dans une colonne déjà engagée
-  if (state.drawnCard.source === 'deck' && hiddenIndexes.length) {
-    if (drawnValue >= 8 && bestReplace !== null) {
-      // Carte pourrie de la pioche : défausser + révéler
-    } else if (drawnValue <= 3 && bestReplace !== null && bestGain > 0) {
+  // 3) Pioche sabot : révéler (surtout en course) plutôt que poser une carte moyenne
+  if (fromDeck && hiddenIndexes.length) {
+    if (drawnValue <= 2 && bestReplace !== null && bestGain > 0) {
       return { type: 'place', index: bestReplace };
     }
-
-    // Préfère révéler dans colonne avec 1–2 visibles (info / annulation)
+    // En course adverse, révéler pour finir
     const scored = hiddenIndexes.map((i) => {
       const col = i % 4;
       const { vals } = skyjoColumnInfo(grid, col);
-      let s = vals.length * 3;
-      s -= Math.abs((i % 4) - 1.5); // léger biais centre
+      let s = vals.length * 4;
+      if (minOppHidden <= 3) s += 5;
+      s -= Math.abs(col - 1.5);
       return { i, s };
     });
     scored.sort((a, b) => b.s - a.s);
+    if (drawnValue >= 7 || bestGain < 2) return { type: 'reveal', index: scored[0].i };
+    if (bestReplace !== null && bestGain >= 1) return { type: 'place', index: bestReplace };
     return { type: 'reveal', index: scored[0].i };
   }
 
-  // 4) Défausse forcée à placer
   if (bestReplace !== null && bestGain > 0) return { type: 'place', index: bestReplace };
   if (hiddenIndexes.length) return { type: 'place', index: hiddenIndexes[0] };
   if (bestReplace !== null) return { type: 'place', index: bestReplace };
   return { type: 'place', index: grid.findIndex((c) => c) };
 }
+
 
 let scheduledSkyjoBotMove = null;
 
@@ -572,7 +651,7 @@ function suiteInfernaleFilledIndexes(sequence) {
   return sequence.map((c, i) => (c ? i : -1)).filter((i) => i !== -1);
 }
 
-// Politique du bot à la Suite Infernale (passe 2) :
+// Politique du bot à la Suite Infernale (passe 3) :
 // - avancer sa suite en priorité (nombre exact > joker+1 > joker+2)
 // - n'attaquer que si un adversaire est devant ou à égalité
 // - préférer voler/retirer sur le leader ; rejouer seulement si utile
@@ -607,7 +686,7 @@ function chooseSuiteInfernaleMove(state, botId) {
     .filter((c) => c.kind === 'special' && SUITE_INFERNALE_ATTACK_TYPES.includes(c.type))
     .sort((a, b) => attackPriority.indexOf(a.type) - attackPriority.indexOf(b.type));
 
-  if (behindLeader >= 0 || leaderProgress >= 5) {
+  if (behindLeader >= -1 || leaderProgress >= 4 || myProgress >= 6) {
     for (const card of attackCards) {
       const validTargets = opponents.filter((o) => {
         if (card.type === 'volerDerniere') return suiteInfernaleHighestFilledIndex(o.sequence) !== -1;
@@ -617,9 +696,10 @@ function chooseSuiteInfernaleMove(state, botId) {
         }
         if (card.type === 'volerUne' || card.type === 'retirerUne') return o.sequence.some(Boolean);
         if (card.type === 'echangerJeu') {
-          // Échanger la main seulement si la nôtre est mauvaise (peu de numéros utiles)
-          const useful = bot.hand.filter((c) => c.kind === 'number' && c.value === (neededIndex === -1 ? 99 : neededIndex + 1)).length;
-          return useful === 0;
+          const useful = bot.hand.filter(
+            (c) => c.kind === 'number' && neededIndex !== -1 && c.value === neededIndex + 1
+          ).length;
+          return useful === 0 && (o.hand?.length || 0) >= 3;
         }
         return true;
       });
@@ -628,12 +708,18 @@ function chooseSuiteInfernaleMove(state, botId) {
         (a, b) => suiteInfernaleHighestFilledIndex(b.sequence) - suiteInfernaleHighestFilledIndex(a.sequence)
       );
       const target = validTargets[0];
-      // Ne pas attaquer quelqu'un très derrière soi (sauf si on n'a rien d'autre)
-      if (suiteInfernaleHighestFilledIndex(target.sequence) < myProgress - 2 && attackCards.length > 1) continue;
+      if (suiteInfernaleHighestFilledIndex(target.sequence) < myProgress - 3 && attackCards.length > 1) continue;
       let slotIndex = null;
       if (card.type === 'volerUne' || card.type === 'retirerUne') {
         const indexes = suiteInfernaleFilledIndexes(target.sequence);
-        slotIndex = indexes[indexes.length - 1]; // case la plus avancée
+        // Si on vole : préférer une carte égale à notre prochain numéro
+        if (card.type === 'volerUne' && neededIndex !== -1) {
+          const needVal = neededIndex + 1;
+          const match = indexes.find((i) => target.sequence[i]?.value === needVal);
+          slotIndex = match !== undefined ? match : indexes[indexes.length - 1];
+        } else {
+          slotIndex = indexes[indexes.length - 1];
+        }
       }
       return { type: 'attack', cardId: card.id, targetId: target.id, slotIndex };
     }
@@ -797,7 +883,7 @@ function maybeScheduleTrouducExchangeBot(room) {
   });
 }
 
-// Politique du bot aux Cinq Rois (améliorée) :
+// Politique du bot aux Cinq Rois (passe 3) :
 // - pioche la défausse seulement si elle renforce vraiment la main
 //   (famille, suite, wild utile), pas juste parce qu'elle est « petite » ;
 // - à la défausse, cherche d'abord une carte dont le reste de la main est
@@ -879,9 +965,9 @@ function cinqRoisKeepValue(hand, card, trumpRank) {
   }
   let value = 0;
   const sameRank = cinqRoisRankCount(hand, card.rank, trumpRank);
-  if (sameRank >= 3) value += 25;
-  else if (sameRank === 2) value += 16;
-  else if (sameRank === 1) value += 4;
+  if (sameRank >= 3) value += 28;
+  else if (sameRank === 2) value += 20; // quasi-famille : très précieux
+  else if (sameRank === 1) value += 5;
 
   const ranks = cinqRoisSuitRanks(hand, card.suit, trumpRank);
   // Densité de voisins dans la couleur
@@ -1098,13 +1184,23 @@ function chooseLuckyNumbersMove(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   if (!bot) return { type: 'discard' };
 
+  const filled = (board) => board.filter(Boolean).length;
+  const myFilled = filled(bot.board);
+  const bestOppFilled = Math.max(
+    0,
+    ...state.players.filter((p) => p.id !== botId).map((p) => filled(p.board || []))
+  );
+  const racing = bestOppFilled >= myFilled && bestOppFilled >= 10;
+
   if (state.drawnTile) {
     const index = lnBestPlacement(bot.board, state.drawnTile.value);
     if (index === null) return { type: 'discard' };
+    // En course, accepter un placement un peu moins bon
+    const score = lnScorePlacement(bot.board, index, state.drawnTile.value);
+    if (!racing && score < -10 && myFilled < 12) return { type: 'discard' };
     return { type: 'place', index };
   }
 
-  // Défausse : prendre la tuile dont le meilleur placement est le plus prometteur
   let bestTake = null;
   let bestTakeScore = -Infinity;
   for (const tile of state.discard) {
@@ -1116,11 +1212,10 @@ function chooseLuckyNumbersMove(state, botId) {
       bestTake = { type: 'take', tileId: tile.id, index };
     }
   }
-  // Exige un vrai intérêt (au moins une case vide bien placée, score ≥ 0)
-  if (bestTake && bestTakeScore >= 0) return bestTake;
+  const takeThreshold = racing ? -5 : 0;
+  if (bestTake && bestTakeScore >= takeThreshold) return bestTake;
 
   if (state.stock.length > 0) return { type: 'draw' };
-  // Pioche vide : tenter quand même le meilleur take, même médiocre
   if (bestTake) return bestTake;
   return { type: 'discard' };
 }
