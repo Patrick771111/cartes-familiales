@@ -1883,24 +1883,49 @@ body.is-card-dragging * {
 .cinqrois-seat__score { font-weight: 400; opacity: 0.7; }
 .cinqrois-seat__status { margin: 2px 0 4px; font-size: 11px; opacity: 0.85; }
 .cinqrois-seat__backs { display: flex; }
+.cinqrois-seat__backs .cinqrois-card {
+  width: 28px;
+  height: 40px;
+  font-size: 10px;
+}
 .cinqrois-seat__backs .cinqrois-card--back {
   width: 14px; height: 20px; margin-left: -8px;
 }
 .cinqrois-seat__backs .cinqrois-card--back:first-child { margin-left: 0; }
 .cinqrois-center {
   display: flex;
-  gap: 24px;
+  gap: 28px;
   justify-content: center;
   align-items: flex-end;
-  padding: 8px 0;
+  padding: 10px 0 14px;
+  margin: 4px 0;
 }
 .cinqrois-pile, .cinqrois-discard {
+  cursor: default;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
 }
 .cinqrois-pile__label { font-size: 11px; opacity: 0.75; }
+.cinqrois-pile--active,
+.cinqrois-discard--active {
+  cursor: pointer;
+  border-radius: 12px;
+  padding: 4px;
+  transition: box-shadow 0.15s ease, background 0.15s ease;
+}
+.cinqrois-pile--active:hover,
+.cinqrois-discard--active:hover,
+.cinqrois-pile--active.dropzone--hover,
+.cinqrois-discard--active.dropzone--hover {
+  box-shadow: 0 0 0 2px var(--brass-soft, #e4c765);
+  background: rgba(228, 199, 101, 0.1);
+}
+.cinqrois-actions--compact {
+  gap: 6px;
+  padding: 4px 0 2px;
+}
 .cinqrois-me {
   background: rgba(0,0,0,0.35);
   border-radius: 12px;
@@ -1913,24 +1938,26 @@ body.is-card-dragging * {
 .cinqrois-me__hand {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
   justify-content: center;
 }
 .cinqrois-card {
   position: relative;
-  width: 40px;
-  height: 56px;
-  border-radius: 6px;
+  width: 52px;
+  height: 74px;
+  border-radius: 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 13px;
+  font-size: 16px;
   background: #f5f0e6;
   color: #1a1a1a;
   border: 1px solid rgba(0,0,0,0.15);
   user-select: none;
+  flex-shrink: 0;
+  touch-action: none;
 }
 .cinqrois-card--red { color: #b91c1c; }
 .cinqrois-card--gold { color: #a16207; }
@@ -1957,7 +1984,7 @@ body.is-card-dragging * {
   opacity: 0.4;
 }
 .cinqrois-card__rank { line-height: 1; }
-.cinqrois-card__suit { font-size: 14px; line-height: 1.1; }
+.cinqrois-card__suit { font-size: 18px; line-height: 1.1; }
 
 /* Thème "Marques auto" (voir cardThemes.js) : illustration en fond plutôt
    que le rang+symbole texte centrés. Le rang reste affiché (indispensable

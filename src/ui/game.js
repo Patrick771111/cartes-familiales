@@ -2367,25 +2367,12 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
         ${endGameActionsHtml()}
       </div>`;
   } else if (isMyTurn && state.phase === 'draw') {
-    actionsHtml = `
-      <div class="cinqrois-actions">
-        <button id="btn-cinqrois-stock" class="btn btn--primary">Pioche (${state.stock.length})</button>
-        <button id="btn-cinqrois-discard-draw" class="btn btn--secondary" ${
-          topDiscard ? '' : 'disabled'
-        }>Prendre défausse ${
-          topDiscard
-            ? topDiscard.isJoker
-              ? '(!)'
-              : `(${cinqRoisRankLabel(topDiscard.rank)}${cinqRoisSuitInfo(topDiscard.suit)?.symbol || ''})`
-            : ''
-        }</button>
-      </div>`;
+    actionsHtml = `<p class="cinqrois-hint">Touche ou glisse depuis la <strong>pioche</strong> ou la <strong>défausse</strong>.</p>`;
   } else if (isMyTurn && state.phase === 'discard') {
     actionsHtml = `
-      <div class="cinqrois-actions">
-        <p class="cinqrois-hint">Choisis une carte à défausser, puis éventuellement pose ta main.</p>
-        <button id="btn-cinqrois-discard" class="btn btn--primary" disabled>Défausser</button>
-        <button id="btn-cinqrois-goout" class="btn btn--secondary" disabled>Défausser &amp; poser</button>
+      <div class="cinqrois-actions cinqrois-actions--compact">
+        <p class="cinqrois-hint">Choisis une carte, puis touche la défausse (ou glisse-la dessus). Pose possible si ta main est valide.</p>
+        <button id="btn-cinqrois-goout" class="btn btn--ghost btn--small" disabled>Défausser &amp; poser</button>
       </div>`;
   } else if (me?.laidDown) {
     actionsHtml = `<p class="cinqrois-hint">Tu as posé ta main — en attente des autres…</p>`;
@@ -2400,11 +2387,19 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
       }</p>
       <div class="cinqrois-opponents">${othersHtml || '<p class="cinqrois-empty">Aucun adversaire</p>'}</div>
       <div class="cinqrois-center">
-        <div class="cinqrois-pile">
+        <div class="cinqrois-pile ${isMyTurn && state.phase === 'draw' ? 'cinqrois-pile--active' : ''}"
+             id="cinqrois-stock"
+             data-dropzone="cinqrois-stock"
+             data-card-id="stock"
+             title="Pioche">
           ${cinqRoisCardBackHtml()}
           <span class="cinqrois-pile__label">Pioche ${state.stock.length}</span>
         </div>
-        <div class="cinqrois-discard">
+        <div class="cinqrois-discard ${isMyTurn ? 'cinqrois-discard--active' : ''}"
+             id="cinqrois-discard-pile"
+             data-dropzone="cinqrois-discard"
+             data-card-id="discard"
+             title="Défausse">
           ${
             topDiscard
               ? cinqRoisCardHtml(topDiscard, state.trumpRank)
@@ -2440,61 +2435,90 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
   wireAbandonButton(container, { room, player, state, onLeave });
 
   let selectedCardId = null;
+  const canGoOutWith = (cardId) => {
+    if (!me || !cardId) return false;
+    const remaining = me.hand.filter((c) => c.id !== cardId);
+    return remaining.length >= 3 && cinqRoisCanGoOut(remaining, state.trumpRank);
+  };
   const refreshSelection = () => {
     container.querySelectorAll('#cinqrois-hand .cinqrois-card').forEach((el) => {
       el.classList.toggle('cinqrois-card--selected', el.dataset.cardId === selectedCardId);
     });
-    const discardBtn = container.querySelector('#btn-cinqrois-discard');
     const goOutBtn = container.querySelector('#btn-cinqrois-goout');
-    if (discardBtn) discardBtn.disabled = !selectedCardId;
-    if (goOutBtn) {
-      if (!selectedCardId || !me) {
-        goOutBtn.disabled = true;
-      } else {
-        const remaining = me.hand.filter((c) => c.id !== selectedCardId);
-        goOutBtn.disabled = remaining.length < 3 || !cinqRoisCanGoOut(remaining, state.trumpRank);
-      }
-    }
+    if (goOutBtn) goOutBtn.disabled = !canGoOutWith(selectedCardId);
   };
 
-  if (isMyTurn && state.phase === 'discard') {
-    container.querySelectorAll('#cinqrois-hand .cinqrois-card').forEach((el) => {
-      el.style.cursor = 'pointer';
-      el.addEventListener('click', () => {
-        selectedCardId = el.dataset.cardId;
-        refreshSelection();
-      });
-    });
-  }
-
-  container.querySelector('#btn-cinqrois-stock')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
+  const doDrawStock = async () => {
     try {
       await drawCinqRoisFromStock(room, player.id);
     } catch (err) {
-      e.target.disabled = false;
       alert(err.message || 'Impossible de piocher.');
     }
-  });
-  container.querySelector('#btn-cinqrois-discard-draw')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
+  };
+  const doDrawDiscard = async () => {
+    if (!topDiscard) return;
     try {
       await drawCinqRoisFromDiscard(room, player.id);
     } catch (err) {
-      e.target.disabled = false;
       alert(err.message || 'Impossible de prendre la défausse.');
     }
-  });
-  container.querySelector('#btn-cinqrois-discard')?.addEventListener('click', async (e) => {
-    if (!selectedCardId) return;
-    e.target.disabled = true;
+  };
+  const doDiscard = async (cardId, goOut) => {
+    if (!cardId) return;
     try {
-      await discardCinqRois(room, player.id, selectedCardId, false);
+      await discardCinqRois(room, player.id, cardId, goOut);
     } catch (err) {
-      e.target.disabled = false;
-      alert(err.message || 'Impossible de défausser.');
+      alert(err.message || (goOut ? 'Impossible de poser.' : 'Impossible de défausser.'));
     }
-  });
+  };
+
+  if (isMyTurn && state.phase === 'draw') {
+    container.querySelector('#cinqrois-stock')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      doDrawStock();
+    });
+    container.querySelector('#cinqrois-discard-pile')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      doDrawDiscard();
+    });
+    // Tap / glisser depuis les piles (même zone)
+    const center = container.querySelector('.cinqrois-center');
+    if (center) {
+      enableDragToZone(center, {
+        dragEnabled: isCardDragEnabled(),
+        onTap: (id) => {
+          if (id === 'stock') doDrawStock();
+          else if (id === 'discard') doDrawDiscard();
+        },
+        onDrop: () => {}
+      });
+    }
+  }
+
+  if (isMyTurn && state.phase === 'discard') {
+    const handEl = container.querySelector('#cinqrois-hand');
+    handEl?.querySelectorAll('.cinqrois-card[data-card-id]').forEach((el) => {
+      el.style.cursor = isCardDragEnabled() ? 'grab' : 'pointer';
+    });
+    // Sélection au tap + dépôt sur la défausse
+    if (handEl) {
+      enableDragToZone(handEl, {
+        dragEnabled: isCardDragEnabled(),
+        onTap: (id) => {
+          selectedCardId = selectedCardId === id ? null : id;
+          refreshSelection();
+        },
+        onDrop: (id, zone) => {
+          if (zone?.dropzone === 'cinqrois-discard') doDiscard(id, false);
+        }
+      });
+    }
+    container.querySelector('#cinqrois-discard-pile')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (selectedCardId) doDiscard(selectedCardId, false);
+    });
+  }
+
   container.querySelector('#btn-cinqrois-goout')?.addEventListener('click', async (e) => {
     if (!selectedCardId) return;
     e.target.disabled = true;
