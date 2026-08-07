@@ -615,28 +615,53 @@ function maybeScheduleSkyjoBotMove(room) {
   const bot = room.state.players.find((p) => p.id === currentId && p.isBot);
   if (!bot) return;
 
-  const signature = `${room.id}:${room.version}`;
+  // Inclure l'étape (pioche vs pose) pour pouvoir enchaîner après une pioche.
+  const step = room.state.drawnCard ? 'place' : 'draw';
+  const signature = `${room.id}:${room.version}:${currentId}:${step}`;
   if (scheduledSkyjoBotMove === signature) return;
   scheduledSkyjoBotMove = signature;
 
   window.setTimeout(async () => {
     try {
-      const fresh = await fetchRoomById(room.id);
+      let fresh = await fetchRoomById(room.id);
       if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId) return;
 
+      // Tour complet en un seul timeout : pioche puis pose/révélation.
+      // (Sinon, si le realtime rate un événement, le bot reste bloqué avec une carte en main.)
       if (!fresh.state.drawnCard) {
         const source = chooseSkyjoDrawSource(fresh.state, currentId);
-        if (source === 'discard') await drawSkyjoFromDiscard(fresh, currentId);
-        else await drawSkyjoFromDeck(fresh, currentId);
+        if (source === 'discard' && fresh.state.discard?.length) {
+          fresh = await drawSkyjoFromDiscard(fresh, currentId);
+        } else {
+          fresh = await drawSkyjoFromDeck(fresh, currentId);
+        }
+      }
+
+      if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId) return;
+      if (!fresh.state.drawnCard) return;
+
+      const move = chooseSkyjoPlacement(fresh.state, currentId);
+      const grid = fresh.state.players.find((p) => p.id === currentId)?.grid || [];
+      const index = move?.index;
+      const cell = Number.isInteger(index) ? grid[index] : null;
+      if (!cell) {
+        // Aucune case valide : forcer une case encore présente
+        const fallback = grid.findIndex((c) => c);
+        if (fallback < 0) return;
+        await placeSkyjoCard(fresh, currentId, fallback);
+        return;
+      }
+
+      if (move.type === 'reveal' && fresh.state.drawnCard.source === 'deck' && cell && !cell.faceUp) {
+        await discardSkyjoAndReveal(fresh, currentId, index);
       } else {
-        const move = chooseSkyjoPlacement(fresh.state, currentId);
-        if (move.type === 'place') await placeSkyjoCard(fresh, currentId, move.index);
-        else await discardSkyjoAndReveal(fresh, currentId, move.index);
+        await placeSkyjoCard(fresh, currentId, index);
       }
     } catch (err) {
-      // Idem : un autre appareil a probablement déjà joué, la resynchro realtime prend le relais.
+      // Permettre un nouvel essai sur le prochain draw()
+      scheduledSkyjoBotMove = null;
     }
-  }, 900 + Math.random() * 700);
+  }, 700 + Math.random() * 500);
 }
 
 const SUITE_INFERNALE_ATTACK_TYPES = ['volerDerniere', 'volerUne', 'retirerUne', 'retirerDeux', 'echangerJeu', 'changerPlace'];
