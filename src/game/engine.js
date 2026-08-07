@@ -5,7 +5,7 @@
 // automatique et transparent sur Supabase sinon (voir ce fichier pour le
 // détail).
 import { createRoom, listRooms, deleteRoom } from '../supabase/sync.js';
-import { fetchRoomById, updateRoomState, subscribeRoom, ConflictError, initRelay, isRelayActive } from '../webrtc/relay.js';
+import { fetchRoomById, updateRoomState, subscribeRoom, ConflictError, initRelay, isRelayActive, stopRelay } from '../webrtc/relay.js';
 export { ConflictError };
 import { initGame as initPouilleux, applyDraw } from './pouilleux.js';
 import { initGame as initTrouduc, applyPlay as applyTrouducPlay, applyPass as applyTrouducPass, applyExchangeChoice } from './trouduc.js';
@@ -986,4 +986,4 @@ export function watchRoom(roomId, onChange) {
   return subscribeRoom(roomId, onChange);
 }
 
-export { fetchRoomById, initRelay, isRelayActive };
+export { fetchRoomById, initRelay, isRelayActive, stopRelay };

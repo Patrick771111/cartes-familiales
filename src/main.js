@@ -47,7 +47,8 @@ import {
   fetchRoomById,
   watchRoom,
   initRelay,
-  isRelayActive
+  isRelayActive,
+  stopRelay
 } from './game/engine.js';
 import { playerToDrawFrom } from './game/pouilleux.js';
 import { rankValue as trouducRankValue } from './game/trouduc.js';
@@ -981,8 +982,9 @@ function renderCrashRecovery(container, { onReset }) {
  */
 function maybeReinitRelay(room) {
   const hostId = room.state.hostId ?? null;
-  if (hostId === lastRelayHostId) return;
   lastRelayHostId = hostId;
+  // initRelay est idempotent : si hôte/table inchangés, il ne refait que
+  // retenter une liaison invité manquante (sans tout détruire).
   initRelay(room, currentPlayer).catch(() => {});
 }
 
@@ -1164,6 +1166,7 @@ async function resetRoomSessionAndShowList() {
     unsubscribe();
     unsubscribe = null;
   }
+  stopRelay();
   currentRoomId = null;
   currentRoomRef = null;
   hasLeftTable = false;
