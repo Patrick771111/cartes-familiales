@@ -83,11 +83,14 @@ function sortedHand(hand) {
  * propre à chaque jeu comme les rôles du Trou du Cul ou l'argent du Blackjack
  * est conservé), soit on retourne au lobby (tout est remis à zéro).
  */
-function endGameActionsHtml() {
+/** Boutons de fin de manche. `opts.lobby` / `opts.continueBtn` (défaut true). */
+function endGameActionsHtml(opts = {}) {
+  const showContinue = opts.continueBtn !== false;
+  const showLobby = opts.lobby !== false;
   return `
     <div class="end-actions">
-      <button class="btn btn--primary" id="btn-continue">Continuer</button>
-      <button class="btn btn--ghost" id="btn-lobby">Retour au lobby</button>
+      ${showContinue ? '<button class="btn btn--primary" id="btn-continue">Continuer</button>' : ''}
+      ${showLobby ? '<button class="btn btn--ghost" id="btn-lobby">Retour au lobby</button>' : ''}
     </div>
   `;
 }
@@ -1520,7 +1523,13 @@ function renderFlip7Table(container, { room, player, state, onLeave }) {
             : ''
         }
 
-        ${finished ? endGameActionsHtml() : ''}
+        ${
+          finished
+            ? state.gameWinnerId
+              ? endGameActionsHtml({ continueBtn: false, lobby: true })
+              : endGameActionsHtml({ continueBtn: true, lobby: false })
+            : ''
+        }
 
         <details class="log">
           <summary>Journal de la partie</summary>
