@@ -1605,7 +1605,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
         <div class="skyjo-draw-area">
           <button type="button" class="skyjo-pile skyjo-pile--discard ${canDraw ? 'skyjo-pile--pickable' : ''} ${canAct ? 'skyjo-pile--dimmed' : ''}" id="btn-draw-discard" ${canDraw ? '' : 'disabled'} ${canDraw && topDiscard ? 'data-card-id="discard-pile"' : ''}>
             ${topDiscard ? `<div class="skyjo-cell skyjo-cell--faceup ${skyjoValueClass(topDiscard.value)}">${topDiscard.value}</div>` : ''}
-            <span class="skyjo-pile__label">Défausse${canDraw && topDiscard ? ' · glisse-la vers ta grille' : ''}</span>
+            <span class="skyjo-pile__label">Défausse</span>
           </button>
 
           ${

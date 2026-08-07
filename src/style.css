@@ -1353,13 +1353,18 @@ h1 {
   gap: 6px;
   cursor: default;
   opacity: 0.6;
+  /* Largeur fixe (assez pour "Pioche (150)") : le texte du compteur de pioche
+     change de longueur selon le nombre de cartes restantes, sans ça la tuile
+     se redimensionne et toute la zone recentrée (justify-content: center sur
+     .skyjo-draw-area) se met à bouger. */
+  min-width: 90px;
 }
 .skyjo-pile .skyjo-cell { width: 48px; height: 48px; font-size: 20px; }
 .skyjo-pile--pickable { cursor: pointer; opacity: 1; }
 .skyjo-pile--discard[data-card-id] { cursor: grab; touch-action: none; }
 .skyjo-pile--discard[data-card-id].is-dragging-away { cursor: grabbing; }
 .skyjo-pile--pickable .skyjo-cell { box-shadow: 0 0 0 3px var(--brass-soft), 0 6px 16px rgba(0,0,0,0.4); }
-.skyjo-pile__label { font-family: var(--font-mono); font-size: 11px; color: rgba(247, 241, 225, 0.7); }
+.skyjo-pile__label { font-family: var(--font-mono); font-size: 11px; color: rgba(247, 241, 225, 0.7); text-align: center; }
 
 /* Défausse une fois la pioche faite : plus prenable ce tour-ci, mais reste
    visible (grisée) plutôt que de disparaître. */
