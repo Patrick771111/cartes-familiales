@@ -2293,8 +2293,8 @@ body.is-card-dragging * {
 }
 
 /* ===== Fonds thématiques par jeu =====
-   Objectif : remplacer le vert uni, rester discret pour la lisibilité des cartes.
-   Motifs en CSS / SVG data-URI (légers). Trou du Cul = illustrations de rôle. */
+   Illustrations vectorielles minimalistes (laiton / feutre) en watermark.
+   Dégradé feutre par-dessus pour garder ~15–20 % de l'image visible. */
 
 .screen--table {
   background-color: var(--felt-900);
@@ -2302,92 +2302,136 @@ body.is-card-dragging * {
   background-attachment: fixed;
 }
 
-/* --- Pouilleux : table de cuisine usée --- */
+/* --- Pouilleux --- */
 .pouilleux-screen {
-  background:
-    radial-gradient(ellipse 90% 70% at 50% 40%, rgba(70, 90, 55, 0.45), transparent 70%),
-    linear-gradient(165deg, #2a3a28 0%, #1a2418 45%, #121810 100%);
-}
-.pouilleux-screen .table-felt {
-  background:
-    radial-gradient(120% 100% at 50% 30%, rgba(55, 75, 48, 0.92), rgba(28, 40, 26, 0.95) 75%);
+  background-image:
+    linear-gradient(165deg, rgba(15, 46, 33, 0.88), rgba(15, 46, 33, 0.94)),
+    url('/assets/backgrounds/games/pouilleux.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
-/* --- 8 américain : route / diner --- */
+/* --- 8 américain --- */
 .americain-screen {
-  background:
-    radial-gradient(ellipse 80% 60% at 50% 35%, rgba(40, 60, 100, 0.4), transparent 65%),
-    linear-gradient(160deg, #1a2740 0%, #121a2a 50%, #0c1018 100%);
+  background-image:
+    linear-gradient(165deg, rgba(15, 46, 33, 0.86), rgba(12, 36, 28, 0.94)),
+    url('/assets/backgrounds/games/americain.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 .americain-felt {
-  background:
-    radial-gradient(120% 100% at 50% 30%, rgba(45, 70, 110, 0.9), rgba(22, 32, 50, 0.95) 75%) !important;
+  background-image:
+    radial-gradient(120% 100% at 50% 30%, rgba(43, 90, 66, 0.82), rgba(23, 61, 44, 0.9) 75%),
+    url('/assets/backgrounds/games/americain.jpg') !important;
+  background-size: cover, cover !important;
+  background-position: center, center !important;
+  background-repeat: no-repeat !important;
 }
 
-/* --- Blackjack : casino --- */
+/* --- Blackjack --- */
 .blackjack-screen {
-  background:
-    radial-gradient(ellipse 85% 55% at 50% 45%, rgba(30, 90, 50, 0.35), transparent 70%),
-    linear-gradient(170deg, #0f2a1c 0%, #0a1a12 55%, #06100b 100%);
+  background-image:
+    linear-gradient(170deg, rgba(15, 46, 33, 0.86), rgba(10, 32, 22, 0.94)),
+    url('/assets/backgrounds/games/blackjack.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 .blackjack-felt {
-  background:
-    radial-gradient(ellipse 100% 80% at 50% 40%, rgba(25, 90, 55, 0.88), rgba(12, 40, 28, 0.96) 80%) !important;
-  box-shadow: inset 0 0 0 2px rgba(201, 162, 39, 0.22);
+  background-image:
+    radial-gradient(ellipse 100% 80% at 50% 40%, rgba(43, 90, 66, 0.8), rgba(23, 61, 44, 0.9) 80%),
+    url('/assets/backgrounds/games/blackjack.jpg') !important;
+  background-size: cover, cover !important;
+  background-position: center, center !important;
+  background-repeat: no-repeat !important;
+  box-shadow: inset 0 0 0 2px rgba(201, 162, 39, 0.2);
 }
 
-/* --- Flip 7 : arcade --- */
+/* --- Flip 7 --- */
 .flip7-screen {
-  background:
-    radial-gradient(ellipse 70% 50% at 50% 30%, rgba(90, 50, 140, 0.35), transparent 65%),
-    linear-gradient(155deg, #2a1850 0%, #1a1035 45%, #0e0a1c 100%);
+  background-image:
+    linear-gradient(155deg, rgba(15, 46, 33, 0.86), rgba(12, 34, 28, 0.94)),
+    url('/assets/backgrounds/games/flip7.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 .flip7-felt {
-  background:
-    radial-gradient(120% 100% at 50% 30%, rgba(70, 45, 120, 0.88), rgba(30, 18, 55, 0.95) 75%) !important;
+  background-image:
+    radial-gradient(120% 100% at 50% 30%, rgba(43, 90, 66, 0.8), rgba(23, 61, 44, 0.9) 75%),
+    url('/assets/backgrounds/games/flip7.jpg') !important;
+  background-size: cover, cover !important;
+  background-position: center, center !important;
+  background-repeat: no-repeat !important;
 }
 
-/* --- Skyjo : ciel / grille --- */
+/* --- Skyjo --- */
 .skyjo-screen {
-  background:
-    radial-gradient(ellipse 100% 80% at 50% 0%, rgba(90, 130, 170, 0.28), transparent 55%),
-    linear-gradient(180deg, #2a3a4a 0%, #1a2835 50%, #121c28 100%);
+  background-image:
+    linear-gradient(180deg, rgba(15, 46, 33, 0.86), rgba(12, 34, 28, 0.94)),
+    url('/assets/backgrounds/games/skyjo.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 .skyjo-felt {
-  background:
-    radial-gradient(120% 100% at 50% 30%, rgba(55, 80, 105, 0.9), rgba(28, 42, 58, 0.95) 75%) !important;
+  background-image:
+    radial-gradient(120% 100% at 50% 30%, rgba(43, 90, 66, 0.8), rgba(23, 61, 44, 0.9) 75%),
+    url('/assets/backgrounds/games/skyjo.jpg') !important;
+  background-size: cover, cover !important;
+  background-position: center, center !important;
+  background-repeat: no-repeat !important;
 }
 
-/* --- Suite Infernale : braise --- */
+/* --- Suite Infernale --- */
 .suiteinfernale-screen {
-  background:
-    radial-gradient(ellipse 70% 50% at 50% 60%, rgba(120, 40, 30, 0.35), transparent 65%),
-    linear-gradient(170deg, #2a1210 0%, #1a0c0a 50%, #0e0808 100%);
+  background-image:
+    linear-gradient(170deg, rgba(15, 46, 33, 0.86), rgba(18, 28, 22, 0.94)),
+    url('/assets/backgrounds/games/suiteinfernale.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 .suiteinfernale-felt {
-  background:
-    radial-gradient(120% 100% at 50% 30%, rgba(90, 35, 30, 0.88), rgba(40, 15, 14, 0.95) 75%) !important;
+  background-image:
+    radial-gradient(120% 100% at 50% 30%, rgba(43, 90, 66, 0.8), rgba(23, 61, 44, 0.9) 75%),
+    url('/assets/backgrounds/games/suiteinfernale.jpg') !important;
+  background-size: cover, cover !important;
+  background-position: center, center !important;
+  background-repeat: no-repeat !important;
 }
 
-/* --- Cinq Rois : pourpre royal --- */
+/* --- Cinq Rois --- */
 .cinqrois-screen {
-  background:
-    radial-gradient(ellipse 80% 60% at 50% 30%, rgba(100, 60, 130, 0.3), transparent 65%),
-    linear-gradient(165deg, #2a1838 0%, #1a1024 50%, #100c18 100%);
+  background-image:
+    linear-gradient(165deg, rgba(15, 46, 33, 0.86), rgba(14, 32, 26, 0.94)),
+    url('/assets/backgrounds/games/cinqrois.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
-/* --- Lucky Numbers : jardin --- */
+/* --- Lucky Numbers --- */
 .lucky-screen {
-  background:
-    radial-gradient(ellipse 90% 70% at 50% 40%, rgba(60, 110, 55, 0.3), transparent 70%),
-    linear-gradient(160deg, #1e3a22 0%, #142818 50%, #0c1810 100%);
+  background-image:
+    linear-gradient(160deg, rgba(15, 46, 33, 0.86), rgba(12, 36, 24, 0.94)),
+    url('/assets/backgrounds/games/luckynumbers.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 .lucky-felt {
-  background:
-    radial-gradient(120% 100% at 50% 30%, rgba(45, 90, 50, 0.88), rgba(22, 45, 28, 0.95) 75%) !important;
+  background-image:
+    radial-gradient(120% 100% at 50% 30%, rgba(43, 90, 66, 0.8), rgba(23, 61, 44, 0.9) 75%),
+    url('/assets/backgrounds/games/luckynumbers.jpg') !important;
+  background-size: cover, cover !important;
+  background-position: center, center !important;
+  background-repeat: no-repeat !important;
 }
 
-/* --- Trou du Cul : illustrations selon le rôle du joueur local --- */
+/* --- Trou du Cul : illustrations selon le rôle --- */
 .trouduc-screen {
   background-color: #1a1210;
   background-size: cover;
@@ -2425,7 +2469,6 @@ body.is-card-dragging * {
     linear-gradient(165deg, #2a1a1c 0%, #1a1012 50%, #100c0c 100%);
 }
 
-/* Teintes de felt par rôle (légère variation) */
 .trouduc-role-president .trouduc-felt {
   background:
     radial-gradient(120% 100% at 50% 30%, rgba(70, 35, 40, 0.85), rgba(28, 14, 18, 0.92) 75%) !important;
@@ -2443,7 +2486,6 @@ body.is-card-dragging * {
     radial-gradient(120% 100% at 50% 30%, rgba(45, 60, 42, 0.85), rgba(18, 26, 18, 0.92) 75%) !important;
 }
 
-/* Fin de manche Trou du Cul : même illustration selon le rôle */
 .screen--end.trouduc-screen {
   background-size: cover;
   background-position: center top;
