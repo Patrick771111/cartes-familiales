@@ -48,3 +48,11 @@ create policy "ecriture publique" on game_rooms
 drop policy if exists "creation publique" on game_rooms;
 create policy "creation publique" on game_rooms
   for insert with check (true);
+
+-- Sans cette policy, `delete` est silencieusement bloqué par RLS (0 ligne
+-- affectée, pas d'erreur renvoyée) : c'est ce qui empêchait la fermeture des
+-- salons fantômes (voir `deleteRoom` dans supabase/sync.js) de fonctionner
+-- en production alors que la logique applicative, elle, était correcte.
+drop policy if exists "suppression publique" on game_rooms;
+create policy "suppression publique" on game_rooms
+  for delete using (true);
