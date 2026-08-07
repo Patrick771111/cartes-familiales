@@ -1669,7 +1669,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
       </div>
 
       <div class="skyjo-my-grid-dock">
-        <p class="my-hand__label">Ta grille · Score total : ${me.score}${me.id === state.gameWinnerId ? ' 🏆' : ''}${finished ? ` · ${me.roundScore ?? 0} pts cette manche` : ''}</p>
+        <p class="my-hand__label">Ta grille${connectionBadge(state, me.id)} · Score total : ${me.score}${me.id === state.gameWinnerId ? ' 🏆' : ''}${finished ? ` · ${me.roundScore ?? 0} pts cette manche` : ''}</p>
         <p class="skyjo-visible-sum">${myVisibleSum} pt${myVisibleSum > 1 ? 's' : ''} visible${myVisibleSum > 1 ? 's' : ''}</p>
         ${skyjoGridHtml(me.grid, myClickableClassFor, canAct || canDraw, myFlipTargetFor)}
       </div>

@@ -33,8 +33,24 @@ const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' }
-  ]
+    // TURN public (Metered openrelay) : indispensable iOS↔Android / hotspot,
+    // où les candidats locaux en .local (mDNS) ne se résolvent souvent pas.
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp'
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:80?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
+  ],
+  iceCandidatePoolSize: 4
 };
 const REQUEST_TIMEOUT_MS = 12000;
 const HEALTH_CHECK_TIMEOUT_MS = 6000;
@@ -388,7 +404,35 @@ async function armGuestConnection() {
     const offer = await pc.createOffer();
     if (generation !== guestConnectGeneration) return;
     await pc.setLocalDescription(offer);
-    signal?.send({ type: 'offer', from: myPlayerId, to: currentHostId, sdp: pc.localDescription.toJSON() });
+    const payload = { type: 'offer', from: myPlayerId, to: currentHostId, sdp: pc.localDescription.toJSON() };
+    signal?.send(payload);
+    // Renvoie l'offre tant que l'hôte n'a pas répondu (signal broadcast parfois perdu).
+    let attempts = 0;
+    const reoffer = setInterval(() => {
+      if (generation !== guestConnectGeneration || guestLink !== link) {
+        clearInterval(reoffer);
+        return;
+      }
+      if (pc.currentRemoteDescription || link.ready) {
+        clearInterval(reoffer);
+        return;
+      }
+      attempts += 1;
+      if (attempts > 6) {
+        clearInterval(reoffer);
+        if (guestLink === link) {
+          try {
+            pc.close();
+          } catch (e) {
+            /* ignore */
+          }
+          guestLink = null;
+          scheduleGuestReconnect();
+        }
+        return;
+      }
+      signal?.send(payload);
+    }, 2000);
   } catch (e) {
     if (guestLink === link) guestLink = null;
     scheduleGuestReconnect();
@@ -446,7 +490,16 @@ function guestLinkReady() {
 /* ============================== Signalisation ============================== */
 
 async function handleSignal(msg) {
-  if (!msg || msg.to !== myPlayerId) return;
+  if (!msg) return;
+  if (msg.to !== myPlayerId && msg.to !== '*') return;
+
+  // L'hôte vient (re)joindre le canal de signalisation → retenter l'offre.
+  if (msg.type === 'host-ready' && msg.from === currentHostId && myPlayerId !== currentHostId) {
+    if (!guestLinkReady()) {
+      armGuestConnection().catch(() => {});
+    }
+    return;
+  }
 
   if (msg.type === 'offer' && myPlayerId === currentHostId) {
     try {
@@ -517,6 +570,8 @@ export async function initRelay(
 
   if (myPlayerId === currentHostId) {
     await armHostRelay();
+    // Prévenir les invités déjà abonnés que l'hôte écoute (déclenche un re-offer).
+    signal?.send({ type: 'host-ready', from: myPlayerId, to: '*' });
   } else {
     await armGuestConnection();
   }
