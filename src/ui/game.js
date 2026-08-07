@@ -2525,6 +2525,9 @@ export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms 
   const state = room.state;
   const isTrouduc = room.game === 'trouduc';
   const currentName = state.players.find((p) => p.id === state.currentPlayerId)?.name;
+  // Jeux de plateau / info ouverte : tout est déjà visible, pas de bouton masquer.
+  const openInfoGame = room.game === 'luckynumbers' || room.game === 'flip7';
+  const showBoards = openInfoGame || revealHands;
 
   const pileHtml = isTrouduc
     ? state.pileCount > 0
@@ -2535,11 +2538,40 @@ export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms 
       : `<p class="trouduc-pile__empty">Pli libre</p>`
     : '';
 
+  // Lucky Numbers : pioche / défausse visibles aussi en spectateur
+  const luckyCenterHtml =
+    room.game === 'luckynumbers'
+      ? `<div class="lucky-draw-area spectator-lucky-center">
+           <div class="lucky-pile">
+             <div class="lucky-cell lucky-cell--back">🍀</div>
+             <span class="lucky-pile__label">Pioche (${state.stock?.length ?? 0})</span>
+           </div>
+           <div class="lucky-discard-row">
+             <span class="lucky-discard-label">Défausse</span>
+             <div class="lucky-discard-list">
+               ${(state.discard || [])
+                 .map((t) => `<span class="lucky-discard-tile" style="cursor:default">${t.value}</span>`)
+                 .join('') || '<span class="lucky-discard-empty">Aucune</span>'}
+             </div>
+           </div>
+           ${
+             state.drawnTile
+               ? `<div class="lucky-pile lucky-pile--drawn">
+                    <div class="lucky-cell lucky-cell--tile lucky-cell--drawn">${state.drawnTile.value}</div>
+                    <span class="lucky-pile__label">Piochée</span>
+                  </div>`
+               : ''
+           }
+         </div>`
+      : '';
+
   container.innerHTML = `
     <div class="screen screen--table">
       <div class="table-felt">
         <p class="eyebrow">Tu regardes — ${gameLabel || 'partie'} en cours</p>
         <button class="btn btn--link btn--small" id="btn-back-to-rooms">← Retour aux salons</button>
+
+        ${luckyCenterHtml}
 
         <ul class="spectator-players">
           ${state.players
@@ -2547,7 +2579,7 @@ export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms 
               const isTurn = p.id === state.currentPlayerId;
               const status = spectatorPlayerStatus(room.game, state, p, isTrouduc);
               const roleLabel = p.role ? `${p.role} · ` : '';
-              const handHtml = spectatorHandHtml(room.game, state, p, revealHands);
+              const handHtml = spectatorHandHtml(room.game, state, p, showBoards);
               return `
                 <li class="spectator-player ${isTurn ? 'spectator-player--turn' : ''}">
                   <div class="spectator-player__row">
@@ -2560,7 +2592,11 @@ export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms 
             .join('')}
         </ul>
 
-        <button id="btn-toggle-reveal" class="btn btn--ghost btn--small">${revealHands ? 'Masquer les mains' : 'Afficher les mains'}</button>
+        ${
+          openInfoGame
+            ? ''
+            : `<button id="btn-toggle-reveal" class="btn btn--ghost btn--small">${revealHands ? 'Masquer les mains' : 'Afficher les mains'}</button>`
+        }
 
         ${pileHtml}
 
