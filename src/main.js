@@ -599,29 +599,123 @@ function chooseCinqRoisMove(state, botId) {
 let scheduledCinqRoisBotMove = null;
 
 
-// Politique du bot à Lucky Numbers : défausse utile → pioche → place / défausse.
+// Politique du bot à Lucky Numbers :
+// - ne place jamais une valeur qui rend des cases vides impossibles à remplir
+//   (ex. un 1 en bas à droite bloque toute la rangée / colonne) ;
+// - préfère la case dont la valeur « idéale » (bas-droite = grands nombres)
+//   est la plus proche de la tuile ;
+// - privilégie les cases vides ; n'échange que si le gain de position est net ;
+// - défausse si aucun placement n'est raisonnable.
+const LN_DIM = 4;
+
 function lnValidPlacements(board, value) {
-  const DIM = 4;
   const out = [];
   for (let index = 0; index < 16; index++) {
-    const row = Math.floor(index / DIM);
-    const col = index % DIM;
-    let ok = true;
-    for (let c = 0; c < DIM && ok; c++) {
-      const i = row * DIM + c;
-      if (i === index || !board[i]) continue;
-      if (c < col && board[i].value >= value) ok = false;
-      if (c > col && board[i].value <= value) ok = false;
-    }
-    for (let r = 0; r < DIM && ok; r++) {
-      const i = r * DIM + col;
-      if (i === index || !board[i]) continue;
-      if (r < row && board[i].value >= value) ok = false;
-      if (r > row && board[i].value <= value) ok = false;
-    }
-    if (ok) out.push(index);
+    if (lnCanPlace(board, index, value)) out.push(index);
   }
   return out;
+}
+
+function lnCanPlace(board, index, value) {
+  const row = Math.floor(index / LN_DIM);
+  const col = index % LN_DIM;
+  for (let c = 0; c < LN_DIM; c++) {
+    const i = row * LN_DIM + c;
+    if (i === index || !board[i]) continue;
+    if (c < col && board[i].value >= value) return false;
+    if (c > col && board[i].value <= value) return false;
+  }
+  for (let r = 0; r < LN_DIM; r++) {
+    const i = r * LN_DIM + col;
+    if (i === index || !board[i]) continue;
+    if (r < row && board[i].value >= value) return false;
+    if (r > row && board[i].value <= value) return false;
+  }
+  return true;
+}
+
+/** Intervalle [min, max] encore possible pour une case vide, vu le plateau. */
+function lnCellBounds(board, index) {
+  const row = Math.floor(index / LN_DIM);
+  const col = index % LN_DIM;
+  let min = 1;
+  let max = 20;
+  for (let c = 0; c < LN_DIM; c++) {
+    const i = row * LN_DIM + c;
+    if (i === index || !board[i]) continue;
+    if (c < col) min = Math.max(min, board[i].value + 1);
+    if (c > col) max = Math.min(max, board[i].value - 1);
+  }
+  for (let r = 0; r < LN_DIM; r++) {
+    const i = r * LN_DIM + col;
+    if (i === index || !board[i]) continue;
+    if (r < row) min = Math.max(min, board[i].value + 1);
+    if (r > row) max = Math.min(max, board[i].value - 1);
+  }
+  return { min, max };
+}
+
+/**
+ * Après avoir posé `value` en `index`, toutes les cases encore vides doivent
+ * conserver un intervalle non vide — sinon la pose condamne le jardin.
+ */
+function lnPlacementKeepsBoardViable(board, index, value) {
+  const next = board.slice();
+  next[index] = { id: 'tmp', value };
+  for (let i = 0; i < 16; i++) {
+    if (next[i]) continue;
+    const { min, max } = lnCellBounds(next, i);
+    if (min > max) return false;
+  }
+  return true;
+}
+
+/** Valeur « idéale » pour une case : petits nombres en haut-gauche, grands en bas-droite. */
+function lnIdealValue(index) {
+  const row = Math.floor(index / LN_DIM);
+  const col = index % LN_DIM;
+  return 1 + Math.round(((row + col) / 6) * 19);
+}
+
+/**
+ * Score d'une pose : plus c'est haut, mieux c'est.
+ * −∞ si illégal ou si ça bloque des cases vides.
+ */
+function lnScorePlacement(board, index, value) {
+  if (!lnCanPlace(board, index, value)) return -Infinity;
+  if (!lnPlacementKeepsBoardViable(board, index, value)) return -Infinity;
+
+  const ideal = lnIdealValue(index);
+  const fit = -Math.abs(value - ideal); // 0 = parfait
+  const emptyBonus = board[index] ? 0 : 30;
+  // Échange : seulement intéressant si l'ancienne valeur collait moins bien
+  let swapBonus = 0;
+  if (board[index]) {
+    const oldFit = -Math.abs(board[index].value - ideal);
+    swapBonus = fit - oldFit; // positif si on améliore la case
+    if (swapBonus <= 0) return -Infinity; // pas d'échange inutile / dégradant
+  }
+  // Légère préférence pour les cases plus « centrales » de la diagonale de progression
+  const row = Math.floor(index / LN_DIM);
+  const col = index % LN_DIM;
+  const progressAlign = -Math.abs(row - col) * 0.5;
+
+  return emptyBonus + fit * 3 + swapBonus * 2 + progressAlign;
+}
+
+function lnBestPlacement(board, value) {
+  let best = null;
+  let bestScore = -Infinity;
+  for (let i = 0; i < 16; i++) {
+    const score = lnScorePlacement(board, i, value);
+    if (score > bestScore) {
+      bestScore = score;
+      best = i;
+    }
+  }
+  // Seuil : un score très bas (ex. mauvais fit sans case vide) → plutôt défausser
+  if (best === null || bestScore < -25) return null;
+  return best;
 }
 
 function chooseLuckyNumbersMove(state, botId) {
@@ -629,30 +723,29 @@ function chooseLuckyNumbersMove(state, botId) {
   if (!bot) return { type: 'discard' };
 
   if (state.drawnTile) {
-    const tile = state.drawnTile;
-    const placements = lnValidPlacements(bot.board, tile.value);
-    if (!placements.length) return { type: 'discard' };
-    placements.sort((a, b) => {
-      const emptyA = bot.board[a] ? 1 : 0;
-      const emptyB = bot.board[b] ? 1 : 0;
-      if (emptyA !== emptyB) return emptyA - emptyB;
-      return (bot.board[b]?.value || 0) - (bot.board[a]?.value || 0);
-    });
-    return { type: 'place', index: placements[0] };
+    const index = lnBestPlacement(bot.board, state.drawnTile.value);
+    if (index === null) return { type: 'discard' };
+    return { type: 'place', index };
   }
 
-  for (const tile of state.discard.slice().reverse()) {
-    const empties = lnValidPlacements(bot.board, tile.value).filter((i) => !bot.board[i]);
-    if (empties.length) return { type: 'take', tileId: tile.id, index: empties[0] };
-  }
-  for (const tile of state.discard.slice().reverse()) {
-    const swaps = lnValidPlacements(bot.board, tile.value).filter((i) => bot.board[i]);
-    if (swaps.length) {
-      swaps.sort((a, b) => (bot.board[b]?.value || 0) - (bot.board[a]?.value || 0));
-      return { type: 'take', tileId: tile.id, index: swaps[0] };
+  // Défausse : prendre la tuile dont le meilleur placement est le plus prometteur
+  let bestTake = null;
+  let bestTakeScore = -Infinity;
+  for (const tile of state.discard) {
+    const index = lnBestPlacement(bot.board, tile.value);
+    if (index === null) continue;
+    const score = lnScorePlacement(bot.board, index, tile.value);
+    if (score > bestTakeScore) {
+      bestTakeScore = score;
+      bestTake = { type: 'take', tileId: tile.id, index };
     }
   }
+  // Exige un vrai intérêt (au moins une case vide bien placée, score ≥ 0)
+  if (bestTake && bestTakeScore >= 0) return bestTake;
+
   if (state.stock.length > 0) return { type: 'draw' };
+  // Pioche vide : tenter quand même le meilleur take, même médiocre
+  if (bestTake) return bestTake;
   return { type: 'discard' };
 }
 
