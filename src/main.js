@@ -399,7 +399,8 @@ function maybeScheduleBlackjackBotMove(room) {
 function chooseFlip7Move(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   if (!bot) return { type: 'stay' };
-  if (bot.status && bot.status !== 'playing') return { type: 'stay' };
+  // Flip 7 utilise status 'active' (pas 'playing') tant que le joueur peut flipper.
+  if (bot.status && bot.status !== 'active') return { type: 'stay' };
 
   const numbers = bot.display.filter((c) => c.kind === 'number');
   const uniqueCount = numbers.length;
