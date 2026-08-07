@@ -111,10 +111,10 @@ function maybeScheduleBotMove(room) {
   }, 1000 + Math.random() * 700);
 }
 
-// Politique du bot au Trou du Cul : toujours jouer l'ensemble le plus faible
-// possible (pour relancer un pli libre comme pour battre — ou copier — le pli
-// en cours), sinon passer. Respecte le verrouillage de rang (rankLocked) une
-// fois qu'une copie a eu lieu. Aucune anticipation plus poussée — basique assumé.
+// Politique du bot au Trou du Cul :
+// - pli libre : se débarrasse du rang le plus faible en jouant le plus de cartes possible
+// - pli en cours : joue le plus petit rang légal (économie des gros atouts)
+// - si plusieurs quantités possibles, en joue pileCount (règle) ; préfère égaler le rang si possible
 function chooseTrouducMove(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   if (!bot) return { type: 'pass' };
@@ -126,20 +126,27 @@ function chooseTrouducMove(state, botId) {
   const sortedGroups = [...groups.entries()].sort((a, b) => trouducRankValue(a[0]) - trouducRankValue(b[0]));
 
   if (state.pileCount === 0) {
+    // Se débarrasser : plus grand paquet du rang le plus faible
     const [, cards] = sortedGroups[0];
     return { type: 'play', cardIds: cards.map((c) => c.id) };
   }
 
   const pileRankValue = trouducRankValue(state.pileRank);
+  let best = null;
+  let bestScore = Infinity;
   for (const [rank, cards] of sortedGroups) {
     if (cards.length < state.pileCount) continue;
     const rv = trouducRankValue(rank);
     const legal = state.rankLocked ? rv === pileRankValue : rv >= pileRankValue;
-    if (legal) {
-      return { type: 'play', cardIds: cards.slice(0, state.pileCount).map((c) => c.id) };
+    if (!legal) continue;
+    // Préfère égaler le rang du pli, sinon le plus petit surplus
+    const score = (rv === pileRankValue ? 0 : 10) + (rv - pileRankValue);
+    if (score < bestScore) {
+      bestScore = score;
+      best = cards.slice(0, state.pileCount).map((c) => c.id);
     }
   }
-  return { type: 'pass' };
+  return best ? { type: 'play', cardIds: best } : { type: 'pass' };
 }
 
 let scheduledTrouducBotMove = null;
@@ -172,18 +179,31 @@ function maybeScheduleTrouducBotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
-// Politique du bot au 8 américain : joue la première carte légale trouvée en
-// main (en gardant les 8 pour la fin s'il a mieux à jouer), sinon pioche. En
-// jouant un 8, choisit la couleur la plus représentée dans le reste de sa main
-// pour maximiser ses coups suivants. Aucune anticipation plus poussée.
+// Politique du bot au 8 américain :
+// - garde les 8 tant qu'une autre carte légale existe
+// - parmi les légales, préfère se débarrasser des figures / hautes cartes
+// - en jouant un 8, annonce la couleur la plus fréquente du reste de la main
 function chooseAmericainMove(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   if (!bot) return { type: 'draw' };
 
+  const rankWeight = (r) => {
+    if (r === 'A') return 14;
+    if (r === 'K') return 13;
+    if (r === 'Q') return 12;
+    if (r === 'J') return 11;
+    if (r === '8') return -1; // jamais choisi ici sauf seul légal
+    return parseInt(r, 10) || 0;
+  };
+
   const legalCards = bot.hand.filter((c) => americainIsLegalCard(state, c));
   if (!legalCards.length) return { type: 'draw' };
 
-  const card = legalCards.find((c) => c.rank !== '8') || legalCards[0];
+  const nonEights = legalCards.filter((c) => c.rank !== '8');
+  const pool = nonEights.length ? nonEights : legalCards;
+  pool.sort((a, b) => rankWeight(b.rank) - rankWeight(a.rank));
+  const card = pool[0];
+
   if (card.rank !== '8') return { type: 'play', cardId: card.id };
 
   const remaining = bot.hand.filter((c) => c.id !== card.id);
@@ -223,16 +243,28 @@ function maybeScheduleAmericainBotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
-// Politique du bot au Blackjack : tire tant que son total est inférieur à 17,
-// sinon reste — même seuil que la banque, aucune stratégie plus fine (ne
-// compte pas les cartes, ne tient pas compte de la carte visible de la
-// banque). La banque elle-même n'a pas besoin d'être planifiée ici : elle
-// n'est pas un "joueur", elle joue automatiquement et de façon synchrone dans
-// `blackjack.js` dès que le dernier joueur a fini son tour.
+// Politique du bot au Blackjack — stratégie de base simplifiée selon la carte
+// visible de la banque (pas de comptage). La banque joue automatiquement
+// dans blackjack.js une fois tous les joueurs restés / sautés.
 function chooseBlackjackMove(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   if (!bot) return { type: 'stand' };
-  return blackjackHandTotal(bot.hand) < 17 ? { type: 'hit' } : { type: 'stand' };
+  const total = blackjackHandTotal(bot.hand);
+  if (total >= 21) return { type: 'stand' };
+
+  const dealerUp = state.dealer?.hand?.[0];
+  let dealerVal = 10;
+  if (dealerUp) {
+    if (dealerUp.rank === 'A') dealerVal = 11;
+    else if (dealerUp.rank === 'J' || dealerUp.rank === 'Q' || dealerUp.rank === 'K') dealerVal = 10;
+    else dealerVal = parseInt(dealerUp.rank, 10) || 10;
+  }
+
+  // Banque faible (2–6) : reste dès 12 ; banque forte : tire jusqu'à 17.
+  if (dealerVal >= 2 && dealerVal <= 6) {
+    return total < 12 ? { type: 'hit' } : { type: 'stand' };
+  }
+  return total < 17 ? { type: 'hit' } : { type: 'stand' };
 }
 
 let scheduledBlackjackBotMove = null;
@@ -265,14 +297,26 @@ function maybeScheduleBlackjackBotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
-// Politique du bot à Flip 7 : flippe tant qu'il a moins de 5 numéros uniques
-// en main, reste au-delà — aucune stratégie plus fine (ne tient pas compte des
-// cartes déjà sorties, ni de son score cumulé par rapport aux autres).
+// Politique du bot à Flip 7 :
+// - risque croissant avec le nombre de numéros uniques (doublon = bust)
+// - plus agressif s'il est derrière au score, plus prudent s'il mène
+// - reste dès 6 uniques sauf s'il est très en retard
 function chooseFlip7Move(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   if (!bot) return { type: 'stay' };
   const uniqueCount = bot.display.filter((c) => c.kind === 'number').length;
-  return uniqueCount < 5 ? { type: 'hit' } : { type: 'stay' };
+  if (uniqueCount >= 7) return { type: 'stay' };
+
+  const myScore = bot.score ?? 0;
+  const bestOther = Math.max(0, ...state.players.filter((p) => p.id !== botId).map((p) => p.score ?? 0));
+  const behind = bestOther - myScore;
+
+  // Seuil de numéros uniques avant de rester
+  let stayAt = 5;
+  if (behind > 15) stayAt = 6; // rattrapage : prend plus de risques
+  if (behind < -20) stayAt = 4; // large avance : sécurise
+  if (uniqueCount >= stayAt) return { type: 'stay' };
+  return { type: 'hit' };
 }
 
 let scheduledFlip7BotMove = null;
@@ -305,16 +349,23 @@ function maybeScheduleFlip7BotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
-// Politique du bot à Skyjo : prend la défausse si elle vaut 3 ou moins (bonne
-// carte connue), sinon pioche à l'aveugle. Pour placer : remplace sa pire
-// carte visible si la carte en main est meilleure ; sinon défausse et
-// retourne une case cachée au hasard (une pioche du sabot seulement — une
-// carte prise à la défausse doit être placée) ; sinon, faute de case cachée,
-// place quand même sur sa pire carte visible. Aucune anticipation plus fine
-// (ne compte pas les cartes déjà vues, ne réagit pas aux grilles adverses).
+// Politique du bot à Skyjo :
+// - prend la défausse si elle bat sa pire carte visible, ou ≤ 4
+// - place en remplaçant la pire visible si gain clair
+// - sinon révèle une case cachée (pioche sabot) ; défausse forcée → place au mieux
+// - vise aussi les colonnes presque homogènes (3 mêmes valeurs = annulation)
 function chooseSkyjoDrawSource(state, botId) {
+  const bot = state.players.find((p) => p.id === botId);
   const topDiscard = state.discard[state.discard.length - 1];
-  return topDiscard && topDiscard.value <= 3 ? 'discard' : 'deck';
+  if (!topDiscard || !bot) return 'deck';
+
+  let worstVisible = -Infinity;
+  for (const cell of bot.grid) {
+    if (cell?.faceUp) worstVisible = Math.max(worstVisible, cell.card.value);
+  }
+  if (topDiscard.value <= 4) return 'discard';
+  if (worstVisible > -Infinity && topDiscard.value < worstVisible) return 'discard';
+  return 'deck';
 }
 
 function chooseSkyjoPlacement(state, botId) {
@@ -330,16 +381,46 @@ function chooseSkyjoPlacement(state, botId) {
       worstIndex = i;
     }
   });
+
+  // Bonus : compléter une colonne de 3 cartes identiques
+  let columnMatch = -1;
+  for (let col = 0; col < 4; col++) {
+    const vals = [];
+    const idxs = [];
+    for (let row = 0; row < 3; row++) {
+      const i = row * 4 + col;
+      const cell = grid[i];
+      if (!cell) continue;
+      idxs.push(i);
+      if (cell.faceUp) vals.push(cell.card.value);
+    }
+    if (vals.length === 2 && vals[0] === vals[1] && drawnValue === vals[0]) {
+      const hiddenInCol = idxs.find((i) => grid[i] && !grid[i].faceUp);
+      if (hiddenInCol !== undefined) columnMatch = hiddenInCol;
+      else {
+        const any = idxs.find((i) => grid[i]);
+        if (any !== undefined) columnMatch = any;
+      }
+    }
+  }
+  if (columnMatch !== -1) return { type: 'place', index: columnMatch };
+
   const hiddenIndexes = grid.map((c, i) => (c && !c.faceUp ? i : -1)).filter((i) => i !== -1);
 
   if (worstIndex !== -1 && drawnValue < worstValue) {
     return { type: 'place', index: worstIndex };
   }
   if (state.drawnCard.source === 'deck' && hiddenIndexes.length) {
-    return { type: 'reveal', index: hiddenIndexes[Math.floor(Math.random() * hiddenIndexes.length)] };
+    // Révèle plutôt vers le centre de la grille (plus d'info utile)
+    const preferred = hiddenIndexes.slice().sort((a, b) => {
+      const ca = a % 4;
+      const cb = b % 4;
+      return Math.abs(ca - 1.5) - Math.abs(cb - 1.5);
+    });
+    return { type: 'reveal', index: preferred[0] };
   }
   if (hiddenIndexes.length) {
-    return { type: 'place', index: hiddenIndexes[Math.floor(Math.random() * hiddenIndexes.length)] };
+    return { type: 'place', index: hiddenIndexes[0] };
   }
   if (worstIndex !== -1) return { type: 'place', index: worstIndex };
   return { type: 'place', index: grid.findIndex((c) => c) };
@@ -418,6 +499,7 @@ function chooseSuiteInfernaleMove(state, botId) {
   if (rejouer) return { type: 'rejouer', cardId: rejouer.id };
 
   const attackCards = bot.hand.filter((c) => c.kind === 'special' && SUITE_INFERNALE_ATTACK_TYPES.includes(c.type));
+  // Attaquer en priorité le joueur le plus avancé
   for (const card of shuffleCopy(attackCards)) {
     const opponents = state.players.filter((p) => p.id !== botId);
     const validTargets = opponents.filter((o) => {
@@ -427,14 +509,18 @@ function chooseSuiteInfernaleMove(state, botId) {
         return h >= 1 && o.sequence[h] && o.sequence[h - 1];
       }
       if (card.type === 'volerUne' || card.type === 'retirerUne') return o.sequence.some(Boolean);
-      return true; // echangerJeu, changerPlace
+      return true;
     });
     if (!validTargets.length) continue;
-    const target = validTargets[Math.floor(Math.random() * validTargets.length)];
+    validTargets.sort(
+      (a, b) => suiteInfernaleHighestFilledIndex(b.sequence) - suiteInfernaleHighestFilledIndex(a.sequence)
+    );
+    const target = validTargets[0];
     let slotIndex = null;
     if (card.type === 'volerUne' || card.type === 'retirerUne') {
       const indexes = suiteInfernaleFilledIndexes(target.sequence);
-      slotIndex = indexes[Math.floor(Math.random() * indexes.length)];
+      // Vise la case la plus avancée
+      slotIndex = indexes[indexes.length - 1];
     }
     return { type: 'attack', cardId: card.id, targetId: target.id, slotIndex };
   }
@@ -452,11 +538,19 @@ function shuffleCopy(arr) {
   return a;
 }
 
-/** Réaction du bot face à une attaque en attente : bloque avec un STOP s'il en a un, sinon laisse passer. */
+/** Réaction du bot face à une attaque : bloque les attaques graves (vol/échange), laisse passer le reste si peu avancé. */
 function chooseSuiteInfernaleReaction(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
+  if (!bot) return { block: false };
   const stopCard = bot.hand.find((c) => c.kind === 'special' && c.type === 'stop');
-  return stopCard ? { block: true, stopCardId: stopCard.id } : { block: false };
+  if (!stopCard) return { block: false };
+  const attackType = state.pendingAttack?.type;
+  const filled = suiteInfernaleHighestFilledIndex(bot.sequence) + 1;
+  // Toujours bloquer vol / échanger ; bloquer retirer si déjà bien avancé
+  const serious = ['volerDerniere', 'volerUne', 'echangerJeu', 'changerPlace'].includes(attackType);
+  const soft = ['retirerUne', 'retirerDeux'].includes(attackType) && filled >= 4;
+  if (serious || soft) return { block: true, stopCardId: stopCard.id };
+  return { block: false };
 }
 
 let scheduledSuiteInfernaleBotMove = null;
