@@ -2476,6 +2476,51 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
  * simplifiée par rapport à la table "joueur" (pas de main perso à afficher, pas
  * besoin de gérer les cas où le spectateur ne fait pas partie de `state.players`).
  */
+
+/** Statut lisible d'un joueur en vue spectateur, tous jeux confondus. */
+function spectatorPlayerStatus(game, state, p, isTrouduc) {
+  if (p.finished) return isTrouduc ? trouducRankLabel(p.rank) : 'sorti·e';
+  if (p.laidDown) return 'Posé ✓';
+  if (game === 'luckynumbers' && Array.isArray(p.board)) {
+    const empty = p.board.filter((c) => !c).length;
+    return `${16 - empty}/16 cases`;
+  }
+  if (game === 'skyjo' && Array.isArray(p.grid)) {
+    const faceUp = p.grid.filter((c) => c && c.faceUp).length;
+    return `${faceUp}/12 retournées · ${p.score ?? 0} pts`;
+  }
+  if (game === 'suiteinfernale' && Array.isArray(p.sequence)) {
+    return `${p.sequence.filter(Boolean).length}/${SUITE_INFERNALE_TARGET}`;
+  }
+  if (game === 'flip7' && Array.isArray(p.display)) {
+    return `${p.display.length} carte${p.display.length > 1 ? 's' : ''} · ${p.score ?? 0} pts`;
+  }
+  if (Array.isArray(p.hand)) {
+    return `${p.hand.length} carte${p.hand.length > 1 ? 's' : ''}${p.score != null ? ` · ${p.score} pts` : ''}`;
+  }
+  return p.score != null ? `${p.score} pts` : 'en jeu';
+}
+
+/** Aperçu optionnel des cartes en vue spectateur (si le jeu en a). */
+function spectatorHandHtml(game, state, p, reveal) {
+  if (!reveal) return '';
+  if (game === 'luckynumbers' && Array.isArray(p.board)) {
+    const cells = p.board.map((t) =>
+      t
+        ? `<span class="spectator-lucky-cell">${t.value}</span>`
+        : `<span class="spectator-lucky-cell spectator-lucky-cell--empty">·</span>`
+    ).join('');
+    return `<div class="spectator-player__hand spectator-player__hand--lucky">${cells}</div>`;
+  }
+  if (Array.isArray(p.laidCards) && p.laidCards.length) {
+    return `<div class="spectator-player__hand">${p.laidCards.map(cardFaceHtml).join('')}</div>`;
+  }
+  if (Array.isArray(p.hand) && p.hand.length) {
+    return `<div class="spectator-player__hand">${p.hand.map(cardFaceHtml).join('')}</div>`;
+  }
+  return '';
+}
+
 export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms }) {
   const state = room.state;
   const isTrouduc = room.game === 'trouduc';
@@ -2500,13 +2545,9 @@ export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms 
           ${state.players
             .map((p) => {
               const isTurn = p.id === state.currentPlayerId;
-              const status = p.finished
-                ? isTrouduc
-                  ? trouducRankLabel(p.rank)
-                  : 'sorti·e'
-                : `${p.hand.length} carte${p.hand.length > 1 ? 's' : ''}`;
+              const status = spectatorPlayerStatus(room.game, state, p, isTrouduc);
               const roleLabel = p.role ? `${p.role} · ` : '';
-              const handHtml = revealHands && p.hand.length ? `<div class="spectator-player__hand">${p.hand.map(cardFaceHtml).join('')}</div>` : '';
+              const handHtml = spectatorHandHtml(room.game, state, p, revealHands);
               return `
                 <li class="spectator-player ${isTurn ? 'spectator-player--turn' : ''}">
                   <div class="spectator-player__row">

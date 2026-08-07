@@ -2249,3 +2249,28 @@ h1 {
   75% { opacity: 1; }
   100% { opacity: 0; }
 }
+
+.spectator-player__hand--lucky {
+  display: grid;
+  grid-template-columns: repeat(4, 22px);
+  gap: 3px;
+  margin-top: 6px;
+}
+.spectator-lucky-cell {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #9fd48a;
+  color: #1a3a1a;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+}
+.spectator-lucky-cell--empty {
+  background: transparent;
+  border: 1px dashed rgba(247, 241, 225, 0.35);
+  color: transparent;
+}

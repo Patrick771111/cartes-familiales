@@ -1007,7 +1007,9 @@ function draw(room) {
   // une manche avant que je ne rejoigne) : on affiche un écran d'attente qui se
   // met à jour tout seul, plutôt que de tomber dans le rendu normal (qui suppose
   // toujours que le joueur local fait partie de la partie, et plante sinon).
-  if (!stillMember && room.state.status === 'playing') {
+  // Spectateur pour toute partie démarrée (playing / last_turns / finished)
+  // tant que le joueur local n'est pas dans state.players.
+  if (!stillMember && room.state.status !== 'lobby') {
     renderSpectatorGame(app, {
       room,
       gameLabel: GAME_TITLES[room.game],
