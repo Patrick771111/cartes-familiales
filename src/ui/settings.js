@@ -19,16 +19,28 @@ export const CARD_THEMES = [
   { id: 'mascotte', label: 'Mascotte', hint: 'Croquis dessinés à la main pour les figures et les cartes spéciales.' }
 ];
 
-export const SUITE_INFERNALE_INTERACTIONS = [
-  { id: 'drag', label: 'Glisser-déposer', hint: 'Fais glisser une carte vers ta suite, un adversaire ou la défausse.' },
-  { id: 'tap', label: 'Toucher', hint: 'Touche une carte, puis choisis la cible dans une liste.' }
+/** Mode d'interaction commun à tous les jeux qui supportent le glisser-déposer. */
+export const CARD_INTERACTIONS = [
+  { id: 'drag', label: 'Glisser-déposer', hint: 'Souris ou doigt : glisse une carte vers sa cible. Un clic/tap court sélectionne encore.' },
+  { id: 'tap', label: 'Cliquer / toucher', hint: 'Clique ou touche une carte, puis la cible (case, adversaire, bouton…).' }
 ];
 
-const DEFAULTS = { felt: 'foret', cardTheme: 'classique', suiteInfernaleInteraction: 'drag' };
+export const SUITE_INFERNALE_INTERACTIONS = CARD_INTERACTIONS;
 
-/** Vrai si le glisser-déposer est actif à la Suite Infernale (préférence enregistrée, `'drag'` par défaut). */
+const DEFAULTS = { felt: 'foret', cardTheme: 'classique', cardInteraction: 'drag' };
+
+/**
+ * Préférence transverse : glisser-déposer actif (souris + tactile).
+ * Migre l'ancienne clé `suiteInfernaleInteraction` si présente.
+ */
+export function isCardDragEnabled(settings = getSettings()) {
+  const mode = settings.cardInteraction ?? settings.suiteInfernaleInteraction ?? 'drag';
+  return mode !== 'tap';
+}
+
+/** @deprecated Utiliser isCardDragEnabled — alias conservé. */
 export function isSuiteInfernaleDragEnabled(settings = getSettings()) {
-  return settings.suiteInfernaleInteraction !== 'tap';
+  return isCardDragEnabled(settings);
 }
 
 export function getSettings() {
@@ -36,7 +48,14 @@ export function getSettings() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULTS };
     const parsed = JSON.parse(raw);
-    return { ...DEFAULTS, ...parsed };
+    const merged = { ...DEFAULTS, ...parsed };
+    if (parsed.suiteInfernaleInteraction && !parsed.cardInteraction) {
+      merged.cardInteraction = parsed.suiteInfernaleInteraction;
+    }
+    if (merged.cardInteraction !== 'drag' && merged.cardInteraction !== 'tap') {
+      merged.cardInteraction = DEFAULTS.cardInteraction;
+    }
+    return merged;
   } catch {
     return { ...DEFAULTS };
   }
@@ -136,11 +155,11 @@ export function openSettingsModal() {
       </section>
 
       <section class="settings-section">
-        <p class="settings-section__label">Suite Infernale : jouer une carte</p>
+        <p class="settings-section__label">Jouer une carte</p>
         <div class="settings-card-themes">
-          ${SUITE_INFERNALE_INTERACTIONS.map(
+          ${CARD_INTERACTIONS.map(
             (opt) => `
-            <button type="button" class="settings-card-theme ${settings.suiteInfernaleInteraction === opt.id ? 'settings-card-theme--active' : ''}" data-suite-interaction-option="${opt.id}">
+            <button type="button" class="settings-card-theme ${(settings.cardInteraction || 'drag') === opt.id ? 'settings-card-theme--active' : ''}" data-card-interaction-option="${opt.id}">
               <span class="settings-card-theme__text">
                 <strong>${opt.label}</strong>
                 <small>${opt.hint}</small>
@@ -212,11 +231,11 @@ export function openSettingsModal() {
     });
   });
 
-  overlay.querySelectorAll('[data-suite-interaction-option]').forEach((btn) => {
+  overlay.querySelectorAll('[data-card-interaction-option]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      saveSettings({ suiteInfernaleInteraction: btn.dataset.suiteInteractionOption });
+      saveSettings({ cardInteraction: btn.dataset.cardInteractionOption });
       overlay
-        .querySelectorAll('[data-suite-interaction-option]')
+        .querySelectorAll('[data-card-interaction-option]')
         .forEach((b) => b.classList.toggle('settings-card-theme--active', b === btn));
     });
   });

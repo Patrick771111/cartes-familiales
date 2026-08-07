@@ -567,21 +567,30 @@ h1 {
   position: relative;
   z-index: 1;
 }
+@media (min-width: 700px) {
+  .trouduc-hand-row--2 {
+    margin-top: 6px;
+  }
+}
 .trouduc-hand-rows .card { width: 64px; height: 92px; }
 .trouduc-hand-rows .card__pip { font-size: 30px; }
 .trouduc-hand-rows .card__corner { font-size: 12px; }
 
 .hand-card {
+  position: relative;
   flex-shrink: 0;
   margin-left: -18px;
   cursor: pointer;
   transition: transform 0.15s ease, opacity 0.15s ease;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .hand-card:first-child { margin-left: 0; }
-.hand-card--selected { transform: translateY(-14px); z-index: 2; }
+.hand-card:hover { z-index: 8; }
+.hand-card--selected { transform: translateY(-14px); z-index: 10; }
 .hand-card--selected .card { box-shadow: 0 0 0 2px var(--brass), 0 10px 16px rgba(0,0,0,0.45); }
 .hand-card--unplayable { opacity: 0.35; cursor: default; }
-.hand-card--unplayable .card { filter: grayscale(0.6); }
+.hand-card--unplayable .card { filter: grayscale(0.6); pointer-events: none; }
 /* Carte reçue lors de l'échange (don d'office ou retour) : liseré doré, en
    plus de (et non à la place de) l'éventuel style de sélection en cours. */
 .hand-card--gifted { outline: 2px solid var(--brass-soft); outline-offset: 2px; border-radius: 10px; }
@@ -1536,6 +1545,14 @@ h1 {
   pointer-events: none;
   transform: scale(1.08) rotate(-2deg);
   transition: none;
+}
+body.is-card-dragging {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+body.is-card-dragging * {
+  cursor: grabbing !important;
 }
 [data-dropzone] { transition: box-shadow 0.15s ease, background 0.15s ease; border-radius: 12px; }
 [data-dropzone].dropzone--hover {

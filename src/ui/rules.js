@@ -107,7 +107,7 @@ const RULES = {
         <li>⚡ <strong>Rejouer 2 coups</strong> : pioche 2 cartes et joue 2 fois de suite.</li>
         <li>Premier à compléter sa suite de 1 à 10 : gagné, la partie s'arrête aussitôt !</li>
         <li>Une case de suite remplie par un Joker reste marquée comme telle (🃏), pour toujours voir si tu attaques un vrai numéro ou un Joker.</li>
-        <li>Pour jouer une carte : glisse-la vers sa cible (ta suite, un adversaire ou la défausse), ou touche-la pour choisir la cible dans une liste — au choix dans les réglages ⚙️.</li>
+        <li>Pour jouer une carte : glisse-la (souris ou doigt) vers sa cible, ou clique/touche-la pour choisir la cible — mode réglable dans ⚙️ pour tous les jeux.</li>
       </ul>
     `
   },

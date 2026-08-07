@@ -55,7 +55,7 @@ import { suitCardImage, cardBackImage, jokerImage, suiteInfernaleSpecialImage, f
 import { getOrderedHand, moveCard, resetHandOrder } from './handOrder.js';
 import { enableHandDrag } from './dragReorder.js';
 import { enableDragToZone } from './dragToZone.js';
-import { isSuiteInfernaleDragEnabled } from './settings.js';
+import { isCardDragEnabled } from './settings.js';
 import { openRulesModal } from './rules.js';
 
 /**
@@ -671,8 +671,19 @@ function renderTrouducExchange(container, { room, player, state, onLeave }) {
   wireAbandonButton(container, { room, player, state, onLeave });
 
   if (needsToChoose) {
-    container.querySelectorAll('.hand-card').forEach((el) => {
-      el.addEventListener('click', () => {
+    container.querySelectorAll('.hand-card').forEach((el, idx) => {
+      el.style.zIndex = String(idx + 1);
+      let ptr = null;
+      el.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        ptr = { id: el.dataset.cardId, x: e.clientX, y: e.clientY };
+      });
+      el.addEventListener('pointerup', (e) => {
+        if (!ptr || ptr.id !== el.dataset.cardId) return;
+        const dx = Math.abs(e.clientX - ptr.x);
+        const dy = Math.abs(e.clientY - ptr.y);
+        ptr = null;
+        if (dx > 12 || dy > 12) return;
         const id = el.dataset.cardId;
         if (exchangeSelectedCardIds.has(id)) {
           exchangeSelectedCardIds.delete(id);
@@ -954,23 +965,42 @@ function renderTrouducTable(container, { room, player, state, onLeave }) {
   });
 
   if (isMyTurn) {
-    container.querySelectorAll('.hand-card:not(.hand-card--unplayable)').forEach((el) => {
-      el.addEventListener('click', () => {
-        const id = el.dataset.cardId;
+    // Sélection fiable souris + tactile (pointerup), pas seulement `click`.
+    container.querySelectorAll('.hand-card:not(.hand-card--unplayable)').forEach((el, idx) => {
+      el.style.zIndex = String(idx + 1);
+      let ptr = null;
+      const selectCard = (id) => {
         const card = me.hand.find((c) => c.id === id);
+        if (!card) return;
         if (selectedCardIds.has(id)) {
           selectedCardIds.delete(id);
         } else if (state.pileCount > 0 && isRankPlayable(card.rank)) {
-          // Le pli en cours impose un nombre de cartes précis (paire, triple, carré) :
-          // un seul clic sur une carte du bon rang suffit à sélectionner tout le lot.
           selectedCardIds = new Set(
             me.hand.filter((c) => c.rank === card.rank).slice(0, state.pileCount).map((c) => c.id)
           );
         } else {
-          selectedCardIds.add(id);
+          if ([...selectedCardIds].some((sid) => me.hand.find((c) => c.id === sid)?.rank !== card.rank)) {
+            selectedCardIds = new Set([id]);
+          } else {
+            selectedCardIds.add(id);
+          }
         }
         renderTrouducTable(container, { room, player, state, onLeave });
+      };
+      el.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        ptr = { id: el.dataset.cardId, x: e.clientX, y: e.clientY };
       });
+      el.addEventListener('pointerup', (e) => {
+        if (!ptr || ptr.id !== el.dataset.cardId) return;
+        const dx = Math.abs(e.clientX - ptr.x);
+        const dy = Math.abs(e.clientY - ptr.y);
+        ptr = null;
+        if (dx > 12 || dy > 12) return;
+        e.preventDefault();
+        selectCard(el.dataset.cardId);
+      });
+      el.addEventListener('click', (e) => { e.preventDefault(); });
     });
   }
 
@@ -1724,6 +1754,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
   const drawArea = container.querySelector('.skyjo-draw-area');
   if (drawArea) {
     enableDragToZone(drawArea, {
+      dragEnabled: isCardDragEnabled(),
       onTap: async (id) => {
         if (id === 'discard-pile') {
           const btn = container.querySelector('#btn-draw-discard');
@@ -1914,7 +1945,7 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
   const awaitingSlotChoice = pendingCard && pendingTarget && SUITE_INFERNALE_SLOT_TARGETED_TYPES.includes(pendingCard.type);
 
   const myStopCard = me.hand.find((c) => c.kind === 'special' && c.type === 'stop');
-  const dragMode = isSuiteInfernaleDragEnabled();
+  const dragMode = isCardDragEnabled();
 
   const restHtml = others
     .map((p) => {
