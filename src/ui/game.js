@@ -1634,7 +1634,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
               ? 'Manche terminée'
               : isMyTurn
                 ? canDraw
-                  ? 'Pioche la défausse ou le sabot'
+                  ? 'Choisis la défausse ou la pioche'
                   : skyjoPendingMode === 'flip'
                     ? 'Touche une case cachée à retourner'
                     : canFlip
