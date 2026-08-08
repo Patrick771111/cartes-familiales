@@ -1676,6 +1676,76 @@ body.is-card-dragging * {
 
   .opponents { gap: 10px; }
   .turn-banner { margin-bottom: 8px; }
+
+  /* Cinq Rois : garder une colonne centrée (pas le layout table/main côte à côte) */
+  .screen--table.cinqrois-screen {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: center;
+    max-width: 920px;
+    margin-left: auto;
+    margin-right: auto;
+    width: 100%;
+    gap: 8px;
+    padding: 8px 16px;
+  }
+  .cinqrois-screen > .eyebrow,
+  .cinqrois-screen .cinqrois-opponents,
+  .cinqrois-screen .cinqrois-center,
+  .cinqrois-screen .cinqrois-me,
+  .cinqrois-screen .cinqrois-actions,
+  .cinqrois-screen .cinqrois-hint,
+  .cinqrois-screen .log,
+  .cinqrois-screen > .btn--link {
+    width: 100%;
+    max-width: 780px;
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+  }
+  .cinqrois-screen .cinqrois-me {
+    margin-top: 0;
+  }
+  .cinqrois-screen .cinqrois-me__hand {
+    justify-content: center;
+  }
+  .cinqrois-screen .cinqrois-opponents {
+    justify-content: center;
+  }
+  .cinqrois-screen .cinqrois-center {
+    justify-content: center;
+  }
+}
+
+/* Cinq Rois paysage (y compris tablettes / laptop large) : centrer le plateau */
+@media (orientation: landscape) {
+  .screen--table.cinqrois-screen {
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    margin-right: auto;
+    width: 100%;
+    max-width: 960px;
+  }
+  .cinqrois-screen .cinqrois-me {
+    margin-top: 0;
+    width: 100%;
+    max-width: 820px;
+  }
+  .cinqrois-screen .cinqrois-opponents,
+  .cinqrois-screen .cinqrois-center {
+    width: 100%;
+    max-width: 820px;
+    justify-content: center;
+  }
+  .cinqrois-screen > .eyebrow,
+  .cinqrois-screen .cinqrois-actions,
+  .cinqrois-screen .cinqrois-hint {
+    text-align: center;
+    width: 100%;
+    max-width: 820px;
+  }
 }
 
 /* ---------- Grand écran (laptop/desktop) : éviter le rendu "perdu" dans une
@@ -1863,6 +1933,22 @@ body.is-card-dragging * {
   gap: 10px;
   padding: 12px;
   min-height: 100%;
+  align-items: center;
+  box-sizing: border-box;
+}
+.cinqrois-screen > .eyebrow {
+  text-align: center;
+  width: 100%;
+  max-width: 640px;
+}
+.cinqrois-screen .cinqrois-opponents,
+.cinqrois-screen .cinqrois-center,
+.cinqrois-screen .cinqrois-me,
+.cinqrois-screen .cinqrois-actions,
+.cinqrois-screen .cinqrois-hint {
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
 }
 .cinqrois-opponents {
   display: flex;
