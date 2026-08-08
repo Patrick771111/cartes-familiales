@@ -37,6 +37,9 @@ import {
   takeLuckyNumbersFromDiscard,
   placeLuckyNumbersDrawn,
   discardLuckyNumbersDrawn,
+  revealTrioCenter,
+  revealTrioRow,
+  confirmTrioTurn,
   submitExchangeGift,
   reclaimStaleHost,
   pingHostPresence,
@@ -1246,6 +1249,73 @@ function chooseLuckyNumbersMove(state, botId) {
   return { type: 'discard' };
 }
 
+/**
+ * Politique du bot à Trio : aucune "mémoire" entre les tours (chaque appel
+ * ne voit que l'état courant, pas l'historique) — choisit une source de
+ * révélation légale au hasard, comme un joueur humain sans entraînement
+ * particulier. Ne triche pas en comparant des valeurs cachées entre elles
+ * avant de révéler.
+ */
+function trioLegalReveals(state) {
+  const options = [];
+  for (const c of state.center) {
+    if (!c.taken && !state.pendingReveals.some((r) => r.source.cardId === c.id)) {
+      options.push({ type: 'center', cardId: c.id });
+    }
+  }
+  for (const p of state.players) {
+    if (!p.row.length) continue;
+    const low = p.row[0];
+    const high = p.row[p.row.length - 1];
+    if (!state.pendingReveals.some((r) => r.source.cardId === low.id)) {
+      options.push({ type: 'row', targetPlayerId: p.id, end: 'low' });
+    }
+    if (high.id !== low.id && !state.pendingReveals.some((r) => r.source.cardId === high.id)) {
+      options.push({ type: 'row', targetPlayerId: p.id, end: 'high' });
+    }
+  }
+  return options;
+}
+
+function chooseTrioMove(state, botId) {
+  if (state.turnOutcome) return { type: 'confirm' };
+  const options = trioLegalReveals(state);
+  if (!options.length) return { type: 'confirm' }; // filet de sécurité, ne devrait pas arriver en cours de partie
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+let scheduledTrioBotMove = null;
+
+function maybeScheduleTrioBotMove(room) {
+  if (room.game !== 'trio' || room.state.status !== 'playing') return;
+
+  const currentId = room.state.currentPlayerId;
+  const bot = room.state.players.find((p) => p.id === currentId && p.isBot);
+  if (!bot) return;
+
+  const signature = `${room.id}:${room.version}`;
+  if (scheduledTrioBotMove === signature) return;
+  scheduledTrioBotMove = signature;
+
+  window.setTimeout(async () => {
+    try {
+      const fresh = await fetchRoomById(room.id);
+      if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId) return;
+
+      const move = chooseTrioMove(fresh.state, currentId);
+      if (move.type === 'confirm') {
+        await confirmTrioTurn(fresh, currentId);
+      } else if (move.type === 'center') {
+        await revealTrioCenter(fresh, currentId, move.cardId);
+      } else if (move.type === 'row') {
+        await revealTrioRow(fresh, currentId, move.targetPlayerId, move.end);
+      }
+    } catch (err) {
+      // Un autre appareil a probablement déjà joué / confirmé.
+    }
+  }, 700 + Math.random() * 600);
+}
+
 let scheduledLuckyNumbersBotMove = null;
 
 function maybeScheduleLuckyNumbersBotMove(room) {
@@ -1309,7 +1379,7 @@ function maybeScheduleCinqRoisBotMove(room) {
   }, 900 + Math.random() * 700);
 }
 
-const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain', blackjack: 'Blackjack', flip7: 'Flip 7', skyjo: 'Skyjo', suiteinfernale: 'La Suite Infernale', cinqrois: 'Les Cinq Rois', luckynumbers: 'Lucky Numbers' };
+const GAME_TITLES = { pouilleux: 'Le Pouilleux', trouduc: 'Le Trou du Cul', americain: 'Le 8 américain', blackjack: 'Blackjack', flip7: 'Flip 7', skyjo: 'Skyjo', suiteinfernale: 'La Suite Infernale', cinqrois: 'Les Cinq Rois', luckynumbers: 'Lucky Numbers', trio: 'Trio' };
 
 function updateDocumentTitle(room) {
   const gameLabel = GAME_TITLES[room.game];
@@ -1382,6 +1452,7 @@ function draw(room) {
   maybeScheduleSuiteInfernaleBotMove(room);
   maybeScheduleCinqRoisBotMove(room);
   maybeScheduleLuckyNumbersBotMove(room);
+  maybeScheduleTrioBotMove(room);
 
   const stillMember = room.state.players.some((p) => p.id === currentPlayer.id);
 

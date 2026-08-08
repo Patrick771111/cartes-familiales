@@ -42,6 +42,12 @@ import {
   applyPlaceDrawn as applyLuckyNumbersPlaceDrawn,
   applyDiscardDrawn as applyLuckyNumbersDiscardDrawn
 } from './luckynumbers.js';
+import {
+  initGame as initTrio,
+  applyRevealCenter as applyTrioRevealCenter,
+  applyRevealRow as applyTrioRevealRow,
+  applyConfirmTurn as applyTrioConfirmTurn
+} from './trio.js';
 
 const GAME_INITIALIZERS = {
   pouilleux: initPouilleux,
@@ -52,7 +58,8 @@ const GAME_INITIALIZERS = {
   skyjo: initSkyjo,
   suiteinfernale: initSuiteInfernale,
   cinqrois: initCinqRois,
-  luckynumbers: initLuckyNumbers
+  luckynumbers: initLuckyNumbers,
+  trio: initTrio
 };
 
 export const AVAILABLE_GAMES = [
@@ -64,7 +71,8 @@ export const AVAILABLE_GAMES = [
   { id: 'skyjo', label: 'Skyjo', hint: '2 à 6 joueurs, moins de points c\'est mieux', minPlayers: 2 },
   { id: 'suiteinfernale', label: 'La Suite Infernale', hint: '2 à 4 joueurs, construis ta suite de 1 à 10', minPlayers: 2 },
   { id: 'cinqrois', label: 'Les Cinq Rois', hint: '2 à 7 joueurs — moins de points gagne', minPlayers: 2 },
-  { id: 'luckynumbers', label: 'Lucky Numbers', hint: '2 à 4 joueurs — remplis ton jardin en ordre croissant', minPlayers: 2, maxPlayers: 4 }
+  { id: 'luckynumbers', label: 'Lucky Numbers', hint: '2 à 4 joueurs — remplis ton jardin en ordre croissant', minPlayers: 2, maxPlayers: 4 },
+  { id: 'trio', label: 'Trio', hint: '3 à 6 joueurs — mémoire et bluff, forme des trios de cartes', minPlayers: 3, maxPlayers: 6 }
 ];
 
 const PROFILE_KEY = 'cartes-familiales:profile';
@@ -908,6 +916,21 @@ export async function placeLuckyNumbersDrawn(room, playerId, boardIndex) {
 /** Lucky Numbers — défausse la tuile piochée face visible. */
 export async function discardLuckyNumbersDrawn(room, playerId) {
   return commitGameAction(room, (state) => applyLuckyNumbersDiscardDrawn(state, playerId));
+}
+
+/** Trio — révèle une carte du centre (identifiée par son id). */
+export async function revealTrioCenter(room, playerId, cardId) {
+  return commitGameAction(room, (state) => applyTrioRevealCenter(state, playerId, cardId));
+}
+
+/** Trio — révèle l'extrémité (`'low'`/`'high'`) de la main d'un joueur (soi-même ou un adversaire). */
+export async function revealTrioRow(room, playerId, targetPlayerId, end) {
+  return commitGameAction(room, (state) => applyTrioRevealRow(state, playerId, targetPlayerId, end));
+}
+
+/** Trio — confirme le résultat de la tentative en cours (remet en place, ou attribue le trio) et passe le tour. */
+export async function confirmTrioTurn(room, playerId) {
+  return commitGameAction(room, (state) => applyTrioConfirmTurn(state, playerId));
 }
 
 /**

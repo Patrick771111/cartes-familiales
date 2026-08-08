@@ -2423,6 +2423,135 @@ body.is-card-dragging * {
   flex-wrap: wrap;
 }
 
+/* ——— Trio ——— */
+.trio-screen {
+  padding-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  gap: 8px;
+}
+.trio-felt { padding: 16px 12px; text-align: center; }
+.trio-cell {
+  width: 34px;
+  height: 46px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+.trio-cell--facedown {
+  background: linear-gradient(145deg, #2f6b3a, #1e4a28);
+  border: 2px solid #8fd49a;
+}
+.trio-cell--faceup {
+  background: radial-gradient(circle at 30% 30%, #fdf6e3, #e4c765);
+  border: 2px solid var(--brass);
+  color: #3a2e0a;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+}
+.trio-cell--gone {
+  background: transparent;
+  border: 1.5px dashed rgba(247, 241, 225, 0.25);
+}
+.trio-cell--small { width: 28px; height: 38px; font-size: 13px; }
+
+.trio-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+}
+.trio-row--empty {
+  color: rgba(247, 241, 225, 0.45);
+  font-size: 13px;
+  font-style: italic;
+}
+.trio-cell-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.trio-cell-btn .trio-cell--facedown {
+  box-shadow: 0 0 0 2px var(--brass), 0 0 10px 2px rgba(201, 162, 39, 0.5);
+}
+
+.trio-center { margin-bottom: 10px; }
+.trio-center__label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(247, 241, 225, 0.65);
+  margin: 0 0 6px;
+}
+
+.trio-revealed {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  align-items: flex-end;
+  margin: 10px 0;
+  flex-wrap: wrap;
+}
+.trio-revealed__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.trio-revealed__item span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgba(247, 241, 225, 0.65);
+  max-width: 80px;
+  text-align: center;
+}
+
+.trio-opponents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin: 8px 0 4px;
+}
+.trio-player {
+  background: rgba(0,0,0,0.18);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+.trio-player--turn { box-shadow: 0 0 0 2px var(--brass-soft); }
+.trio-player__name {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.trio-player__trios {
+  font-weight: 400;
+  opacity: 0.7;
+  font-size: 12px;
+}
+.trio-player .trio-cell { width: 22px; height: 30px; font-size: 11px; }
+
+.trio-my-hand {
+  background: rgba(0,0,0,0.22);
+  border-radius: 16px;
+  padding: 12px;
+  margin: 8px auto 0;
+  width: max-content;
+  max-width: 100%;
+}
+.trio-my-hand__label {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: rgba(247, 241, 225, 0.8);
+}
+
 /* Cinq Rois — dos de cartes adverses : une seule ligne (empilés) */
 .cinqrois-seat__backs {
   display: flex;
