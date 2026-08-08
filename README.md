@@ -1,8 +1,8 @@
 # Cartes en famille
 
 PWA multi-joueurs pour jouer aux cartes à plusieurs, chacun sur son téléphone.
-Premier jeu implémenté : **le Pouilleux**. Pensée pour accueillir d'autres jeux
-de cartes ensuite (voir *Étendre à d'autres jeux* plus bas).
+10 jeux disponibles à ce jour (voir *Jeux disponibles* plus bas), pensée pour
+en accueillir facilement d'autres (voir *Ajouter un jeu* plus bas).
 
 ## Stack
 
@@ -318,10 +318,218 @@ logique de pioche côté serveur (Edge Function Supabase) et/ou exposer la
 liste des salons via une vue Postgres ne projetant que `status`/`players`.
 Pas fait ici pour garder le MVP simple.
 
-## Étendre à d'autres jeux
+## Ajouter un jeu
 
-L'idée : un module `src/game/<nom-du-jeu>.js` par jeu, avec la même forme que
-`pouilleux.js` (`initGame(players)` et une ou plusieurs fonctions `applyXxx(state, ...)`
-qui retournent un nouvel état). La colonne `game` dans `game_rooms` permet déjà
-de stocker plusieurs types de parties dans la même table. Le lobby pourra
-proposer un choix de jeu avant de créer la table.
+Chaque jeu vit dans **4 fichiers indépendants**, tous découverts dynamiquement
+au démarrage (`import.meta.glob`, jamais de liste en dur à maintenir) :
+
+| Fichier | Rôle |
+| --- | --- |
+| `src/game/<id>.js` | Logique pure : état, règles, `initGame`. Aucune dépendance à Supabase/DOM. |
+| `src/game/<id>.bot.js` | IA du bot : quel coup jouer, et quand le jouer tout seul. |
+| `src/game/<id>.rules.js` | Texte des règles affiché dans la modale "❓ Règles du jeu". |
+| `src/ui/games/<id>.js` | Rendu HTML de la table + branchement des actions (clic/glisser-déposer). |
+
+**Ajouter ces 4 fichiers suffit** pour que le lobby, le registre de bots, le
+dispatcher d'écran de jeu (`src/ui/game.js`) et la modale de règles
+découvrent le nouveau jeu tout seuls (`import.meta.glob`, aucune liste en dur
+à mettre à jour). **Retirer un jeu = supprimer les 4 fichiers** (+
+éventuellement son bloc CSS, voir plus bas) — pas de registre central à
+purger à la main.
+
+Il reste **une seule étape manuelle**, dans `src/game/engine.js` : déclarer
+les fonctions d'action que l'écran de jeu (`renderTable`) va appeler (ex.
+`drawForCurrentPlayer`, `playCards`…). Voir *Limite actuelle* en bas de cette
+section — c'est le seul endroit qui n'est pas encore découvert dynamiquement.
+
+### 1. `src/game/<id>.js` — logique pure
+
+```js
+export const meta = {
+  id: 'moncoolgame',                 // doit correspondre au nom de fichier
+  label: 'Mon Cool Jeu',             // affiché dans le sélecteur de jeu du lobby
+  hint: '2 à 5 joueurs',             // sous-titre affiché sous le label
+  minPlayers: 2,
+  maxPlayers: 5                      // optionnel — omis = pas de maximum
+};
+
+export function initGame(players) {
+  // `players` = [{ id, name, isBot, bet? }, ...] (pas encore mélangés — mélanger
+  // ici si l'ordre de jeu doit être aléatoire). Retourne le state initial complet :
+  // `status` ('playing', ou un statut propre au jeu), `players` (forme enrichie :
+  // main, score…), et tout ce dont le jeu a besoin. `hostId` n'a pas besoin d'être
+  // inclus : core.js le réinjecte toujours depuis le salon, quoi que retourne initGame.
+  return { status: 'playing', currentPlayerId: players[0].id, players: /* ... */[], /* ... */ };
+}
+
+export function applyMonAction(state, playerId, /* ... */) {
+  // Fonction pure : (state, ...) -> nouveau state. Jamais d'appel réseau ici.
+}
+```
+
+Optionnel :
+- `validatePlayerCount(players)` — pour une contrainte plus fine que
+  `minPlayers`/`maxPlayers` (ex. Trou du Cul : exactement 4 joueurs). Si
+  présent, remplace entièrement la vérification par défaut.
+- `continueRound(room, playersList)` — appelé par "Continuer" en fin de
+  manche pour enchaîner sans repasser par le lobby (garde les scores/l'argent
+  cumulés). Sans cette fonction, "Continuer" relance `initGame` à zéro.
+
+### 2. `src/game/<id>.bot.js` — IA
+
+```js
+import { fetchRoomById, commitGameAction } from './core.js';
+import { applyMonAction } from './moncoolgame.js';
+
+export function chooseMove(state, botId) {
+  // Fonction pure : retourne le coup à jouer (forme libre, propre au jeu).
+}
+
+let scheduled = null;
+
+export function schedule(room) {
+  if (room.state.status !== 'playing') return;
+  const bot = room.state.players.find((p) => p.id === room.state.currentPlayerId && p.isBot);
+  if (!bot) return;
+
+  const signature = `${room.id}:${room.version}`;
+  if (scheduled === signature) return; // évite de programmer deux fois le même coup
+  scheduled = signature;
+
+  window.setTimeout(async () => {
+    try {
+      const fresh = await fetchRoomById(room.id);
+      if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== bot.id) return; // un autre appareil a déjà joué
+      const move = chooseMove(fresh.state, bot.id);
+      await commitGameAction(fresh, (state) => applyMonAction(state, bot.id, move));
+    } catch {
+      // Conflit optimiste attendu si un autre appareil a joué en même temps — la resynchro Realtime prend le relais.
+    }
+  }, 900 + Math.random() * 700); // délai variable : évite un bot qui joue "trop vite" pour paraître humain
+}
+```
+
+**Règle impérative : un fichier `.bot.js` ne doit JAMAIS importer depuis
+`engine.js`.** `engine.js` découvre tous les `src/game/*.js` par glob — s'il
+importait en retour un `.bot.js`, ça créerait un cycle d'imports. Toujours
+passer par `core.js` (`fetchRoomById`, `updateRoomState`, `commitGameAction`)
+et par les fonctions `applyXxx` du fichier logique du même jeu.
+
+### 3. `src/game/<id>.rules.js`
+
+```js
+export const title = 'Mon Cool Jeu';
+export const html = `<p>But du jeu…</p><ol><li>…</li></ol>`;
+```
+
+Aucun import — juste du texte. Affiché tel quel dans la modale de règles.
+
+### 4. `src/ui/games/<id>.js` — rendu + actions
+
+```js
+import { faireMonAction /* wrapper déclaré dans engine.js, voir "Limite actuelle" */ } from '../../game/engine.js';
+import { connectionBadge, endGameActionsHtml, wireAbandonButton, abandonButtonLabel, wireEndGameActions } from '../gameShared.js';
+import { openRulesModal } from '../rules.js';
+
+export function resetSelection() {
+  // Remet à zéro tout état local (sélection de carte en cours, etc.) — appelé
+  // par le dispatcher à chaque retour en salle d'attente, pour TOUS les jeux
+  // (pas seulement celui qui vient d'être joué), donc toujours sûr même si
+  // ce jeu n'a rien à réinitialiser (fonction vide).
+}
+
+export function renderTable(container, { room, player, state, onLeave }) {
+  // `state.status` gère ici TOUTES ses sous-vues (en cours, échange, fin…) —
+  // le dispatcher générique (game.js) ne connaît que "lobby" vs "le reste".
+  container.innerHTML = `...`;
+  // Écouteurs d'événements, glisser-déposer, etc.
+  wireAbandonButton(container, { room, player, state, onLeave });
+}
+```
+
+Ce fichier vit dans `src/ui/games/`, **hors** du dossier `src/game/` balayé
+par le glob d'`engine.js` — il peut donc importer `engine.js` normalement,
+sans risque de cycle (contrairement au `.bot.js`).
+
+### Fonctions communes à réutiliser
+
+Ne jamais dupliquer ce qui existe déjà :
+
+**Côté logique** (`src/game/core.js`) : `fetchRoomById`, `updateRoomState`,
+`commitGameAction(room, computeNewState, extraColumns?)` (pioche l'état frais,
+applique `computeNewState`, gère le verrou optimiste — préférer à
+`updateRoomState` direct dans un `.bot.js`), `ConflictError`.
+
+**Côté UI** (`src/ui/gameShared.js`) : `connectionBadge(state, playerId)`
+(badge 🔌 liaison directe), `sortedHand(hand)` (tri classique A→K pour un jeu
+de 52), `endGameActionsHtml(opts)` + `wireEndGameActions(container, room)`
+(boutons "Continuer"/"Retour au lobby" en fin de manche — `opts.continueBtn`/
+`opts.lobby` à `false` pour masquer l'un des deux), `wireAbandonButton` +
+`abandonButtonLabel` (bouton abandonner/quitter en pleine partie, commun à
+tous les jeux), `vibrate(pattern)`, `getRevealHands`/`toggleRevealHands`/
+`resetRevealHands` (état "afficher les mains" partagé par le mode spectateur
+et les jeux qui l'utilisent, ex. Pouilleux/Trou du Cul).
+
+Pour les cartes à jouer classiques (52 cartes) : `cardFaceHtml`/`cardBackHtml`
+(`src/ui/cards.js`) plutôt que ré-écrire le HTML d'une carte à la main —
+gèrent déjà les thèmes illustrés (`src/ui/cardThemes.js`).
+
+### Layout / conventions visuelles
+
+- Racine du rendu : `<div class="screen screen--table <id>-screen">` — la
+  classe `<id>-screen` permet un habillage CSS propre au jeu (fond, mise en
+  page) sans toucher aux autres. Voir les blocs `.pouilleux-screen`,
+  `.trio-screen`, etc. dans `src/style.css` (section "fonds d'écran par
+  jeu") : ajouter un bloc pour un nouveau jeu est optionnel, son absence
+  retombe simplement sur le fond par défaut.
+- Zone adversaires : `.pouilleux-zone.pouilleux-zone--others` (nom historique,
+  réutilisé tel quel par la plupart des jeux — pas la peine d'en inventer un
+  autre s'il convient).
+- Bannière de tour : `.turn-banner` (+ `.turn-banner--you` quand c'est le tour
+  du joueur local).
+- Main du joueur local : `.my-hand`.
+- Bouton règles : toujours `❓ Règles du jeu`, `onclick` → `openRulesModal(room.game)`.
+
+### Limite actuelle : les wrappers d'action dans `engine.js`
+
+Les 4 fichiers ci-dessus sont bien découverts dynamiquement — **mais**
+`src/game/engine.js` contient encore, pour chaque jeu, une petite fonction
+"wrapper" par action possible (ex. `drawForCurrentPlayer`, `playCards`,
+`hitBlackjack`…) que `src/ui/games/<id>.js` importe et appelle depuis les
+gestionnaires de clic. Forme systématique :
+
+```js
+import { applyMonAction } from './moncoolgame.js';
+const { commitGameAction } = core;
+
+export async function faireMonAction(room, playerId, /* ... */) {
+  return commitGameAction(room, (state) => applyMonAction(state, playerId, /* ... */));
+}
+```
+
+C'est le seul endroit qui demande encore une modification manuelle
+d'`engine.js` pour un nouveau jeu (une poignée de lignes, toujours sur ce
+même modèle — comparer avec les wrappers des jeux existants). Retirer un jeu
+laisse ses wrappers orphelins dans `engine.js` : ils ne font rien de mal
+(plus jamais appelés), mais autant les supprimer en même temps par propreté.
+
+*(Piste pour aller au bout de la logique "tout est dans le fichier du jeu" :
+déplacer ces wrappers dans `src/game/<id>.js` lui-même, comme le fait déjà
+chaque `.bot.js` avec `commitGameAction` — `src/ui/games/<id>.js`
+importerait alors directement depuis `../../game/<id>.js` au lieu
+d'`engine.js`. Pas fait dans ce refactor pour limiter le risque sur une
+appli déjà utilisée par la famille ; à faire si ça vaut le coup.)*
+
+### Checklist pour un nouveau jeu
+
+1. `src/game/<id>.js` : `meta` + `initGame` + `applyXxx(...)`.
+2. `src/game/<id>.bot.js` : `chooseMove` + `schedule` (jamais d'import d'`engine.js`).
+3. `src/game/<id>.rules.js` : `title` + `html`.
+4. `src/ui/games/<id>.js` : `resetSelection` + `renderTable`.
+5. `src/game/engine.js` : ajouter les wrappers d'action du nouveau jeu (voir
+   *Limite actuelle* ci-dessus) et les importer/exporter, sur le modèle des
+   jeux existants.
+6. (Optionnel) bloc CSS `.screen--table.<id>-screen` dans `src/style.css`.
+7. Tester en salle d'attente : le nouveau jeu doit apparaître tout seul dans
+   le sélecteur "Quel jeu ?" (trié alphabétiquement, via `AVAILABLE_GAMES`
+   exporté par `src/game/engine.js`) — pas besoin de le lister ailleurs.

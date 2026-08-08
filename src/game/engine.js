@@ -1,8 +1,9 @@
 // Point d'assemblage : découvre dynamiquement tous les jeux (src/game/<id>.js,
 // chacun exportant au minimum `initGame` + `meta`) et les combine avec les
 // mécaniques transverses de core.js (salons, présence, hôte). Ajouter un jeu
-// = ajouter son fichier <id>.js (+ <id>.bot.js, <id>.rules.js, <id>.ui.js) —
-// rien à modifier ici.
+// = ajouter son fichier <id>.js (+ <id>.bot.js, <id>.rules.js,
+// src/ui/games/<id>.js) — seuls les wrappers d'action ci-dessous doivent
+// encore être ajoutés à la main (voir "Ajouter un jeu" dans README.md).
 import * as core from './core.js';
 
 export {
