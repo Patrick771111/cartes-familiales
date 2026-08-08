@@ -1959,32 +1959,48 @@ body.is-card-dragging * {
 .cinqrois-seat {
   background: rgba(0,0,0,0.25);
   border-radius: 10px;
-  padding: 6px 8px;
+  padding: 6px 10px;
   min-width: 90px;
-  max-width: 160px;
+  max-width: none;
 }
 .cinqrois-seat--turn { box-shadow: 0 0 0 2px var(--brass, #c9a227); }
 .cinqrois-seat--laid { opacity: 0.7; }
 .cinqrois-seat__name { font-weight: 600; margin: 0; font-size: 12px; }
 .cinqrois-seat__score { font-weight: 400; opacity: 0.7; }
 .cinqrois-seat__status { margin: 2px 0 4px; font-size: 11px; opacity: 0.85; }
-.cinqrois-seat__backs { display: flex; }
+.cinqrois-seat__backs {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow: visible;
+}
 .cinqrois-seat__backs .cinqrois-card {
   width: 28px;
   height: 40px;
   font-size: 10px;
+  flex-shrink: 0;
 }
 .cinqrois-seat__backs .cinqrois-card--back {
-  width: 14px; height: 20px; margin-left: -8px;
+  width: 18px;
+  height: 26px;
+  margin-left: -10px;
+  flex-shrink: 0;
 }
 .cinqrois-seat__backs .cinqrois-card--back:first-child { margin-left: 0; }
 .cinqrois-center {
   display: flex;
-  gap: 28px;
+  gap: 20px;
   justify-content: center;
-  align-items: flex-end;
+  align-items: center;
   padding: 10px 0 14px;
   margin: 4px 0;
+  flex-wrap: nowrap;
+}
+.cinqrois-goout {
+  align-self: center;
+  min-width: 88px;
+  padding: 10px 16px;
+  white-space: nowrap;
 }
 .cinqrois-pile, .cinqrois-discard {
   cursor: default;
@@ -2355,19 +2371,27 @@ body.is-card-dragging * {
   flex-wrap: wrap;
 }
 
-/* Cinq Rois — révélation d'une main posée */
+/* Cinq Rois — dos de cartes adverses : une seule ligne (empilés) */
 .cinqrois-seat__backs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  max-width: 220px;
+  flex-wrap: nowrap;
+  gap: 0;
+  max-width: none;
+  align-items: center;
 }
 .cinqrois-seat__backs .cinqrois-card {
   width: 28px;
   height: 40px;
   font-size: 10px;
   margin-left: 0;
+  flex-shrink: 0;
 }
+.cinqrois-seat__backs .cinqrois-card--back {
+  width: 18px;
+  height: 26px;
+  margin-left: -10px;
+}
+.cinqrois-seat__backs .cinqrois-card--back:first-child { margin-left: 0; }
 .cinqrois-seat__backs .cinqrois-card__rank { font-size: 10px; }
 .cinqrois-seat__backs .cinqrois-card__suit { font-size: 11px; }
 .cinqrois-seat--laid { opacity: 1; }

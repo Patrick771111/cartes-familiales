@@ -2369,11 +2369,7 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
   } else if (isMyTurn && state.phase === 'draw') {
     actionsHtml = `<p class="cinqrois-hint">Touche ou glisse depuis la <strong>pioche</strong> ou la <strong>défausse</strong>.</p>`;
   } else if (isMyTurn && state.phase === 'discard') {
-    actionsHtml = `
-      <div class="cinqrois-actions cinqrois-actions--compact">
-        <p class="cinqrois-hint">Choisis une carte, puis touche la défausse (ou glisse-la dessus). Pose possible si ta main est valide.</p>
-        <button id="btn-cinqrois-goout" class="btn btn--ghost btn--small" disabled>Défausser &amp; poser</button>
-      </div>`;
+    actionsHtml = `<p class="cinqrois-hint">Choisis une carte → défausse. Bouton <strong>Poser</strong> à droite si ta main est valide.</p>`;
   } else if (me?.laidDown) {
     actionsHtml = `<p class="cinqrois-hint">Tu as posé ta main — en attente des autres…</p>`;
   }
@@ -2407,6 +2403,11 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
           }
           <span class="cinqrois-pile__label">Défausse</span>
         </div>
+        ${
+          isMyTurn && state.phase === 'discard'
+            ? `<button type="button" id="btn-cinqrois-goout" class="btn btn--primary cinqrois-goout" disabled title="Défausser la carte choisie et poser le reste de ta main">Poser</button>`
+            : ''
+        }
       </div>
       <div class="cinqrois-me ${isMyTurn ? 'cinqrois-me--turn' : ''} ${me?.laidDown ? 'cinqrois-me--laid' : ''}">
         <p class="cinqrois-me__name">Toi${connectionBadge(state, me?.id)} (${me?.score ?? 0} pts)${me?.laidDown ? ' — posé ✓' : ''}${myStatus}</p>
