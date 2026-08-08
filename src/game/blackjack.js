@@ -1,5 +1,7 @@
 import { buildStandardDeck, shuffle } from './deck.js';
 
+export const meta = { id: 'blackjack', label: 'Blackjack', hint: '1 à 6 joueurs, banque tenue par un bot', minPlayers: 1 };
+
 // Solde de départ, et mise réglable via un slider (5 à 100, par pas de 5) côté
 // UI — chaque joueur règle sa propre mise indépendamment (stockée sur son
 // entrée `players[i].bet`), pas de mise commune à la table. Le solde peut
@@ -149,6 +151,12 @@ export function initGame(players, previousMoney = null) {
   if (!firstPlayerId) state = finishRound(state);
 
   return state;
+}
+
+/** Enchaîne une manche en reconduisant l'argent de chacun. */
+export function continueRound(room, playersList) {
+  const previousMoney = Object.fromEntries(room.state.players.map((p) => [p.id, p.money]));
+  return initGame(playersList, previousMoney);
 }
 
 export function applyHit(state, playerId) {

@@ -1,5 +1,7 @@
 import { shuffle } from './deck.js';
 
+export const meta = { id: 'suiteinfernale', label: 'La Suite Infernale', hint: '2 à 4 joueurs, construis ta suite de 1 à 10', minPlayers: 2 };
+
 /**
  * La Suite Infernale, mode **individuel** (2 à 4 joueurs) — le mode équipe
  * (4 joueurs 2v2 ou 6 joueurs 3v3, avec sièges alternés et suites partagées

@@ -1,5 +1,7 @@
 import { shuffle } from './deck.js';
 
+export const meta = { id: 'cinqrois', label: 'Les Cinq Rois', hint: '2 à 7 joueurs — moins de points gagne', minPlayers: 2 };
+
 /**
  * Les Cinq Rois — adaptation familiale multi-joueurs.
  *
@@ -449,6 +451,11 @@ function finishRound(state) {
  * Manche suivante : handSize+1, scores conservés.
  * Si handSize était 13 ou gameWinnerId, repart à 3 (nouvelle partie).
  */
+/** Enchaîne une manche — dérive tout (taille de main, scores) de l'état existant, pas de `playersList`. */
+export function continueRound(room) {
+  return startNextRound(room.state);
+}
+
 export function startNextRound(state) {
   if (state.status !== 'finished') {
     throw new Error("La manche n'est pas terminée.");

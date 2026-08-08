@@ -1,5 +1,14 @@
 import { buildStandardDeck, shuffle, deal } from './deck.js';
 
+export const meta = { id: 'trouduc', label: 'Le Trou du Cul', hint: 'exactement 4 joueurs', minPlayers: 4 };
+
+/** Le Trou du Cul se joue à exactement 4 joueurs (pas de min/max souple comme les autres jeux). */
+export function validatePlayerCount(players) {
+  if (players.length !== 4) {
+    throw new Error('Le Trou du Cul se joue à 4 joueurs exactement.');
+  }
+}
+
 /**
  * Ordre des rangs pour le Trou du Cul (du plus faible au plus fort) : le 2 est la
  * carte la plus forte de tout le jeu. Différent de l'ordre "naturel" utilisé au Pouilleux.
@@ -183,6 +192,11 @@ export function initGame(players, previousRanking = null) {
       { ts: Date.now(), message: `${nameOf(secretaireId)} (Secrétaire) donne sa meilleure carte à ${nameOf(vicePresidentId)} (Vice-Président).` }
     ]
   };
+}
+
+/** Enchaîne une manche en reconduisant les rôles selon le classement de la précédente. */
+export function continueRound(room, playersList) {
+  return initGame(playersList, room.state.finishedOrder || null);
 }
 
 /**

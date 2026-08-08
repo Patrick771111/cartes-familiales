@@ -1,5 +1,7 @@
 import { shuffle } from './deck.js';
 
+export const meta = { id: 'luckynumbers', label: 'Lucky Numbers', hint: '2 à 4 joueurs — remplis ton jardin en ordre croissant', minPlayers: 2, maxPlayers: 4 };
+
 /** Grille 4×4 — Lucky Numbers (Michael Schacht / Tiki Editions). */
 export const GRID_SIZE = 16;
 export const GRID_DIM = 4;

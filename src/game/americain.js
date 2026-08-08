@@ -1,5 +1,7 @@
 import { buildStandardDeck, shuffle, suitInfo } from './deck.js';
 
+export const meta = { id: 'americain', label: 'Le 8 américain', hint: '2 à 6 joueurs', minPlayers: 2 };
+
 const SUIT_KEYS = ['S', 'H', 'D', 'C'];
 
 function uniqueId() {

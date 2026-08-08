@@ -4,6 +4,8 @@ import { shuffle } from './deck.js';
 // -1 (×10), 0 (×15), 1 à 12 (×10 chacune).
 export const TARGET_SCORE = 100;
 
+export const meta = { id: 'skyjo', label: 'Skyjo', hint: "2 à 6 joueurs, moins de points c'est mieux", minPlayers: 2 };
+
 const COUNTS = { '-2': 5, '-1': 10, 0: 15 };
 for (let v = 1; v <= 12; v++) COUNTS[v] = 10;
 
@@ -172,6 +174,17 @@ export function initGame(players, previousScores = null) {
     gameWinnerId: null,
     log: [{ ts: Date.now(), message: 'Nouvelle manche : 2 cartes révélées chacun, à vous de jouer !' }]
   };
+}
+
+/**
+ * Enchaîne une manche en reconduisant les scores cumulés — sauf si la PARTIE
+ * (pas juste la manche) vient d'être gagnée, auquel cas on repart à 0.
+ */
+export function continueRound(room, playersList) {
+  const previousScores = room.state.gameWinnerId
+    ? null
+    : Object.fromEntries(room.state.players.map((p) => [p.id, p.score]));
+  return initGame(playersList, previousScores);
 }
 
 /** Pioche la carte du dessus de la pioche : à placer ou à défausser en retournant une case, au choix. */

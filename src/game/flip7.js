@@ -1,5 +1,7 @@
 import { shuffle } from './deck.js';
 
+export const meta = { id: 'flip7', label: 'Flip 7', hint: '2 à 6 joueurs, score cumulé', minPlayers: 2 };
+
 // Reconstitution du jeu physique Flip 7 à partir de mémoire — les décomptes
 // exacts (nombre de cartes par valeur, bonus Flip 7, score cible) sont une
 // approximation raisonnable *(hypothèse — à ajuster ici si votre exemplaire
@@ -110,6 +112,17 @@ export function initGame(players, previousScores = null) {
     gameWinnerId: null,
     log: [{ ts: Date.now(), message: 'Nouvelle manche : chacun flippe à son tour !' }]
   };
+}
+
+/**
+ * Enchaîne une manche en reconduisant les scores cumulés — sauf si la PARTIE
+ * (pas juste la manche) vient d'être gagnée, auquel cas on repart à 0.
+ */
+export function continueRound(room, playersList) {
+  const previousScores = room.state.gameWinnerId
+    ? null
+    : Object.fromEntries(room.state.players.map((p) => [p.id, p.score]));
+  return initGame(playersList, previousScores);
 }
 
 /**

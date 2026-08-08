@@ -1,5 +1,7 @@
 import { shuffle } from './deck.js';
 
+export const meta = { id: 'trio', label: 'Trio', hint: '3 à 6 joueurs — mémoire et bluff, forme des trios de cartes', minPlayers: 3, maxPlayers: 6 };
+
 /**
  * Trio (Kaya Miyano, Cocktail Games) — Mode Simple uniquement pour l'instant
  * (le mode Piquant nécessite les paires de numéros "liés" imprimées carte

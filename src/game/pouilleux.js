@@ -1,5 +1,7 @@
 import { buildPouilleuxDeck, shuffle, deal } from './deck.js';
 
+export const meta = { id: 'pouilleux', label: 'Le Pouilleux', hint: '2 à 6 joueurs', minPlayers: 2 };
+
 /** Retire du tas toutes les paires de même rang (peu importe la couleur). */
 export function discardPairs(hand) {
   const byRank = new Map();
