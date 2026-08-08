@@ -2002,9 +2002,9 @@ body.is-card-dragging * {
 }
 .cinqrois-center__piles {
   display: flex;
-  gap: 24px;
+  gap: 28px;
   justify-content: center;
-  align-items: flex-end;
+  align-items: flex-start; /* cartes alignées en haut, labels en dessous */
 }
 .cinqrois-center__side {
   min-height: 1px;
@@ -2014,6 +2014,7 @@ body.is-card-dragging * {
   justify-content: flex-start;
   align-items: center;
   padding-left: 4px;
+  min-height: 74px;
 }
 .cinqrois-goout {
   font-size: 12px !important;
@@ -2037,14 +2038,31 @@ body.is-card-dragging * {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  width: 60px;
+  box-sizing: border-box;
+  /* padding réservé en permanence pour ne pas décaler à l'état actif */
+  padding: 4px;
+  border-radius: 12px;
 }
-.cinqrois-pile__label { font-size: 11px; opacity: 0.75; }
+.cinqrois-pile .cinqrois-card,
+.cinqrois-discard .cinqrois-card {
+  width: 52px !important;
+  height: 74px !important;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+.cinqrois-pile__label {
+  font-size: 11px;
+  opacity: 0.75;
+  white-space: nowrap;
+  text-align: center;
+  line-height: 1.2;
+  min-height: 1.2em;
+}
 .cinqrois-pile--active,
 .cinqrois-discard--active {
   cursor: pointer;
-  border-radius: 12px;
-  padding: 4px;
   transition: box-shadow 0.15s ease, background 0.15s ease;
 }
 .cinqrois-pile--active:hover,
