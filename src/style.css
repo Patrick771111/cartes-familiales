@@ -1540,11 +1540,15 @@ h1 {
    survol. Pas de dépendance à `.hand-card` : s'applique à n'importe quel
    élément passé à `enableDragToZone`. */
 .is-dragging-away {
-  position: fixed;
-  z-index: 200;
+  position: fixed !important;
+  z-index: 9999;
+  pointer-events: none !important;
+  margin: 0 !important;
+  transition: none !important;
+}
+.is-dragging-source {
+  opacity: 0.35;
   pointer-events: none;
-  transform: scale(1.08) rotate(-2deg);
-  transition: none;
 }
 body.is-card-dragging {
   cursor: grabbing !important;
@@ -2042,6 +2046,10 @@ body.is-card-dragging * {
   flex-wrap: wrap;
   gap: 6px;
   justify-content: center;
+  /* 7 cartes max par ligne (52px + gap 6px) → 14 cartes = 2 rangées */
+  max-width: calc(7 * 52px + 6 * 6px);
+  margin-left: auto;
+  margin-right: auto;
 }
 .cinqrois-card {
   position: relative;
@@ -2072,7 +2080,7 @@ body.is-card-dragging * {
 .cinqrois-card--trump {
   box-shadow: inset 0 0 0 2px #c9a227;
 }
-.cinqrois-card--selected {
+.cinqrois-card--selected:not(.is-dragging-source) {
   transform: translateY(-8px);
   box-shadow: 0 0 0 2px var(--brass, #c9a227);
 }
