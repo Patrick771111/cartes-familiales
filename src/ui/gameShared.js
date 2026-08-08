@@ -1,0 +1,117 @@
+// Utilitaires UI vraiment partagés entre plusieurs jeux (pas juste
+// co-localisés par accident) : badge de connexion, boutons de fin de
+// manche/abandon, tri de main "classique", vibration, et le petit état
+// "afficher les mains" partagé par Pouilleux/Trou du Cul/le mode spectateur.
+import { playAgain, continueGame } from '../game/engine.js';
+
+/**
+ * 🔌 à côté du prénom d'un joueur qui bénéficie actuellement d'une liaison
+ * directe (WebRTC) vers l'hôte — poussé par tout appareil dans
+ * `room.state.connections` (voir `reportRelayStatus` dans engine.js), donc
+ * visible par tout le monde à la table, pas seulement sur l'appareil concerné.
+ */
+export function connectionBadge(state, playerId) {
+  return state.connections?.[playerId] ? ' 🔌' : '';
+}
+
+function rankSortValue(rank) {
+  const order = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+  return order.indexOf(rank);
+}
+
+/** Tri "classique" d'une main de cartes françaises (As en tête). Pouilleux/8 américain uniquement — les autres jeux ont leur propre ordre. */
+export function sortedHand(hand) {
+  return hand.slice().sort((a, b) => rankSortValue(a.rank) - rankSortValue(b.rank) || a.suit.localeCompare(b.suit));
+}
+
+/**
+ * Boutons de fin de partie, communs à la plupart des jeux : soit on enchaîne
+ * directement une nouvelle manche (mêmes joueurs, sans repasser par le
+ * lobby — le contexte propre à chaque jeu comme les rôles du Trou du Cul ou
+ * l'argent du Blackjack est conservé), soit on retourne au lobby (tout est
+ * remis à zéro). `opts.lobby`/`opts.continueBtn` (défaut true).
+ */
+export function endGameActionsHtml(opts = {}) {
+  const showContinue = opts.continueBtn !== false;
+  const showLobby = opts.lobby !== false;
+  return `
+    <div class="end-actions">
+      ${showContinue ? '<button class="btn btn--primary" id="btn-continue">Continuer</button>' : ''}
+      ${showLobby ? '<button class="btn btn--ghost" id="btn-lobby">Retour au lobby</button>' : ''}
+    </div>
+  `;
+}
+
+/**
+ * Bouton "Abandonner/Quitter la partie" en pleine partie, commun à tous les
+ * jeux. L'hôte abandonne la manche pour tout le monde (comme aujourd'hui,
+ * relance via `playAgain`) — le perdre casserait la table (relais WebRTC,
+ * voir webrtc/relay.js). N'importe qui d'autre peut quitter sans bloquer les
+ * autres : il est remplacé par un bot à sa place (voir `leaveTable` côté
+ * engine.js), et repasse par l'écran "tu as quitté la table" habituel.
+ */
+export function wireAbandonButton(container, { room, player, state, onLeave }) {
+  container.querySelector('#btn-abandon')?.addEventListener('click', () => {
+    if (state.hostId === player.id) {
+      if (window.confirm("Abandonner la partie en cours et ramener tout le monde en salle d'attente ? (utile si quelqu'un a quitté sans prévenir)")) {
+        playAgain(room).catch((err) => alert(err.message || "Impossible d'abandonner la partie."));
+      }
+      return;
+    }
+    if (window.confirm('Quitter la partie en cours ? Un bot prendra ta suite pour ne pas bloquer les autres joueurs.')) {
+      onLeave?.();
+    }
+  });
+}
+
+export function abandonButtonLabel(state, player) {
+  return state.hostId === player.id ? 'Abandonner la partie' : 'Quitter la partie';
+}
+
+export function wireEndGameActions(container, room) {
+  container.querySelector('#btn-continue')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await continueGame(room);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de continuer.');
+    }
+  });
+
+  container.querySelector('#btn-lobby')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await playAgain(room);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de revenir au lobby.');
+    }
+  });
+}
+
+// Sur Chrome/Android, navigator.vibrate() est bloqué (silencieusement, ou avec
+// un message "[Intervention]" dans la console) tant que la page n'a reçu AUCUN
+// tap depuis son dernier chargement complet — et n'existe même pas du tout hors
+// contexte sécurisé (https, ou localhost). Concrètement : ça ne vibrera jamais
+// en testant via `npm run dev -- --host` sur le réseau local en http://192.168.x.x
+// (utilise l'URL https de prod pour ce test-là), et un appareil resté pur
+// spectateur (aucun tap depuis l'ouverture de l'appli) ne vibrera pas non plus
+// tant qu'il n'a pas touché un bouton au moins une fois.
+export function vibrate(pattern) {
+  if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
+  const accepted = navigator.vibrate(pattern);
+  if (!accepted) {
+    console.debug('[vibrate] refusée par le navigateur (page pas encore "touchée", ou hors contexte sécurisé).');
+  }
+}
+
+// "Afficher les mains" : bouton partagé par Pouilleux, Trou du Cul et le mode
+// spectateur. Une seule source de vérité ici plutôt qu'une variable de module
+// dupliquée dans chaque fichier — les imports ES ne permettent pas de
+// réassigner une variable importée depuis un autre module, d'où les
+// accesseurs plutôt qu'un simple `export let`.
+let revealHands = false;
+export function getRevealHands() { return revealHands; }
+export function toggleRevealHands() { revealHands = !revealHands; return revealHands; }
+export function resetRevealHands() { revealHands = false; }
