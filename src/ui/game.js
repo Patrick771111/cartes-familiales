@@ -2369,7 +2369,7 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
   } else if (isMyTurn && state.phase === 'draw') {
     actionsHtml = `<p class="cinqrois-hint">Touche ou glisse depuis la <strong>pioche</strong> ou la <strong>défausse</strong>.</p>`;
   } else if (isMyTurn && state.phase === 'discard') {
-    actionsHtml = `<p class="cinqrois-hint">Choisis une carte → défausse. Bouton <strong>Poser</strong> à droite si ta main est valide.</p>`;
+    actionsHtml = `<p class="cinqrois-hint">Choisis une carte, puis touche la défausse (ou glisse-la). À droite : défausser et poser si possible.</p>`;
   } else if (me?.laidDown) {
     actionsHtml = `<p class="cinqrois-hint">Tu as posé ta main — en attente des autres…</p>`;
   }
@@ -2383,31 +2383,36 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
       }</p>
       <div class="cinqrois-opponents">${othersHtml || '<p class="cinqrois-empty">Aucun adversaire</p>'}</div>
       <div class="cinqrois-center">
-        <div class="cinqrois-pile ${isMyTurn && state.phase === 'draw' ? 'cinqrois-pile--active' : ''}"
-             id="cinqrois-stock"
-             data-dropzone="cinqrois-stock"
-             data-card-id="stock"
-             title="Pioche">
-          ${cinqRoisCardBackHtml()}
-          <span class="cinqrois-pile__label">Pioche ${state.stock.length}</span>
+        <div class="cinqrois-center__side" aria-hidden="true"></div>
+        <div class="cinqrois-center__piles">
+          <div class="cinqrois-pile ${isMyTurn && state.phase === 'draw' ? 'cinqrois-pile--active' : ''}"
+               id="cinqrois-stock"
+               data-dropzone="cinqrois-stock"
+               data-card-id="stock"
+               title="Pioche">
+            ${cinqRoisCardBackHtml()}
+            <span class="cinqrois-pile__label">Pioche ${state.stock.length}</span>
+          </div>
+          <div class="cinqrois-discard ${isMyTurn ? 'cinqrois-discard--active' : ''}"
+               id="cinqrois-discard-pile"
+               data-dropzone="cinqrois-discard"
+               data-card-id="discard"
+               title="Défausse">
+            ${
+              topDiscard
+                ? cinqRoisCardHtml(topDiscard, state.trumpRank)
+                : '<div class="cinqrois-card cinqrois-card--empty">—</div>'
+            }
+            <span class="cinqrois-pile__label">Défausse</span>
+          </div>
         </div>
-        <div class="cinqrois-discard ${isMyTurn ? 'cinqrois-discard--active' : ''}"
-             id="cinqrois-discard-pile"
-             data-dropzone="cinqrois-discard"
-             data-card-id="discard"
-             title="Défausse">
+        <div class="cinqrois-center__side cinqrois-center__side--action">
           ${
-            topDiscard
-              ? cinqRoisCardHtml(topDiscard, state.trumpRank)
-              : '<div class="cinqrois-card cinqrois-card--empty">—</div>'
+            isMyTurn && state.phase === 'discard'
+              ? `<button type="button" id="btn-cinqrois-goout" class="btn btn--ghost btn--small cinqrois-goout" disabled title="Défausser la carte choisie et poser le reste de ta main">Défausser et poser</button>`
+              : ''
           }
-          <span class="cinqrois-pile__label">Défausse</span>
         </div>
-        ${
-          isMyTurn && state.phase === 'discard'
-            ? `<button type="button" id="btn-cinqrois-goout" class="btn btn--primary cinqrois-goout" disabled title="Défausser la carte choisie et poser le reste de ta main">Poser</button>`
-            : ''
-        }
       </div>
       <div class="cinqrois-me ${isMyTurn ? 'cinqrois-me--turn' : ''} ${me?.laidDown ? 'cinqrois-me--laid' : ''}">
         <p class="cinqrois-me__name">Toi${connectionBadge(state, me?.id)} (${me?.score ?? 0} pts)${me?.laidDown ? ' — posé ✓' : ''}${myStatus}</p>

@@ -1992,19 +1992,45 @@ body.is-card-dragging * {
 }
 .cinqrois-seat__backs .cinqrois-card--back:first-child { margin-left: 0; }
 .cinqrois-center {
-  display: flex;
-  gap: 20px;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr);
   align-items: center;
+  gap: 8px;
   padding: 10px 0 14px;
   margin: 4px 0;
-  flex-wrap: nowrap;
+  width: 100%;
+}
+.cinqrois-center__piles {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+  align-items: flex-end;
+}
+.cinqrois-center__side {
+  min-height: 1px;
+}
+.cinqrois-center__side--action {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  padding-left: 4px;
 }
 .cinqrois-goout {
-  align-self: center;
-  min-width: 88px;
-  padding: 10px 16px;
-  white-space: nowrap;
+  font-size: 12px !important;
+  padding: 6px 10px !important;
+  line-height: 1.25 !important;
+  white-space: normal;
+  max-width: 118px;
+  text-align: center;
+  font-weight: 600;
+}
+.cinqrois-goout:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.cinqrois-goout:not(:disabled) {
+  border-color: var(--brass, #c9a227);
+  color: var(--brass-soft, #e4c765);
 }
 .cinqrois-pile, .cinqrois-discard {
   cursor: default;
