@@ -487,21 +487,155 @@ Pour les cartes à jouer classiques (52 cartes) : `cardFaceHtml`/`cardBackHtml`
 (`src/ui/cards.js`) plutôt que ré-écrire le HTML d'une carte à la main —
 gèrent déjà les thèmes illustrés (`src/ui/cardThemes.js`).
 
+### Glisser-déposer vs tap : gérer les deux, toujours
+
+L'utilisateur choisit son mode d'interaction dans la modale de réglages
+(`src/ui/settings.js`, section "Jouer une carte" → `cardInteraction`,
+`'drag'` ou `'tap'`, persistée en `localStorage`). **Un jeu ne doit jamais
+supposer l'un ou l'autre** : il doit lire la préférence via
+`isCardDragEnabled()` (`src/ui/settings.js`) et déléguer la double gestion à
+`enableDragToZone(el, { dragEnabled, onTap, onDrop })`
+(`src/ui/dragToZone.js`), qui repose sur les *Pointer Events* (unifie souris
+et tactile nativement, pas besoin de détecter la plateforme) :
+
+```js
+import { enableDragToZone } from '../dragToZone.js';
+import { isCardDragEnabled } from '../settings.js';
+
+enableDragToZone(handEl, {
+  dragEnabled: isCardDragEnabled(),
+  onTap: (cardId) => { /* clic/tap court : sélection ou action directe */ },
+  onDrop: (cardId, zoneDataset) => { /* glissé jusqu'à un [data-dropzone] */ }
+});
+```
+
+Sous le seuil de déplacement (8px), `enableDragToZone` route toujours vers
+`onTap` — donc même en mode `'drag'`, un simple tap doit rester une action
+valide (sélection, ou jeu direct si une seule cible est possible). Les zones
+cibles se déclarent avec `data-dropzone="<nom>"` (+ attributs `data-*`
+optionnels lus dans `onDrop(id, zone)`, ex. `zone.index`, `zone.targetId`).
+Voir `skyjo.js` ou `suiteinfernale.js` pour un exemple avec plusieurs zones
+de dépôt distinctes sur un même écran.
+
+`enableHandDrag` (`src/ui/dragReorder.js`) est un cas à part : il sert
+uniquement à **réordonner sa main visuellement** (confort d'affichage, pas
+une action de jeu) — toujours actif, indépendant du réglage
+`cardInteraction`. Ne pas le confondre avec `enableDragToZone`.
+
 ### Layout / conventions visuelles
 
+Convention à 3 zones, de haut en bas (voir `pouilleux.js`, `cinqrois.js` pour
+des exemples conformes) :
+
+1. **Zone adversaires, en haut** — classe `.pouilleux-zone.pouilleux-zone--others`
+   (nom historique, réutilisé tel quel par la plupart des jeux). Affiche
+   chaque adversaire, dans l'**ordre du tour** si possible (partir du joueur
+   suivant après soi — voir `orderedOpponents` dans `luckynumbers.js` pour la
+   référence), avec `.opponent--turn` sur celui dont c'est le tour, pour que
+   l'ordre de jeu se lise d'un coup d'œil sans avoir à lire le journal.
+2. **Zone centrale, la partie commune/exposée** — pioche, défausse, plateau
+   partagé... Toujours dans `.table-felt`. **Préférer l'interaction directe
+   sur l'élément visuel de la pile** (tap ou glisser, via
+   `enableDragToZone`/`data-dropzone` sur la pile elle-même) **plutôt qu'un
+   bouton d'action générique séparé** (type `<button>Piocher</button>`) qui
+   ferait double emploi avec ce qui est déjà affiché à l'écran — voir
+   `cinqrois.js` (`#cinqrois-stock`/`#cinqrois-discard-pile`, tap direct) ou
+   `skyjo.js`/`americain.js`/`luckynumbers.js` (le bouton existe mais **est**
+   visuellement la pile, pas un bouton texte à côté). *Exception connue,
+   pas encore corrigée : `suiteinfernale.js` affiche encore "Pioche : N
+   cartes" en texte + un bouton "Piocher" séparé plutôt qu'une pile
+   tapable — à corriger sur le même modèle que `cinqrois.js` à l'occasion.*
+   Quand il n'existe pas de pile visible à taper (Blackjack, Flip 7 — le
+   tirage vient d'un sabot abstrait comme dans le jeu physique), un bouton
+   d'action classique reste légitime.
+3. **Zone du bas, la main du joueur local** — classe `.my-hand`.
+
+Autres conventions :
 - Racine du rendu : `<div class="screen screen--table <id>-screen">` — la
   classe `<id>-screen` permet un habillage CSS propre au jeu (fond, mise en
   page) sans toucher aux autres. Voir les blocs `.pouilleux-screen`,
   `.trio-screen`, etc. dans `src/style.css` (section "fonds d'écran par
   jeu") : ajouter un bloc pour un nouveau jeu est optionnel, son absence
   retombe simplement sur le fond par défaut.
-- Zone adversaires : `.pouilleux-zone.pouilleux-zone--others` (nom historique,
-  réutilisé tel quel par la plupart des jeux — pas la peine d'en inventer un
-  autre s'il convient).
 - Bannière de tour : `.turn-banner` (+ `.turn-banner--you` quand c'est le tour
   du joueur local).
-- Main du joueur local : `.my-hand`.
 - Bouton règles : toujours `❓ Règles du jeu`, `onclick` → `openRulesModal(room.game)`.
+
+### Thèmes de cartes
+
+Un thème (registre dans `src/ui/cardThemes.js`, sélecteur dans
+`src/ui/settings.js` → `CARD_THEMES`) est une couche cosmétique optionnelle :
+sans dessin fourni pour une carte donnée, l'appli reste sobre (texte +
+symbole CSS, comportement par défaut). Un thème n'a donc jamais besoin
+d'être complet pour être utilisable.
+
+**Règle d'or : une illustration ne représente jamais la valeur ni la
+famille de la carte.** Le rang (`7`, `V`, `A`...) et le symbole (♥♦♣♠★) sont
+toujours superposés dynamiquement, en HTML/CSS, par-dessus l'image de fond
+(voir `cardFaceHtml` dans `src/ui/cards.js`) — l'illustration ne doit
+apporter que le style visuel du thème (la mascotte, la marque de voiture...),
+jamais une valeur ou un symbole dessiné en dur dans l'image.
+
+Trois catégories d'illustrations à fournir pour un thème, selon la
+convention de dossier `src/assets/cards/<theme>/` :
+
+**1. Par famille — 5 familles à illustrer** : ♥ cœur (`H`), ♦ carreau (`D`),
+♣ trèfle (`C`), ♠ pique (`S`), et ★ étoile (`T`, 5ᵉ famille utilisée
+uniquement par les Cinq Rois). Pour chaque famille, les "cartes communes" :
+- **3 figures** : valet, dame, roi — une illustration chacune.
+- **1 as** — illustration dédiée, optionnelle : sans elle, l'as retombe sur
+  l'illustration "numérale" de la famille (voir `suitCardImage` dans
+  `cardThemes.js`, repli `suit[role] || suit.number`).
+- **1 numérale, partagée de 2 à 10** — une seule illustration pour toute
+  la plage (le rang exact est du texte superposé, inutile de dessiner
+  10 variantes).
+
+  Convention de dossier (thème "par famille", ex. `auto-brands`) :
+  `<theme>/<famille>/{valet,dame,roi,as?,number}.webp`. Un thème "par rôle
+  partagé entre familles" (ex. `mascotte` : le même dessin de roi sert aux
+  4-5 familles, seul le symbole change par-dessus) utilise directement
+  `<theme>/{valet,dame,roi,as,number?}.webp`, sans dossier de famille — voir
+  `buildAutoBrandsRegistry` vs `buildMascotteRegistry` dans `cardThemes.js`
+  pour les deux conventions déjà supportées.
+
+**2. Pas rattaché à une famille** : le dos de carte (`<theme>/back.webp`,
+un seul, partagé par toutes les familles), et les jokers
+(`<theme>/jokers/*.webp` — autant de variantes que voulu, une est piochée au
+hasard mais de façon **stable** par id de carte, jamais un vrai `Math.random()`
+qui ferait "clignoter" l'illustration à chaque re-rendu, voir `stablePick`).
+
+**3. Spécifique à un jeu** — cartes qui n'existent que dans un seul jeu (ex.
+les cartes spéciales de la Suite Infernale : Joker +1, STOP, Rejouer...).
+Convention commune à tous les thèmes, sous `<theme>/games/<gameId>/` :
+```
+<theme>/games/<gameId>/<slotKey>.webp     — dessin dédié à ce slot précis
+<theme>/games/<gameId>/_pool/*.webp       — repli générique (N variantes,
+                                             pioche stable par id de carte)
+```
+`slotKey` correspond à une clé de `ILLUSTRATION_SLOTS`, exporté par
+`src/game/<gameId>.js` (voir `suiteinfernale.js` :
+`export const ILLUSTRATION_SLOTS = Object.keys(SPECIAL_TYPES);`) — c'est la
+**liste consolidée** des types de cartes à illustrer pour ce jeu. Côté
+lecture, une seule fonction générique couvre tous les thèmes et tous les
+jeux : `gameCardImage(themeId, gameId, slotKey, seed)` dans `cardThemes.js`
+(dessin dédié → sinon pool → sinon `null`). Ajouter un thème ou un jeu à
+cartes spéciales ne demande **aucun code** ici, seulement les fichiers au
+bon endroit.
+
+*Exemple concret déjà en place* : les cartes "gel" (aspect glacé/photo) ne
+sont pas un thème à part — elles complètent le thème "Marques auto" pour la
+Suite Infernale, faute de dessin dédié par type d'attaque. Elles vivent donc
+sous `auto-brands/games/suiteinfernale/_pool/`, pas dans un dossier
+`frost/` isolé. Le thème "mascotte", lui, a des dessins dédiés pour 5 des
+10 types (`mascotte/games/suiteinfernale/<type>.webp`) et pas de pool pour
+les 5 restants — ceux-là restent sobres plutôt que d'emprunter le pool
+"gel" (styles trop différents, ça jurerait).
+
+**Vérifier la couverture** : `npm run theme:coverage` (voir
+`scripts/theme-coverage.mjs`) liste, pour chaque jeu exportant
+`ILLUSTRATION_SLOTS` et chaque thème, ce qui est dessiné (✅), pris dans un
+pool (🟡), ou manquant (⬜) — pratique pour savoir ce qui reste à illustrer
+sans avoir à lire le contenu des dossiers à la main.
 
 ### Checklist pour un nouveau jeu
 
@@ -514,7 +648,11 @@ gèrent déjà les thèmes illustrés (`src/ui/cardThemes.js`).
 4. `src/ui/games/<id>.js` : `resetSelection` + `renderTable`, en important les
    wrappers d'action depuis `../../game/<id>.js`.
 5. (Optionnel) bloc CSS `.screen--table.<id>-screen` dans `src/style.css`.
-6. Tester en salle d'attente : le nouveau jeu doit apparaître tout seul dans
+6. (Optionnel, si le jeu a des cartes spécifiques à illustrer) exporter
+   `ILLUSTRATION_SLOTS` dans `src/game/<id>.js` et déposer les fichiers sous
+   `src/assets/cards/<theme>/games/<id>/` — voir *Thèmes de cartes*
+   ci-dessus. `npm run theme:coverage` pour vérifier ce qui manque.
+7. Tester en salle d'attente : le nouveau jeu doit apparaître tout seul dans
    le sélecteur "Quel jeu ?" (trié alphabétiquement, via `AVAILABLE_GAMES`
    exporté par `src/game/engine.js`) — pas besoin de le lister ailleurs, ni
    de toucher `src/game/engine.js` ou `src/ui/game.js`.

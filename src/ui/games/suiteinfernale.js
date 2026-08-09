@@ -8,7 +8,7 @@ import {
   SEQUENCE_TARGET as SUITE_INFERNALE_TARGET,
   SPECIAL_TYPES as SUITE_INFERNALE_SPECIAL_TYPES
 } from '../../game/suiteinfernale.js';
-import { suiteInfernaleSpecialImage } from '../cardThemes.js';
+import { gameCardImage } from '../cardThemes.js';
 import { enableDragToZone } from '../dragToZone.js';
 import { isCardDragEnabled } from '../settings.js';
 import { openRulesModal } from '../rules.js';
@@ -54,7 +54,7 @@ function suiteInfernaleCardHtml(card) {
   const theme = document.documentElement.dataset.cardTheme;
   if (card.kind === 'number') return `<div class="suiteinfernale-card suiteinfernale-card--number">${card.value}</div>`;
   const label = SUITE_INFERNALE_SPECIAL_TYPES[card.type]?.label || card.type;
-  const illustration = suiteInfernaleSpecialImage(theme, card.type, card.id);
+  const illustration = gameCardImage(theme, 'suiteinfernale', card.type, card.id);
   const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
   return `<div class="suiteinfernale-card suiteinfernale-card--special ${illustration ? 'suiteinfernale-card--illustrated' : ''}" title="${label}"${style}>${illustration ? '' : label}</div>`;
 }

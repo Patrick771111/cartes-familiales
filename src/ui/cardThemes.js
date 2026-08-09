@@ -15,27 +15,48 @@
  *   illustration par RÔLE (as/valet/dame/roi), partagée par les 4 familles
  *   classiques — le symbole ♥♦♣♠/★ et sa couleur restent ajoutés
  *   dynamiquement par-dessus (voir cards.js), donc pas besoin d'un dessin
- *   par famille ici. Les cartes numérales n'ont pas de dessin dédié et
- *   restent sobres. mascotte/{as,valet,dame,roi,back}.webp +
- *   mascotte/special/<type>.webp pour les cartes spéciales de la Suite
- *   Infernale (clés de SPECIAL_TYPES, voir suiteinfernale.js).
+ *   par famille ici. mascotte/{as,valet,dame,roi,back}.webp.
+ *
+ * Voir "Thèmes de cartes" dans README.md pour le contrat complet (5
+ * familles à illustrer, cartes communes, cartes spécifiques à un jeu) à
+ * respecter pour un nouveau thème.
+ *
+ * --- Cartes spécifiques à un jeu (ex : les cartes spéciales de la Suite
+ * Infernale) ---
+ *
+ * Convention commune à tous les thèmes, sous `<theme>/games/<gameId>/` :
+ *   - `<slotKey>.webp` : illustration dédiée pour ce slot précis (`slotKey`
+ *     = une clé de `ILLUSTRATION_SLOTS` exportée par `src/game/<gameId>.js`,
+ *     voir suiteinfernale.js).
+ *   - `_pool/*.webp` : pool générique de repli (autant de variantes que
+ *     voulu), piochée pour les slots sans dessin dédié — une image stable
+ *     par id de carte (jamais aléatoire à chaque rendu). Remplace l'ancien
+ *     dossier `frost/` (les cartes "gel" complètent le thème "Marques
+ *     auto" pour la Suite Infernale, elles ne sont pas un thème à part).
+ *   - Ni `<slotKey>.webp` ni `_pool/` : le thème reste sobre pour ce jeu
+ *     (aucune illustration), comportement par défaut si rien n'est fourni.
+ *
+ * `npm run theme:coverage` liste, pour chaque thème et chaque jeu à slots,
+ * ce qui est dessiné/en pool/manquant (voir scripts/theme-coverage.mjs).
  */
 
 const SUIT_TO_BRAND_FOLDER = { H: 'ferrari', D: 'renault', C: 'land-rover', S: 'lamborghini', T: 'mercedes' };
 
 const autoBrandsFiles = import.meta.glob('../assets/cards/auto-brands/**/*.webp', { eager: true, import: 'default' });
-const frostFiles = import.meta.glob('../assets/cards/frost/*.webp', { eager: true, import: 'default' });
 const mascotteFiles = import.meta.glob('../assets/cards/mascotte/**/*.webp', { eager: true, import: 'default' });
+// Un seul glob, générique à tous les thèmes présents et futurs : couvre
+// `<theme>/games/<gameId>/<slotKey>.webp` et `<theme>/games/<gameId>/_pool/*.webp`.
+const gameSlotFiles = import.meta.glob('../assets/cards/*/games/**/*.webp', { eager: true, import: 'default' });
 
 // Prend le résultat d'`import.meta.glob` en paramètre (plutôt que de lire la
-// variable de module directement) pour rester testable hors Vite — voir
-// `_test_cardThemes.html` avec une map simulée.
+// variable de module directement) pour rester testable hors Vite.
 export function buildAutoBrandsRegistry(files) {
   const bySuit = {};
   const jokers = [];
   let back = null;
 
   for (const [path, url] of Object.entries(files)) {
+    if (path.includes('/games/')) continue; // couvert par buildGameSlotRegistry
     if (path.endsWith('/back.webp')) {
       back = url;
       continue;
@@ -60,29 +81,48 @@ export function buildAutoBrandsRegistry(files) {
 /** Même principe que `buildAutoBrandsRegistry`, pour le thème "mascotte" (pas de famille, un rôle = une image). */
 export function buildMascotteRegistry(files) {
   const byRole = {};
-  const bySpecial = {};
   let back = null;
 
   for (const [path, url] of Object.entries(files)) {
+    if (path.includes('/games/')) continue; // couvert par buildGameSlotRegistry
     if (path.endsWith('/back.webp')) {
       back = url;
-      continue;
-    }
-    const specialMatch = path.match(/\/special\/(\w+)\.webp$/);
-    if (specialMatch) {
-      bySpecial[specialMatch[1]] = url;
       continue;
     }
     const roleMatch = path.match(/mascotte\/(\w+)\.webp$/);
     if (roleMatch) byRole[roleMatch[1]] = url;
   }
 
-  return { byRole, bySpecial, back };
+  return { byRole, back };
+}
+
+/**
+ * Registre générique des cartes spécifiques à un jeu, pour tous les thèmes
+ * en une passe : `{ [themeId]: { [gameId]: { slots: {slotKey: url}, pool: [url, ...] } } }`.
+ * `themeId` est déduit du 1er segment après `assets/cards/` (ex. `auto-brands`
+ * -> `autoBrands`, cohérent avec `CARD_THEMES` dans settings.js).
+ */
+export function buildGameSlotRegistry(files) {
+  const registry = {};
+  for (const [path, url] of Object.entries(files)) {
+    const match = path.match(/assets\/cards\/([\w-]+)\/games\/([\w-]+)\/(?:_pool\/)?([\w-]+)\.webp$/);
+    if (!match) continue;
+    const [, themeFolder, gameId, name] = match;
+    const themeId = themeFolder === 'auto-brands' ? 'autoBrands' : themeFolder;
+    registry[themeId] = registry[themeId] || {};
+    registry[themeId][gameId] = registry[themeId][gameId] || { slots: {}, pool: [] };
+    if (path.includes('/_pool/')) {
+      registry[themeId][gameId].pool.push(url);
+    } else {
+      registry[themeId][gameId].slots[name] = url;
+    }
+  }
+  return registry;
 }
 
 const AUTO_BRANDS = buildAutoBrandsRegistry(autoBrandsFiles);
 const MASCOTTE = buildMascotteRegistry(mascotteFiles);
-const FROST = Object.values(frostFiles);
+const GAME_SLOTS = buildGameSlotRegistry(gameSlotFiles);
 
 /** Thème "phare" (illustration plein cadre standard pour tous les rôles/familles) — conservé pour compat. */
 export const CARD_ILLUSTRATION_THEME_ID = 'autoBrands';
@@ -157,17 +197,18 @@ export function randomNumberImage(themeId, seed) {
 }
 
 /**
- * Carte spéciale de la Suite Infernale (attaques/STOP/Rejouer), par type
- * (clé de `SPECIAL_TYPES`, voir suiteinfernale.js).
- * - "mascotte" : dessin dédié pour les types couverts ; pour le reste
- *   (rejouer, stop, retirerDeux, volerDerniere — pas encore dessinés), reste
- *   sobre plutôt que de mélanger avec le pool "gel" (style photo/glacé trop
- *   différent du feutre dessiné à la main, ça jurerait).
- * - "autoBrands" : pas de branding par type d'attaque, repli sur le pool
- *   "gel" générique pour donner quand même un habillage illustré.
+ * Illustration pour une carte spécifique à un jeu (ex. les cartes spéciales
+ * de la Suite Infernale — attaques/STOP/Rejouer), identifiée par `slotKey`
+ * (une clé de `ILLUSTRATION_SLOTS` exporté par `src/game/<gameId>.js`).
+ * Cherche d'abord un dessin dédié à ce slot précis
+ * (`<theme>/games/<gameId>/<slotKey>.webp`), sinon pioche dans le pool
+ * générique du jeu (`<theme>/games/<gameId>/_pool/*.webp`, choix stable par
+ * `seed`), sinon `null` (reste sobre). Générique à tous les thèmes et tous
+ * les jeux : ajouter un thème ou un jeu à slots ne demande aucun code ici,
+ * seulement les fichiers au bon endroit (voir le commentaire d'en-tête).
  */
-export function suiteInfernaleSpecialImage(themeId, type, seed) {
-  if (themeId === 'mascotte') return MASCOTTE.bySpecial[type] || null;
-  if (themeId === 'autoBrands') return stablePick(FROST, seed);
-  return null;
+export function gameCardImage(themeId, gameId, slotKey, seed) {
+  const game = GAME_SLOTS[themeId]?.[gameId];
+  if (!game) return null;
+  return game.slots[slotKey] || stablePick(game.pool, seed);
 }

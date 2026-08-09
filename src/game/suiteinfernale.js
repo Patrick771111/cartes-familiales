@@ -32,6 +32,13 @@ export const SPECIAL_TYPES = {
   stop: { label: '🛑 STOP', description: "Contre l'attaque d'un adversaire dirigée contre toi.", count: 4 }
 };
 
+// Slots d'illustration pour ce jeu (voir "Thèmes de cartes" dans README.md,
+// et `gameCardImage` dans src/ui/cardThemes.js) : un thème peut fournir un
+// dessin dédié par clé sous `<theme>/games/suiteinfernale/<clé>.webp`, ou un
+// pool générique de repli sous `<theme>/games/suiteinfernale/_pool/*.webp`.
+// `npm run theme:coverage` lit cet export pour lister ce qui manque.
+export const ILLUSTRATION_SLOTS = Object.keys(SPECIAL_TYPES);
+
 // Cartes dont l'effet cible un adversaire précis, et qui peuvent donc être
 // contrées par un STOP de la personne visée (une fois jouées, l'effet reste
 // en attente le temps que la cible réponde — voir `pendingAttack`).
