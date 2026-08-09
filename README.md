@@ -524,31 +524,74 @@ une action de jeu) — toujours actif, indépendant du réglage
 
 ### Layout / conventions visuelles
 
-Convention à 3 zones, de haut en bas (voir `pouilleux.js`, `cinqrois.js` pour
-des exemples conformes) :
+**Ces règles ne sont pas des suggestions : `renderTable` doit produire
+exactement cette structure, sans exception "parce que ce jeu est
+différent".** Historique : la première version de `trio.js` avait inventé
+son propre `<header>` maison (boutons Règles/Quitter en haut, non stylés,
+zone adversaires après le centre au lieu d'avant, fin de partie avec des
+boutons "Rejouer"/"Salon" sur une classe CSS empruntée à un autre jeu) — un
+jeu qui *a l'air* d'un mémory plutôt que d'un jeu de cartes n'est pas une
+raison suffisante pour un layout différent. Squelette obligatoire (copier
+depuis `pouilleux.js` ou `cinqrois.js`, pas depuis zéro) :
+
+```js
+container.innerHTML = `
+  <div class="screen screen--table <id>-screen">
+    <div class="pouilleux-zone pouilleux-zone--others">
+      ${opponentsHtml}
+    </div>
+
+    <div class="table-felt <id>-felt">
+      <!-- pioche/défausse/plateau partagé, bannière de tour -->
+    </div>
+
+    <div class="my-hand">
+      <!-- main du joueur local -->
+      ${finished ? endGameActionsHtml() : ''}
+      <details class="log">…</details>
+      <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
+      <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
+    </div>
+  </div>
+`;
+wireEndGameActions(container, room);
+container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
+wireAbandonButton(container, { room, player, state, onLeave });
+```
 
 1. **Zone adversaires, en haut** — classe `.pouilleux-zone.pouilleux-zone--others`
-   (nom historique, réutilisé tel quel par la plupart des jeux). Affiche
-   chaque adversaire, dans l'**ordre du tour** si possible (partir du joueur
-   suivant après soi — voir `orderedOpponents` dans `luckynumbers.js` pour la
-   référence), avec `.opponent--turn` sur celui dont c'est le tour, pour que
-   l'ordre de jeu se lise d'un coup d'œil sans avoir à lire le journal.
+   (nom historique, réutilisé tel quel par tous les jeux, y compris ceux
+   sans main de cartes classique). Construite avec
+   `orderedOpponents(state, player.id)` (`src/ui/gameShared.js`) — **jamais**
+   `state.players.filter(p => p.id !== player.id)`, qui donne l'ordre
+   d'arrivée en salle et pas l'ordre de jeu. `.opponent--turn` (ou
+   l'équivalent du jeu) sur celui dont c'est le tour.
+   - Corollaire côté logique (`src/game/<id>.js`) : `turnOrder` doit être
+     `shuffle(players.map(p => p.id))` à `initGame` (aléatoire, fixé pour
+     toute la partie) — jamais `players.map(p => p.id)` tel quel, qui reprend
+     l'ordre d'arrivée en salle. Seule exception légitime : un jeu où les
+     règles imposent un ordre précis (le Trou du Cul : toujours
+     trouducul → secrétaire → vice-président → président, selon les rôles).
 2. **Zone centrale, la partie commune/exposée** — pioche, défausse, plateau
    partagé... Toujours dans `.table-felt`. **Préférer l'interaction directe
    sur l'élément visuel de la pile** (tap ou glisser, via
    `enableDragToZone`/`data-dropzone` sur la pile elle-même) **plutôt qu'un
-   bouton d'action générique séparé** (type `<button>Piocher</button>`) qui
-   ferait double emploi avec ce qui est déjà affiché à l'écran — voir
-   `cinqrois.js` (`#cinqrois-stock`/`#cinqrois-discard-pile`, tap direct) ou
-   `skyjo.js`/`americain.js`/`luckynumbers.js` (le bouton existe mais **est**
-   visuellement la pile, pas un bouton texte à côté). *Exception connue,
-   pas encore corrigée : `suiteinfernale.js` affiche encore "Pioche : N
-   cartes" en texte + un bouton "Piocher" séparé plutôt qu'une pile
-   tapable — à corriger sur le même modèle que `cinqrois.js` à l'occasion.*
-   Quand il n'existe pas de pile visible à taper (Blackjack, Flip 7 — le
-   tirage vient d'un sabot abstrait comme dans le jeu physique), un bouton
-   d'action classique reste légitime.
-3. **Zone du bas, la main du joueur local** — classe `.my-hand`.
+   bouton d'action générique séparé** (type `<button>Piocher</button>` à côté
+   d'un texte "Pioche : N cartes") qui ferait double emploi avec ce qui est
+   déjà affiché à l'écran — voir `cinqrois.js` (`#cinqrois-stock`/
+   `#cinqrois-discard-pile`, tap direct) ou `skyjo.js`/`americain.js`/
+   `luckynumbers.js`/`suiteinfernale.js` (le bouton existe mais **est**
+   visuellement la pile — mêmes id/classes `<id>-stock`/`<id>-pile`, pas un
+   bouton texte à côté). Quand il n'existe pas de pile visible à taper
+   (Blackjack, Flip 7 — le tirage vient d'un sabot abstrait comme dans le jeu
+   physique), un bouton d'action classique reste légitime.
+3. **Zone du bas, la main du joueur local** — classe `.my-hand`. Contient
+   systématiquement, dans cet ordre : la main/le contenu propre au jeu, puis
+   `endGameActionsHtml()`/`wireEndGameActions(container, room)` si
+   `state.status === 'finished'` (jamais de boutons "Rejouer"/"Continuer"
+   maison — toujours ce helper, qui pose les bons libellés "Continuer"/
+   "Retour au lobby"), puis `<details class="log">`, puis `#btn-rules` et
+   `#btn-abandon` via `wireAbandonButton`/`abandonButtonLabel`.
 
 Autres conventions :
 - Racine du rendu : `<div class="screen screen--table <id>-screen">` — la
@@ -560,6 +603,11 @@ Autres conventions :
 - Bannière de tour : `.turn-banner` (+ `.turn-banner--you` quand c'est le tour
   du joueur local).
 - Bouton règles : toujours `❓ Règles du jeu`, `onclick` → `openRulesModal(room.game)`.
+- **Jamais de `<header>`, bouton, ou classe CSS inventés pour une
+  fonctionnalité qui a déjà un helper dans `gameShared.js`** (règles,
+  abandon, fin de partie) — si un besoin semble spécifique à un jeu,
+  vérifier d'abord la liste dans *Fonctions communes à réutiliser*
+  ci-dessus avant d'écrire du HTML/CSS à la main.
 
 ### Thèmes de cartes
 
@@ -639,14 +687,19 @@ sans avoir à lire le contenu des dossiers à la main.
 
 ### Checklist pour un nouveau jeu
 
-1. `src/game/<id>.js` : `meta` + `initGame` + `applyXxx(...)` + les wrappers
-   d'action (`commitGameAction`/`updateRoomState`, importés depuis `./core.js`).
+1. `src/game/<id>.js` : `meta` + `initGame` (avec `turnOrder: shuffle(players.map(p => p.id))`,
+   sauf ordre imposé par les règles — voir *Layout* ci-dessus) + `applyXxx(...)`
+   + les wrappers d'action (`commitGameAction`/`updateRoomState`, importés
+   depuis `./core.js`).
 2. `src/game/<id>.bot.js` : `chooseMove` + `schedule` (jamais d'import d'`engine.js`,
    ni même de `../../game/<id>.js` via `engine.js` — importer directement
    `./core.js` et `./<id>.js`, voir *Règle impérative* ci-dessus).
 3. `src/game/<id>.rules.js` : `title` + `html`.
-4. `src/ui/games/<id>.js` : `resetSelection` + `renderTable`, en important les
-   wrappers d'action depuis `../../game/<id>.js`.
+4. `src/ui/games/<id>.js` : `resetSelection` + `renderTable` **respectant le
+   squelette 3 zones de *Layout / conventions visuelles*** (zone adversaires
+   via `orderedOpponents` / zone centrale avec pile tapable / `.my-hand` avec
+   les helpers `gameShared.js` — jamais de header ou boutons maison), en
+   important les wrappers d'action depuis `../../game/<id>.js`.
 5. (Optionnel) bloc CSS `.screen--table.<id>-screen` dans `src/style.css`.
 6. (Optionnel, si le jeu a des cartes spécifiques à illustrer) exporter
    `ILLUSTRATION_SLOTS` dans `src/game/<id>.js` et déposer les fichiers sous
