@@ -34,11 +34,14 @@ export function initGame(players) {
     return { id: p.id, name: p.name, hand, isBot: p.isBot || false };
   });
 
+  // Ordre de jeu aléatoire, fixé pour toute la partie (pas l'ordre d'arrivée en salle).
+  const turnOrder = shuffle(players.map((p) => p.id));
+
   return {
     status: 'playing',
     players: initializedPlayers,
-    turnOrder: players.map((p) => p.id),
-    currentPlayerId: players[0].id,
+    turnOrder,
+    currentPlayerId: turnOrder[0],
     oddCardId,
     loserId: null,
     log: [{ ts: Date.now(), message: 'La partie commence !' }]

@@ -10,7 +10,7 @@ import { suitCardImage, cardBackImage, jokerImage } from '../cardThemes.js';
 import { enableDragToZone } from '../dragToZone.js';
 import { isCardDragEnabled } from '../settings.js';
 import { openRulesModal } from '../rules.js';
-import { connectionBadge, endGameActionsHtml, wireAbandonButton, abandonButtonLabel, wireEndGameActions } from '../gameShared.js';
+import { connectionBadge, endGameActionsHtml, wireAbandonButton, abandonButtonLabel, wireEndGameActions, orderedOpponents } from '../gameShared.js';
 
 // Id de la dernière pose de main affichée en overlay (voir bas de fichier) —
 // évite de rejouer l'animation à chaque re-rendu tant que le coup n'a pas changé.
@@ -73,8 +73,7 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
   const isFinished = state.status === 'finished';
   const topDiscard = state.discard[state.discard.length - 1];
 
-  const othersHtml = state.players
-    .filter((p) => p.id !== player.id)
+  const othersHtml = orderedOpponents(state, player.id)
     .map((p) => {
       const isTurn = state.currentPlayerId === p.id;
       let status = p.laidDown ? 'Posé ✓' : isTurn ? 'À jouer…' : `${p.hand.length} cartes`;

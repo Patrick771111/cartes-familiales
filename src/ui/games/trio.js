@@ -1,6 +1,13 @@
-import { playAgain, continueGame } from '../../game/engine.js';
 import { revealTrioCenter, revealTrioRow, confirmTrioTurn } from '../../game/trio.js';
 import { openRulesModal } from '../rules.js';
+import {
+  connectionBadge,
+  endGameActionsHtml,
+  wireAbandonButton,
+  abandonButtonLabel,
+  wireEndGameActions,
+  orderedOpponents
+} from '../gameShared.js';
 
 export function resetSelection() {}
 
@@ -87,12 +94,11 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
       </div>`
     : '';
 
-  const opponentsHtml = state.players
-    .filter((p) => p.id !== player.id)
+  const opponentsHtml = orderedOpponents(state, player.id)
     .map((p) => {
       const isTurn = p.id === state.currentPlayerId;
       return `<div class="trio-player ${isTurn ? 'trio-player--turn' : ''}">
-        <p class="trio-player__name">${p.name}${p.isBot ? ' 🤖' : ''} <span class="trio-player__trios">${p.trios.length} trio${p.trios.length > 1 ? 's' : ''}</span></p>
+        <p class="trio-player__name">${p.name}${connectionBadge(state, p.id)}${p.isBot ? ' 🤖' : ''} <span class="trio-player__trios">${p.trios.length} trio${p.trios.length > 1 ? 's' : ''}</span></p>
         ${trioRowHtml(p.row, { targetPlayerId: p.id, clickableEnds: canReveal })}
       </div>`;
     })
@@ -100,20 +106,13 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
 
   container.innerHTML = `
     <div class="screen screen--table trio-screen">
-      <header class="table-header">
-        <div>
-          <p class="eyebrow">Trio</p>
-          <h1 class="table-title">Mémoire des trios</h1>
-        </div>
-        <div class="table-header__actions">
-          <button id="btn-rules" class="btn btn--ghost btn--small">Règles</button>
-          <button id="btn-leave" class="btn btn--ghost btn--small">Quitter</button>
-        </div>
-      </header>
+      <div class="pouilleux-zone pouilleux-zone--others trio-opponents">
+        ${opponentsHtml || '<p class="pouilleux-zone__empty">—</p>'}
+      </div>
 
       <div class="table-felt trio-felt">
         ${winnerBanner}
-        <p class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">${actionHint}</p>
+        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">${actionHint}</div>
 
         <div class="trio-center">
           <p class="trio-center__label">Centre</p>
@@ -123,56 +122,32 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
         ${revealedHtml}
 
         ${awaitingConfirm && isMyTurn ? `<button id="btn-trio-confirm" class="btn btn--primary">Continuer</button>` : ''}
-
-        <div class="trio-opponents">${opponentsHtml}</div>
-
-        ${
-          me
-            ? `<div class="trio-my-hand">
-                 <p class="trio-my-hand__label">Ta main · ${me.trios.length} trio${me.trios.length > 1 ? 's' : ''}</p>
-                 ${trioRowHtml(me.row, { targetPlayerId: me.id, clickableEnds: canReveal })}
-               </div>`
-            : ''
-        }
-
-        ${
-          state.status === 'finished'
-            ? `<div class="lucky-end-actions">
-                 <button id="btn-continue" class="btn btn--primary">Rejouer</button>
-                 <button id="btn-lobby" class="btn btn--secondary">Salon</button>
-               </div>`
-            : ''
-        }
       </div>
 
-      <details class="log">
-        <summary>Journal</summary>
-        <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
-      </details>
+      <div class="my-hand">
+        ${
+          me
+            ? `<p class="my-hand__label">Ta main${connectionBadge(state, me.id)} · ${me.trios.length} trio${me.trios.length > 1 ? 's' : ''}</p>
+               ${trioRowHtml(me.row, { targetPlayerId: me.id, clickableEnds: canReveal })}`
+            : ''
+        }
+
+        ${state.status === 'finished' ? endGameActionsHtml() : ''}
+
+        <details class="log">
+          <summary>Journal de la partie</summary>
+          <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
+        </details>
+
+        <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
+        <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
+      </div>
     </div>
   `;
 
+  wireEndGameActions(container, room);
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
-  container.querySelector('#btn-leave')?.addEventListener('click', () => onLeave?.());
-
-  container.querySelector('#btn-continue')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try {
-      await continueGame(room);
-    } catch (err) {
-      alert(err.message || String(err));
-      e.target.disabled = false;
-    }
-  });
-  container.querySelector('#btn-lobby')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try {
-      await playAgain(room);
-    } catch (err) {
-      alert(err.message || String(err));
-      e.target.disabled = false;
-    }
-  });
+  wireAbandonButton(container, { room, player, state, onLeave });
 
   container.querySelector('#btn-trio-confirm')?.addEventListener('click', async (e) => {
     e.target.disabled = true;

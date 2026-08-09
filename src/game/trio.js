@@ -55,7 +55,8 @@ export function initGame(players) {
   }
   const perPlayer = DEAL_BY_PLAYER_COUNT[players.length];
   const deck = shuffle(buildTiles());
-  const turnOrder = players.map((p) => p.id);
+  // Ordre de jeu aléatoire, fixé pour toute la partie (pas l'ordre d'arrivée en salle).
+  const turnOrder = shuffle(players.map((p) => p.id));
 
   const resolvedPlayers = players.map((p) => {
     const row = deck.splice(0, perPlayer).sort((a, b) => a.value - b.value);

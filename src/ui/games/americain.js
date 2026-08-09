@@ -10,7 +10,8 @@ import {
   endGameActionsHtml,
   wireAbandonButton,
   abandonButtonLabel,
-  wireEndGameActions
+  wireEndGameActions,
+  orderedOpponents
 } from '../gameShared.js';
 
 // Carte "8" en attente du choix de couleur (clic sur l'icône couleur pour valider,
@@ -36,7 +37,7 @@ export function renderTable(container, { room, player, state, onLeave }) {
 
 function renderAmericainTable(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
-  const others = state.players.filter((p) => p.id !== player.id);
+  const others = orderedOpponents(state, player.id);
   const isMyTurn = state.currentPlayerId === player.id;
   if (!isMyTurn) pendingEightCardId = null;
 

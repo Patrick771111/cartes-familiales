@@ -86,11 +86,14 @@ export function initGame(players) {
   cursor += 1;
   const stock = deck.slice(cursor);
 
+  // Ordre de jeu aléatoire, fixé pour toute la partie (pas l'ordre d'arrivée en salle).
+  const turnOrder = shuffle(players.map((p) => p.id));
+
   return {
     status: 'playing',
     players: gamePlayers,
-    turnOrder: players.map((p) => p.id),
-    currentPlayerId: players[0].id,
+    turnOrder,
+    currentPlayerId: turnOrder[0],
     direction: 1,
     stock,
     discard: [topCard],

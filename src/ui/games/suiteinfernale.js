@@ -8,6 +8,7 @@ import {
   SEQUENCE_TARGET as SUITE_INFERNALE_TARGET,
   SPECIAL_TYPES as SUITE_INFERNALE_SPECIAL_TYPES
 } from '../../game/suiteinfernale.js';
+import { cardBackHtml } from '../cards.js';
 import { gameCardImage } from '../cardThemes.js';
 import { enableDragToZone } from '../dragToZone.js';
 import { isCardDragEnabled } from '../settings.js';
@@ -17,7 +18,8 @@ import {
   endGameActionsHtml,
   wireAbandonButton,
   abandonButtonLabel,
-  wireEndGameActions
+  wireEndGameActions,
+  orderedOpponents
 } from '../gameShared.js';
 
 const SUITE_INFERNALE_SLOT_TARGETED_TYPES = ['retirerUne', 'volerUne'];
@@ -112,7 +114,7 @@ function suiteInfernalePlayable(card, me) {
 
 function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
-  const others = state.players.filter((p) => p.id !== player.id);
+  const others = orderedOpponents(state, player.id);
   const isMyTurn = state.currentPlayerId === player.id;
   const finished = state.status === 'finished';
   const reaction = state.pendingAttack && state.pendingAttack.targetId === player.id ? state.pendingAttack : null;
@@ -190,7 +192,10 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
             ? `<p class="flip7-banner flip7-banner--winner">🏆 ${state.players.find((p) => p.id === state.winnerId)?.name || '?'} termine sa suite et gagne la partie !</p>`
             : ''
         }
-        <p class="suiteinfernale-deck-count">Pioche : ${state.deck.length} carte${state.deck.length > 1 ? 's' : ''}</p>
+        <button type="button" class="suiteinfernale-stock ${canDraw ? 'suiteinfernale-stock--pickable' : ''}" id="btn-draw" ${canDraw ? '' : 'disabled'}>
+          ${cardBackHtml()}
+          <span class="suiteinfernale-stock__count">Pioche (${state.deck.length})</span>
+        </button>
 
         ${
           (() => {
@@ -200,7 +205,7 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
                 ? '' // le bandeau d'attaque ci-dessous suffit
                 : isMyTurn
                   ? canDraw
-                    ? '' // redondant avec le bouton "Piocher" ci-dessous
+                    ? 'Touche la pioche'
                     : 'Joue une carte, ou défausses-en une'
                   : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`;
             return text ? `<div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">${text}</div>` : '';
@@ -253,7 +258,6 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
         <p class="my-hand__label" ${dragMode ? `title="Dépose une carte ici pour la jouer."` : ''}>Ta suite (${me.sequence.filter(Boolean).length}/${SUITE_INFERNALE_TARGET})${dragMode ? ' <small>ℹ️</small>' : ''}</p>
         <div data-dropzone="own-sequence">${suiteInfernaleSequenceHtml(me.sequence)}</div>
 
-        ${canDraw ? `<div class="suiteinfernale-actions"><button id="btn-draw" class="btn btn--primary">Piocher</button></div>` : ''}
         ${
           canAct && !pendingCard
             ? `<div class="suiteinfernale-actions">

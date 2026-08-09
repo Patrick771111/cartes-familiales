@@ -10,7 +10,7 @@ import {
 import { enableDragToZone } from '../dragToZone.js';
 import { isCardDragEnabled } from '../settings.js';
 import { openRulesModal } from '../rules.js';
-import { endGameActionsHtml, wireAbandonButton, abandonButtonLabel, wireEndGameActions } from '../gameShared.js';
+import { endGameActionsHtml, wireAbandonButton, abandonButtonLabel, wireEndGameActions, orderedOpponents } from '../gameShared.js';
 
 export function resetSelection() {}
 
@@ -52,17 +52,7 @@ function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
     isMyTurn && hasDrawn ? luckyValidPlacements(me?.board || [], state.drawnTile.value) : [];
   const currentName = state.players.find((p) => p.id === state.currentPlayerId)?.name;
 
-  // Adversaires dans l'ordre de jeu, en partant du joueur suivant le local.
-  const turnOrder = state.turnOrder || state.players.map((p) => p.id);
-  const myOrderIdx = Math.max(0, turnOrder.indexOf(player.id));
-  const orderedOpponents = [];
-  for (let step = 1; step < turnOrder.length; step++) {
-    const id = turnOrder[(myOrderIdx + step) % turnOrder.length];
-    const p = state.players.find((x) => x.id === id);
-    if (p) orderedOpponents.push(p);
-  }
-
-  const opponentsHtml = orderedOpponents
+  const opponentsHtml = orderedOpponents(state, player.id)
     .map((p) => {
       const empty = p.board.filter((c) => !c).length;
       const isTurn = p.id === state.currentPlayerId;

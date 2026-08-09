@@ -1437,7 +1437,31 @@ h1 {
 
 .suiteinfernale-felt { padding: 18px 14px; text-align: center; }
 
-.suiteinfernale-deck-count { font-family: var(--font-mono); font-size: 12px; color: rgba(247, 241, 225, 0.65); margin: 0 0 8px; }
+.suiteinfernale-stock {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0 0 8px;
+  box-sizing: border-box;
+  position: relative;
+  cursor: default;
+  opacity: 0.6;
+}
+.suiteinfernale-stock .card--back { width: 60px; height: 88px; }
+.suiteinfernale-stock__count {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: rgba(247, 241, 225, 0.65);
+  margin-top: 4px;
+}
+.suiteinfernale-stock--pickable { cursor: pointer; opacity: 1; }
+.suiteinfernale-stock--pickable .card--back {
+  box-shadow: 0 0 0 3px var(--brass-soft), 0 6px 16px rgba(0,0,0,0.4);
+}
+.suiteinfernale-stock:disabled { pointer-events: none; }
 
 .suiteinfernale-sequence {
   display: flex;
@@ -2415,14 +2439,6 @@ body.is-card-dragging * {
   height: 56px;
   font-size: 22px;
 }
-.lucky-end-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  margin-top: 12px;
-  flex-wrap: wrap;
-}
-
 /* ——— Trio ——— */
 .trio-screen {
   padding-bottom: 16px;
@@ -2513,13 +2529,7 @@ body.is-card-dragging * {
   text-align: center;
 }
 
-.trio-opponents {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  justify-content: center;
-  margin: 8px 0 4px;
-}
+/* .trio-opponents ne fait qu'ajouter aux règles de .pouilleux-zone--others, voir style commun */
 .trio-player {
   background: rgba(0,0,0,0.18);
   border-radius: 12px;

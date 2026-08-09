@@ -129,7 +129,8 @@ export function initGame(players) {
   }
 
   let stock = buildTiles(players.length);
-  const turnOrder = players.map((p) => p.id);
+  // Ordre de jeu aléatoire, fixé pour toute la partie (pas l'ordre d'arrivée en salle).
+  const turnOrder = shuffle(players.map((p) => p.id));
 
   const resolvedPlayers = players.map((p) => {
     const setup = stock.splice(0, 4).sort((a, b) => a.value - b.value);

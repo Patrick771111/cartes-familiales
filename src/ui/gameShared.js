@@ -25,6 +25,26 @@ export function sortedHand(hand) {
 }
 
 /**
+ * Adversaires dans l'ordre du tour, en partant du joueur suivant après soi
+ * (`state.turnOrder`, fixé aléatoirement à `initGame`, sauf jeu à ordre
+ * imposé comme le Trou du Cul) — pour que la zone adversaires, en haut de
+ * l'écran, se lise dans le sens de jeu plutôt que dans l'ordre d'arrivée en
+ * salle. `turnOrder` par défaut sur l'ordre de `state.players` si absent
+ * (jeux hérités qui ne l'exportent pas encore).
+ */
+export function orderedOpponents(state, playerId) {
+  const turnOrder = state.turnOrder || state.players.map((p) => p.id);
+  const myIdx = Math.max(0, turnOrder.indexOf(playerId));
+  const ordered = [];
+  for (let step = 1; step < turnOrder.length; step++) {
+    const id = turnOrder[(myIdx + step) % turnOrder.length];
+    const p = state.players.find((pl) => pl.id === id);
+    if (p) ordered.push(p);
+  }
+  return ordered;
+}
+
+/**
  * Boutons de fin de partie, communs à la plupart des jeux : soit on enchaîne
  * directement une nouvelle manche (mêmes joueurs, sans repasser par le
  * lobby — le contexte propre à chaque jeu comme les rôles du Trou du Cul ou

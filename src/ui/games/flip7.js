@@ -5,7 +5,8 @@ import {
   endGameActionsHtml,
   wireAbandonButton,
   abandonButtonLabel,
-  wireEndGameActions
+  wireEndGameActions,
+  orderedOpponents
 } from '../gameShared.js';
 
 const FLIP7_STATUS_LABEL = { active: 'En jeu', stayed: 'Resté', busted: 'Passé !' };
@@ -25,7 +26,7 @@ function flip7CardHtml(card) {
 
 function renderFlip7Table(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
-  const others = state.players.filter((p) => p.id !== player.id);
+  const others = orderedOpponents(state, player.id);
   const isMyTurn = state.currentPlayerId === player.id;
   const finished = state.status === 'finished';
   const canAct = isMyTurn && me.status === 'active' && !finished;

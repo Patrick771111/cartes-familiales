@@ -14,7 +14,8 @@ import {
   endGameActionsHtml,
   wireAbandonButton,
   abandonButtonLabel,
-  wireEndGameActions
+  wireEndGameActions,
+  orderedOpponents
 } from '../gameShared.js';
 
 // Une carte piochée du sabot peut être posée (1 touche/glisser) ou défaussée
@@ -82,7 +83,7 @@ function skyjoVisibleSum(grid) {
 
 function renderSkyjoTable(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
-  const others = state.players.filter((p) => p.id !== player.id);
+  const others = orderedOpponents(state, player.id);
   const isMyTurn = state.currentPlayerId === player.id;
   const finished = state.status === 'finished';
   if (!isMyTurn || !state.drawnCard) skyjoPendingMode = null;

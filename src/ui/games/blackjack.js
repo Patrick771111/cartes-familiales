@@ -14,7 +14,8 @@ import {
   endGameActionsHtml,
   wireAbandonButton,
   abandonButtonLabel,
-  wireEndGameActions
+  wireEndGameActions,
+  orderedOpponents
 } from '../gameShared.js';
 
 const BLACKJACK_STATUS_LABEL = { playing: 'En jeu', stood: 'Reste', bust: 'Passé !' };
@@ -28,7 +29,7 @@ export function renderTable(container, { room, player, state, onLeave }) {
 
 function renderBlackjackTable(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
-  const others = state.players.filter((p) => p.id !== player.id);
+  const others = orderedOpponents(state, player.id);
   const isMyTurn = state.currentPlayerId === player.id;
   const finished = state.status === 'finished';
 

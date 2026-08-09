@@ -12,7 +12,8 @@ import {
   wireEndGameActions,
   vibrate,
   getRevealHands,
-  toggleRevealHands
+  toggleRevealHands,
+  orderedOpponents
 } from '../gameShared.js';
 
 let lastRenderedState = null;
@@ -107,7 +108,9 @@ function renderTableNow(container, { room, player, state, onLeave }) {
   const showFaces = isSafe && revealHands;
 
   const target = state.players.find((p) => p.id === targetId) || null;
-  const restOthers = state.players.filter((p) => p.id !== player.id && p.id !== targetId);
+  // Ordre du tour à partir de moi, cible exclue (déjà mise en avant dans sa
+  // propre zone ci-dessous — voir .pouilleux-zone--target).
+  const restOthers = orderedOpponents(state, player.id).filter((p) => p.id !== targetId);
 
   const targetPickable = isMyTurn && target && target.hand.length > 0;
   const targetHandHtml = !target

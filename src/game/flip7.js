@@ -102,11 +102,14 @@ export function initGame(players, previousScores = null) {
     score: previousScores?.[p.id] ?? 0
   }));
 
+  // Ordre de jeu aléatoire, fixé pour toute la partie (pas l'ordre d'arrivée en salle).
+  const turnOrder = shuffle(players.map((p) => p.id));
+
   return {
     status: 'playing',
     players: gamePlayers,
-    turnOrder: players.map((p) => p.id),
-    currentPlayerId: players[0].id,
+    turnOrder,
+    currentPlayerId: turnOrder[0],
     deck,
     discard: [],
     flip7PlayerId: null,

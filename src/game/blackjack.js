@@ -133,8 +133,9 @@ export function initGame(players, previousMoney = null) {
   const dealerHand = [deck[cursor], deck[cursor + 1]];
   cursor += 2;
 
-  const turnOrder = players.map((p) => p.id);
-  const firstPlayerId = gamePlayers.find((p) => p.status === 'playing')?.id || null;
+  // Ordre de jeu aléatoire, fixé pour toute la partie (pas l'ordre d'arrivée en salle).
+  const turnOrder = shuffle(players.map((p) => p.id));
+  const firstPlayerId = turnOrder.find((id) => gamePlayers.find((p) => p.id === id)?.status === 'playing') || null;
 
   let state = {
     status: 'playing',

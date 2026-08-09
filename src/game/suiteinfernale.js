@@ -120,18 +120,21 @@ export function initGame(players) {
     return { id: p.id, name: p.name, isBot: p.isBot || false, hand, sequence: Array(SEQUENCE_TARGET).fill(null) };
   });
 
+  // Ordre de jeu aléatoire, fixé pour toute la partie (pas l'ordre d'arrivée en salle).
+  const turnOrder = shuffle(players.map((p) => p.id));
+
   return {
     status: 'playing',
     players: gamePlayers,
-    turnOrder: players.map((p) => p.id),
-    currentPlayerId: players[0].id,
+    turnOrder,
+    currentPlayerId: turnOrder[0],
     hasDrawnThisTurn: false,
     playsRemaining: 1,
     pendingAttack: null,
     deck: deck0.slice(cursor),
     discard: [],
     winnerId: null,
-    log: [{ ts: Date.now(), message: `${gamePlayers[0].name} commence, à toi de piocher !` }]
+    log: [{ ts: Date.now(), message: `${gamePlayers.find((p) => p.id === turnOrder[0]).name} commence, à toi de piocher !` }]
   };
 }
 

@@ -224,14 +224,17 @@ export function initGame(players, previousScores = null, handSize = 3) {
   const stock = deck.slice(cursor + 1);
   const discard = [deck[cursor]];
 
+  // Ordre de jeu aléatoire, fixé pour toute la partie (pas l'ordre d'arrivée en salle).
+  const turnOrder = shuffle(players.map((p) => p.id));
+
   return {
     status: 'playing', // playing | last_turns | finished
     phase: 'draw', // draw | discard
     handSize: size,
     trumpRank,
     players: gamePlayers,
-    turnOrder: players.map((p) => p.id),
-    currentPlayerId: players[0].id,
+    turnOrder,
+    currentPlayerId: turnOrder[0],
     stock,
     discard,
     drawnCard: null, // carte venant d'être piochée (phase discard)
