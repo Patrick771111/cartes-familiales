@@ -1,4 +1,5 @@
-import { revealTrioCenter, revealTrioRow, confirmTrioTurn, playAgain, continueGame } from '../../game/engine.js';
+import { playAgain, continueGame } from '../../game/engine.js';
+import { revealTrioCenter, revealTrioRow, confirmTrioTurn } from '../../game/trio.js';
 import { openRulesModal } from '../rules.js';
 
 export function resetSelection() {}

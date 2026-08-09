@@ -1,4 +1,5 @@
 import { buildStandardDeck, shuffle } from './deck.js';
+import { updateRoomState } from './core.js';
 
 export const meta = { id: 'blackjack', label: 'Blackjack', hint: '1 à 6 joueurs, banque tenue par un bot', minPlayers: 1 };
 
@@ -199,4 +200,24 @@ export function applyStand(state, playerId) {
   if (!nextId) nextState = finishRound(nextState);
 
   return nextState;
+}
+
+/** Règle sa propre mise au Blackjack (lobby ou écran de fin de manche — jamais en pleine manche). */
+export async function setBlackjackBet(room, playerId, bet) {
+  if (room.state.status === 'playing') throw new Error('Impossible de changer sa mise en pleine manche.');
+  const clamped = clampBet(bet);
+  const players = room.state.players.map((p) => (p.id === playerId ? { ...p, bet: clamped } : p));
+  return updateRoomState(room.id, room.version, { ...room.state, players });
+}
+
+/** Tire une carte au Blackjack. */
+export async function hitBlackjack(room, playerId) {
+  const newState = applyHit(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Reste sur sa main au Blackjack. */
+export async function standBlackjack(room, playerId) {
+  const newState = applyStand(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
 }

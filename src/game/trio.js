@@ -1,4 +1,5 @@
 import { shuffle } from './deck.js';
+import { commitGameAction } from './core.js';
 
 export const meta = { id: 'trio', label: 'Trio', hint: '3 à 6 joueurs — mémoire et bluff, forme des trios de cartes', minPlayers: 3, maxPlayers: 6 };
 
@@ -247,4 +248,19 @@ export function applyConfirmTurn(state, playerId) {
   }
 
   return newState;
+}
+
+/** Trio — révèle une carte du centre (identifiée par son id). */
+export async function revealTrioCenter(room, playerId, cardId) {
+  return commitGameAction(room, (state) => applyRevealCenter(state, playerId, cardId));
+}
+
+/** Trio — révèle l'extrémité ('low'/'high') de la main d'un joueur (soi-même ou un adversaire). */
+export async function revealTrioRow(room, playerId, targetPlayerId, end) {
+  return commitGameAction(room, (state) => applyRevealRow(state, playerId, targetPlayerId, end));
+}
+
+/** Trio — confirme le résultat de la tentative en cours (remet en place, ou attribue le trio) et passe le tour. */
+export async function confirmTrioTurn(room, playerId) {
+  return commitGameAction(room, (state) => applyConfirmTurn(state, playerId));
 }

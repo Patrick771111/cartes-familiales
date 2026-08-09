@@ -1,4 +1,5 @@
 import { buildStandardDeck, shuffle, suitInfo } from './deck.js';
+import { updateRoomState } from './core.js';
 
 export const meta = { id: 'americain', label: 'Le 8 américain', hint: '2 à 6 joueurs', minPlayers: 2 };
 
@@ -216,4 +217,16 @@ export function applyDraw(state, playerId) {
     lastMove: { id: uniqueId(), by: current.id, type: 'draw', card: null, chosenSuit: null, finished: false },
     log: [...state.log, { ts: Date.now(), message: `${current.name} pioche une carte.` }].slice(-40)
   };
+}
+
+/** Pose une carte au 8 américain (`chosenSuit` uniquement pour un 8). */
+export async function playAmericainCard(room, playerId, cardId, chosenSuit) {
+  const newState = applyPlay(room.state, playerId, cardId, chosenSuit);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Pioche une carte au 8 américain (uniquement si aucun coup possible). */
+export async function drawAmericainCard(room, playerId) {
+  const newState = applyDraw(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
 }

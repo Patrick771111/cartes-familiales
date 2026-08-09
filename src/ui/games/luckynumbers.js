@@ -1,11 +1,12 @@
+import { ConflictError } from '../../game/engine.js';
 import {
   drawLuckyNumbersFromStock,
   takeLuckyNumbersFromDiscard,
   placeLuckyNumbersDrawn,
   discardLuckyNumbersDrawn,
-  ConflictError
-} from '../../game/engine.js';
-import { validPlacements as luckyValidPlacements, DIAGONAL_INDEXES as LUCKY_DIAGONAL } from '../../game/luckynumbers.js';
+  validPlacements as luckyValidPlacements,
+  DIAGONAL_INDEXES as LUCKY_DIAGONAL
+} from '../../game/luckynumbers.js';
 import { enableDragToZone } from '../dragToZone.js';
 import { isCardDragEnabled } from '../settings.js';
 import { openRulesModal } from '../rules.js';

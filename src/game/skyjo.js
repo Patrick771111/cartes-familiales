@@ -1,4 +1,5 @@
 import { shuffle } from './deck.js';
+import { commitGameAction } from './core.js';
 
 // Répartition officielle du jeu physique Skyjo : 150 cartes — -2 (×5),
 // -1 (×10), 0 (×15), 1 à 12 (×10 chacune).
@@ -290,4 +291,24 @@ export function applyDiscardAndReveal(state, playerId, gridIndex) {
 
   const roundJustEnded = isGridComplete(current.grid);
   return advanceTurn({ ...state, discard, log: [...state.log, logMessage].slice(-40) }, players, playerId, roundJustEnded);
+}
+
+/** Pioche la carte du dessus de la pioche à Skyjo (à placer, ou à défausser en retournant une case, ensuite). */
+export async function drawSkyjoFromDeck(room, playerId) {
+  return commitGameAction(room, (state) => applyDrawFromDeck(state, playerId));
+}
+
+/** Prend la carte visible de la défausse à Skyjo (doit obligatoirement être placée sur la grille ensuite). */
+export async function drawSkyjoFromDiscard(room, playerId) {
+  return commitGameAction(room, (state) => applyDrawFromDiscard(state, playerId));
+}
+
+/** Place la carte piochée à Skyjo sur une case de sa grille. */
+export async function placeSkyjoCard(room, playerId, gridIndex) {
+  return commitGameAction(room, (state) => applyPlaceCard(state, playerId, gridIndex));
+}
+
+/** Défausse la carte piochée du sabot à Skyjo (jamais celle de la défausse) et retourne une case cachée à la place. */
+export async function discardSkyjoAndReveal(room, playerId, gridIndex) {
+  return commitGameAction(room, (state) => applyDiscardAndReveal(state, playerId, gridIndex));
 }

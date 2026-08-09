@@ -1,4 +1,5 @@
 import { buildPouilleuxDeck, shuffle, deal } from './deck.js';
+import { commitGameAction } from './core.js';
 
 export const meta = { id: 'pouilleux', label: 'Le Pouilleux', hint: '2 à 6 joueurs', minPlayers: 2 };
 
@@ -121,4 +122,14 @@ export function applyDraw(state, actingPlayerId, cardIndex) {
     lastDraw,
     log: [...state.log, logEntry].slice(-40)
   };
+}
+
+/**
+ * Fait piocher le joueur courant, à l'index de carte qu'il a choisi
+ * (à l'aveugle) chez le joueur ciblé. On laisse l'appelant gérer ConflictError :
+ * il resynchronisera via l'abonnement realtime (watchRoom) plutôt que de rejouer
+ * l'action à l'aveugle.
+ */
+export async function drawForCurrentPlayer(room, playerId, cardIndex) {
+  return commitGameAction(room, (state) => applyDraw(state, playerId, cardIndex));
 }

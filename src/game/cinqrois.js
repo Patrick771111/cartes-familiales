@@ -1,4 +1,5 @@
 import { shuffle } from './deck.js';
+import { commitGameAction } from './core.js';
 
 export const meta = { id: 'cinqrois', label: 'Les Cinq Rois', hint: '2 à 7 joueurs — moins de points gagne', minPlayers: 2 };
 
@@ -470,4 +471,19 @@ export function startNextRound(state) {
     return initGame(players, null, 3);
   }
   return initGame(players, scores, state.handSize + 1);
+}
+
+/** Pioche la carte du dessus du talon aux Cinq Rois. */
+export async function drawCinqRoisFromStock(room, playerId) {
+  return commitGameAction(room, (state) => applyDrawFromStock(state, playerId));
+}
+
+/** Prend la carte visible de la défausse aux Cinq Rois. */
+export async function drawCinqRoisFromDiscard(room, playerId) {
+  return commitGameAction(room, (state) => applyDrawFromDiscard(state, playerId));
+}
+
+/** Défausse une carte aux Cinq Rois, en posant éventuellement toute sa main du même coup (`goOut`). */
+export async function discardCinqRois(room, playerId, cardId, goOut = false) {
+  return commitGameAction(room, (state) => applyDiscard(state, playerId, cardId, goOut));
 }

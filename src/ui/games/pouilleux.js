@@ -1,6 +1,5 @@
 import { cardFaceHtml, cardBackHtml } from '../cards.js';
-import { drawForCurrentPlayer } from '../../game/engine.js';
-import { playerToDrawFrom as computeTarget } from '../../game/pouilleux.js';
+import { drawForCurrentPlayer, playerToDrawFrom as computeTarget } from '../../game/pouilleux.js';
 import { getOrderedHand, moveCard, resetHandOrder } from '../handOrder.js';
 import { enableHandDrag } from '../dragReorder.js';
 import { openRulesModal } from '../rules.js';

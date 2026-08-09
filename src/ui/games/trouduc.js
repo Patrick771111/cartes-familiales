@@ -1,6 +1,11 @@
 import { cardFaceHtml, cardBackHtml } from '../cards.js';
-import { playCards, passTurn, submitExchangeGift } from '../../game/engine.js';
-import { rankValue as trouducRankValue, rankLabel as trouducRankLabel } from '../../game/trouduc.js';
+import {
+  playCards,
+  passTurn,
+  submitExchangeGift,
+  rankValue as trouducRankValue,
+  rankLabel as trouducRankLabel
+} from '../../game/trouduc.js';
 import { openRulesModal } from '../rules.js';
 import {
   connectionBadge,

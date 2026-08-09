@@ -1,5 +1,11 @@
-import { drawCinqRoisFromStock, drawCinqRoisFromDiscard, discardCinqRois } from '../../game/engine.js';
-import { canGoOut as cinqRoisCanGoOut, rankLabel as cinqRoisRankLabel, suitInfo as cinqRoisSuitInfo } from '../../game/cinqrois.js';
+import {
+  drawCinqRoisFromStock,
+  drawCinqRoisFromDiscard,
+  discardCinqRois,
+  canGoOut as cinqRoisCanGoOut,
+  rankLabel as cinqRoisRankLabel,
+  suitInfo as cinqRoisSuitInfo
+} from '../../game/cinqrois.js';
 import { suitCardImage, cardBackImage, jokerImage } from '../cardThemes.js';
 import { enableDragToZone } from '../dragToZone.js';
 import { isCardDragEnabled } from '../settings.js';

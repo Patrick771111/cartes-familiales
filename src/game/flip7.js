@@ -1,4 +1,5 @@
 import { shuffle } from './deck.js';
+import { commitGameAction } from './core.js';
 
 export const meta = { id: 'flip7', label: 'Flip 7', hint: '2 à 6 joueurs, score cumulé', minPlayers: 2 };
 
@@ -255,4 +256,14 @@ export function applyStay(state, playerId) {
   }
   nextState.currentPlayerId = nextId;
   return nextState;
+}
+
+/** Flippe une carte à Flip 7 (résout aussi, dans le même appel, tout Flip Three déclenché). */
+export async function hitFlip7(room, playerId) {
+  return commitGameAction(room, (state) => applyHit(state, playerId));
+}
+
+/** Reste sur sa main à Flip 7. */
+export async function stayFlip7(room, playerId) {
+  return commitGameAction(room, (state) => applyStay(state, playerId));
 }

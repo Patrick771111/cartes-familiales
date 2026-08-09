@@ -1,4 +1,5 @@
 import { shuffle } from './deck.js';
+import { commitGameAction } from './core.js';
 
 export const meta = { id: 'luckynumbers', label: 'Lucky Numbers', hint: '2 à 4 joueurs — remplis ton jardin en ordre croissant', minPlayers: 2, maxPlayers: 4 };
 
@@ -305,4 +306,24 @@ export function applyDiscardDrawn(state, playerId) {
     currentPlayerId: nextPlayerId(state.turnOrder, playerId),
     log: [...state.log, { ts: Date.now(), message: `Défausse ${tile.value}` }].slice(-40)
   };
+}
+
+/** Lucky Numbers — pioche un trèfle face cachée. */
+export async function drawLuckyNumbersFromStock(room, playerId) {
+  return commitGameAction(room, (state) => applyDrawFromStock(state, playerId));
+}
+
+/** Lucky Numbers — prend un trèfle visible de la défausse et le place. */
+export async function takeLuckyNumbersFromDiscard(room, playerId, tileId, boardIndex) {
+  return commitGameAction(room, (state) => applyTakeFromDiscard(state, playerId, tileId, boardIndex));
+}
+
+/** Lucky Numbers — place la tuile piochée sur le plateau. */
+export async function placeLuckyNumbersDrawn(room, playerId, boardIndex) {
+  return commitGameAction(room, (state) => applyPlaceDrawn(state, playerId, boardIndex));
+}
+
+/** Lucky Numbers — défausse la tuile piochée face visible. */
+export async function discardLuckyNumbersDrawn(room, playerId) {
+  return commitGameAction(room, (state) => applyDiscardDrawn(state, playerId));
 }

@@ -1,6 +1,13 @@
 import { cardFaceHtml, cardBackHtml } from '../cards.js';
-import { hitBlackjack, standBlackjack, setBlackjackBet } from '../../game/engine.js';
-import { handTotal, DEFAULT_BET as BLACKJACK_DEFAULT_BET, MIN_BET as BLACKJACK_MIN_BET, MAX_BET as BLACKJACK_MAX_BET } from '../../game/blackjack.js';
+import {
+  hitBlackjack,
+  standBlackjack,
+  setBlackjackBet,
+  handTotal,
+  DEFAULT_BET as BLACKJACK_DEFAULT_BET,
+  MIN_BET as BLACKJACK_MIN_BET,
+  MAX_BET as BLACKJACK_MAX_BET
+} from '../../game/blackjack.js';
 import { openRulesModal } from '../rules.js';
 import {
   connectionBadge,

@@ -1,4 +1,5 @@
 import { shuffle } from './deck.js';
+import { updateRoomState } from './core.js';
 
 export const meta = { id: 'suiteinfernale', label: 'La Suite Infernale', hint: '2 à 4 joueurs, construis ta suite de 1 à 10', minPlayers: 2 };
 
@@ -406,4 +407,45 @@ export function applyDiscard(state, playerId, cardId) {
   const discard = [...state.discard, card];
   const nextState = { ...state, players, discard, log: [...state.log, { ts: Date.now(), message: `${current.name} défausse une carte.` }].slice(-40) };
   return endPlayAfterAction(nextState, playerId);
+}
+
+/** Pioche 1 carte à la Suite Infernale (obligatoire avant de jouer ou de défausser). */
+export async function drawSuiteInfernale(room, playerId) {
+  const newState = applyDraw(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Pose une carte numéro, Joker +1 ou Joker +2 à la Suite Infernale, dans sa propre suite. */
+export async function playSuiteInfernaleSequenceCard(room, playerId, cardId) {
+  const newState = applyPlaySequenceCard(room.state, playerId, cardId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Joue "Rejouer 2 coups" à la Suite Infernale : pioche 2 cartes et rejoue aussitôt. */
+export async function playSuiteInfernaleRejouer(room, playerId, cardId) {
+  const newState = applyPlayRejouer(room.state, playerId, cardId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/**
+ * Joue une carte ciblant un adversaire à la Suite Infernale (vol, sabotage,
+ * échange de mains ou de place) — reste en attente d'une éventuelle réponse
+ * STOP de la cible, voir `respondToSuiteInfernaleAttack`. `slotIndex`
+ * uniquement pour "retirer 1 carte" / "voler 1 carte".
+ */
+export async function playSuiteInfernaleAttack(room, playerId, cardId, targetPlayerId, slotIndex = null) {
+  const newState = applyPlayAttack(room.state, playerId, cardId, targetPlayerId, slotIndex);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Réponse de la cible à une attaque en attente à la Suite Infernale : bloque avec un STOP, ou laisse passer. */
+export async function respondToSuiteInfernaleAttack(room, playerId, { block = false, stopCardId = null } = {}) {
+  const newState = applyRespondToAttack(room.state, playerId, { block, stopCardId });
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Défausse une carte de sa main à la Suite Infernale (quand aucune carte en main ne convient). */
+export async function discardSuiteInfernale(room, playerId, cardId) {
+  const newState = applyDiscard(room.state, playerId, cardId);
+  return updateRoomState(room.id, room.version, newState);
 }

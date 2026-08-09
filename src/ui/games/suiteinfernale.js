@@ -4,9 +4,10 @@ import {
   playSuiteInfernaleRejouer,
   playSuiteInfernaleAttack,
   respondToSuiteInfernaleAttack,
-  discardSuiteInfernale
-} from '../../game/engine.js';
-import { SEQUENCE_TARGET as SUITE_INFERNALE_TARGET, SPECIAL_TYPES as SUITE_INFERNALE_SPECIAL_TYPES } from '../../game/suiteinfernale.js';
+  discardSuiteInfernale,
+  SEQUENCE_TARGET as SUITE_INFERNALE_TARGET,
+  SPECIAL_TYPES as SUITE_INFERNALE_SPECIAL_TYPES
+} from '../../game/suiteinfernale.js';
 import { suiteInfernaleSpecialImage } from '../cardThemes.js';
 import { enableDragToZone } from '../dragToZone.js';
 import { isCardDragEnabled } from '../settings.js';

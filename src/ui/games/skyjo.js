@@ -1,5 +1,10 @@
-import { drawSkyjoFromDeck, drawSkyjoFromDiscard, placeSkyjoCard, discardSkyjoAndReveal } from '../../game/engine.js';
-import { TARGET_SCORE as SKYJO_TARGET_SCORE } from '../../game/skyjo.js';
+import {
+  drawSkyjoFromDeck,
+  drawSkyjoFromDiscard,
+  placeSkyjoCard,
+  discardSkyjoAndReveal,
+  TARGET_SCORE as SKYJO_TARGET_SCORE
+} from '../../game/skyjo.js';
 import { flipButtonImage } from '../cardThemes.js';
 import { enableDragToZone } from '../dragToZone.js';
 import { isCardDragEnabled } from '../settings.js';

@@ -1,4 +1,5 @@
 import { buildStandardDeck, shuffle, deal } from './deck.js';
+import { updateRoomState } from './core.js';
 
 export const meta = { id: 'trouduc', label: 'Le Trou du Cul', hint: 'exactement 4 joueurs', minPlayers: 4 };
 
@@ -432,4 +433,22 @@ export function applyPass(state, playerId) {
   }
 
   return nextState;
+}
+
+/** Le Président ou le Vice-Président choisit les cartes qu'il rend lors de l'échange privé. */
+export async function submitExchangeGift(room, playerId, cardIds) {
+  const newState = applyExchangeChoice(room.state, playerId, cardIds);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Pose un ou plusieurs cartes de même rang au Trou du Cul. */
+export async function playCards(room, playerId, cardIds) {
+  const newState = applyPlay(room.state, playerId, cardIds);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Passe son tour au Trou du Cul. */
+export async function passTurn(room, playerId) {
+  const newState = applyPass(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
 }

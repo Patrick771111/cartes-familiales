@@ -1,5 +1,4 @@
-import { hitFlip7, stayFlip7 } from '../../game/engine.js';
-import { TARGET_SCORE as FLIP7_TARGET_SCORE } from '../../game/flip7.js';
+import { hitFlip7, stayFlip7, TARGET_SCORE as FLIP7_TARGET_SCORE } from '../../game/flip7.js';
 import { openRulesModal } from '../rules.js';
 import {
   connectionBadge,

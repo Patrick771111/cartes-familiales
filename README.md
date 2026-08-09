@@ -106,7 +106,7 @@ en accueillir facilement d'autres (voir *Ajouter un jeu* plus bas).
   (`p.bet`, slider `MIN_BET` 5 à `MAX_BET` 100, pas de 5, `DEFAULT_BET` 25 par
   défaut) — gagné : `+p.bet`, perdu : `-p.bet`, égalité : inchangé. Le solde
   peut devenir négatif : pas d'élimination, seul un retour au lobby le remet
-  à zéro (voir plus bas). `setBlackjackBet` (engine.js) permet à chacun
+  à zéro (voir plus bas). `setBlackjackBet` (`blackjack.js`) permet à chacun
   d'ajuster sa mise sur l'écran de fin de manche, avant de relancer.
 - **Flip 7** (`src/game/flip7.js`) : 2 à 6 joueurs, reconstitution du jeu
   physique du même nom *(hypothèse — décomptes de cartes et bonus approximés
@@ -335,12 +335,10 @@ dispatcher d'écran de jeu (`src/ui/game.js`) et la modale de règles
 découvrent le nouveau jeu tout seuls (`import.meta.glob`, aucune liste en dur
 à mettre à jour). **Retirer un jeu = supprimer les 4 fichiers** (+
 éventuellement son bloc CSS, voir plus bas) — pas de registre central à
-purger à la main.
-
-Il reste **une seule étape manuelle**, dans `src/game/engine.js` : déclarer
-les fonctions d'action que l'écran de jeu (`renderTable`) va appeler (ex.
-`drawForCurrentPlayer`, `playCards`…). Voir *Limite actuelle* en bas de cette
-section — c'est le seul endroit qui n'est pas encore découvert dynamiquement.
+purger à la main, y compris pour les actions : chaque `src/game/<id>.js`
+déclare et exporte lui-même ses propres fonctions d'action (voir §1) ;
+`src/game/engine.js` n'a jamais besoin d'être modifié pour ajouter ou retirer
+un jeu.
 
 ### 1. `src/game/<id>.js` — logique pure
 
@@ -364,6 +362,17 @@ export function initGame(players) {
 
 export function applyMonAction(state, playerId, /* ... */) {
   // Fonction pure : (state, ...) -> nouveau state. Jamais d'appel réseau ici.
+}
+
+// Le "wrapper" d'action que src/ui/games/<id>.js importera et appellera
+// depuis ses gestionnaires de clic — un par action possible. `commitGameAction`
+// pioche l'état frais, applique la fonction pure et gère le verrou optimiste
+// (préférer à `updateRoomState` direct sauf besoin spécifique, voir "Fonctions
+// communes à réutiliser" plus bas).
+import { commitGameAction } from './core.js';
+
+export async function faireMonAction(room, playerId, /* ... */) {
+  return commitGameAction(room, (state) => applyMonAction(state, playerId, /* ... */));
 }
 ```
 
@@ -427,7 +436,7 @@ Aucun import — juste du texte. Affiché tel quel dans la modale de règles.
 ### 4. `src/ui/games/<id>.js` — rendu + actions
 
 ```js
-import { faireMonAction /* wrapper déclaré dans engine.js, voir "Limite actuelle" */ } from '../../game/engine.js';
+import { faireMonAction } from '../../game/moncoolgame.js';
 import { connectionBadge, endGameActionsHtml, wireAbandonButton, abandonButtonLabel, wireEndGameActions } from '../gameShared.js';
 import { openRulesModal } from '../rules.js';
 
@@ -447,9 +456,13 @@ export function renderTable(container, { room, player, state, onLeave }) {
 }
 ```
 
-Ce fichier vit dans `src/ui/games/`, **hors** du dossier `src/game/` balayé
-par le glob d'`engine.js` — il peut donc importer `engine.js` normalement,
-sans risque de cycle (contrairement au `.bot.js`).
+Les wrappers d'action s'importent directement depuis `../../game/<id>.js`
+(pas depuis `engine.js`) — seules les fonctions vraiment génériques,
+partagées entre tous les jeux (`playAgain`, `continueGame`, `ConflictError`),
+viennent d'`engine.js`. Ce fichier vit dans `src/ui/games/`, **hors** du
+dossier `src/game/` balayé par le glob d'`engine.js` : il peut importer
+`engine.js` (ou n'importe quel `src/game/<id>.js`) normalement, sans risque
+de cycle (contrairement au `.bot.js`).
 
 ### Fonctions communes à réutiliser
 
@@ -490,46 +503,18 @@ gèrent déjà les thèmes illustrés (`src/ui/cardThemes.js`).
 - Main du joueur local : `.my-hand`.
 - Bouton règles : toujours `❓ Règles du jeu`, `onclick` → `openRulesModal(room.game)`.
 
-### Limite actuelle : les wrappers d'action dans `engine.js`
-
-Les 4 fichiers ci-dessus sont bien découverts dynamiquement — **mais**
-`src/game/engine.js` contient encore, pour chaque jeu, une petite fonction
-"wrapper" par action possible (ex. `drawForCurrentPlayer`, `playCards`,
-`hitBlackjack`…) que `src/ui/games/<id>.js` importe et appelle depuis les
-gestionnaires de clic. Forme systématique :
-
-```js
-import { applyMonAction } from './moncoolgame.js';
-const { commitGameAction } = core;
-
-export async function faireMonAction(room, playerId, /* ... */) {
-  return commitGameAction(room, (state) => applyMonAction(state, playerId, /* ... */));
-}
-```
-
-C'est le seul endroit qui demande encore une modification manuelle
-d'`engine.js` pour un nouveau jeu (une poignée de lignes, toujours sur ce
-même modèle — comparer avec les wrappers des jeux existants). Retirer un jeu
-laisse ses wrappers orphelins dans `engine.js` : ils ne font rien de mal
-(plus jamais appelés), mais autant les supprimer en même temps par propreté.
-
-*(Piste pour aller au bout de la logique "tout est dans le fichier du jeu" :
-déplacer ces wrappers dans `src/game/<id>.js` lui-même, comme le fait déjà
-chaque `.bot.js` avec `commitGameAction` — `src/ui/games/<id>.js`
-importerait alors directement depuis `../../game/<id>.js` au lieu
-d'`engine.js`. Pas fait dans ce refactor pour limiter le risque sur une
-appli déjà utilisée par la famille ; à faire si ça vaut le coup.)*
-
 ### Checklist pour un nouveau jeu
 
-1. `src/game/<id>.js` : `meta` + `initGame` + `applyXxx(...)`.
-2. `src/game/<id>.bot.js` : `chooseMove` + `schedule` (jamais d'import d'`engine.js`).
+1. `src/game/<id>.js` : `meta` + `initGame` + `applyXxx(...)` + les wrappers
+   d'action (`commitGameAction`/`updateRoomState`, importés depuis `./core.js`).
+2. `src/game/<id>.bot.js` : `chooseMove` + `schedule` (jamais d'import d'`engine.js`,
+   ni même de `../../game/<id>.js` via `engine.js` — importer directement
+   `./core.js` et `./<id>.js`, voir *Règle impérative* ci-dessus).
 3. `src/game/<id>.rules.js` : `title` + `html`.
-4. `src/ui/games/<id>.js` : `resetSelection` + `renderTable`.
-5. `src/game/engine.js` : ajouter les wrappers d'action du nouveau jeu (voir
-   *Limite actuelle* ci-dessus) et les importer/exporter, sur le modèle des
-   jeux existants.
-6. (Optionnel) bloc CSS `.screen--table.<id>-screen` dans `src/style.css`.
-7. Tester en salle d'attente : le nouveau jeu doit apparaître tout seul dans
+4. `src/ui/games/<id>.js` : `resetSelection` + `renderTable`, en important les
+   wrappers d'action depuis `../../game/<id>.js`.
+5. (Optionnel) bloc CSS `.screen--table.<id>-screen` dans `src/style.css`.
+6. Tester en salle d'attente : le nouveau jeu doit apparaître tout seul dans
    le sélecteur "Quel jeu ?" (trié alphabétiquement, via `AVAILABLE_GAMES`
-   exporté par `src/game/engine.js`) — pas besoin de le lister ailleurs.
+   exporté par `src/game/engine.js`) — pas besoin de le lister ailleurs, ni
+   de toucher `src/game/engine.js` ou `src/ui/game.js`.
