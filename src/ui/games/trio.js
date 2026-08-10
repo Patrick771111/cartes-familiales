@@ -15,31 +15,41 @@ export function renderTable(container, { room, player, state, onLeave }) {
   renderTrioTable(container, { room, player, state, onLeave });
 }
 
-function trioCardHtml(value, { faceUp = false } = {}) {
-  return `<div class="trio-cell ${faceUp ? 'trio-cell--faceup' : 'trio-cell--facedown'}">${faceUp ? value : ''}</div>`;
+function trioCardHtml(value, { faceUp = false, lifted = false } = {}) {
+  return `<div class="trio-cell ${faceUp ? 'trio-cell--faceup' : 'trio-cell--facedown'} ${lifted ? 'trio-cell--lifted' : ''}">${faceUp ? value : ''}</div>`;
 }
 
 /**
- * Rangée triée d'un joueur : seules les deux extrémités (`low`/`high`) sont
- * jamais cliquables comme cible de révélation (voir trio.js) — les cases du
- * milieu ne sont jamais une cible, juste un indicateur visuel de longueur de
- * main. `revealedIds` : cartes de la tentative en cours à afficher face
- * visible *à leur emplacement d'origine* (pas dans une zone séparée — on
- * voit ainsi directement de qui/d'où vient chaque carte révélée).
- * `alwaysFaceUp` : dans le jeu physique, chacun trie sa propre main lui-même
- * (à la vue de ses propres cartes) — seules les mains des AUTRES et le
- * centre sont réellement cachées ; passer `true` uniquement pour sa propre
- * rangée (`me.row`).
+ * Rangée triée d'un joueur. `revealedIds` : cartes de la tentative en cours
+ * à afficher face visible *à leur emplacement d'origine* (pas dans une zone
+ * séparée — on voit ainsi directement de qui/d'où vient chaque carte
+ * révélée). Les extrémités cliquables (`low`/`high`) sont recalculées en
+ * ignorant les cartes déjà révélées dans cette tentative : après avoir
+ * révélé le plus petit numéro d'une main, le plus petit numéro *restant*
+ * devient à son tour la cible "low" — on peut ainsi enchaîner plusieurs
+ * cartes du même bout d'une main tant qu'elles correspondent.
+ * `alwaysFaceUp` : dans le jeu physique, chacun trie sa propre main
+ * lui-même (à la vue de ses propres cartes) — seules les mains des AUTRES
+ * et le centre sont réellement cachées ; passer `true` uniquement pour sa
+ * propre rangée (`me.row`). Dans ce cas, une carte choisie ce tour-ci ne se
+ * retourne pas (elle était déjà face visible pour son propriétaire) : elle
+ * se soulève légèrement à la place, pour matérialiser la sélection — ce
+ * soulèvement est vu par tout le monde exactement comme `revealedIds` (état
+ * partagé), les autres joueurs voyant en plus la carte se retourner de leur
+ * côté puisqu'elle leur était, elle, réellement cachée.
  */
 function trioRowHtml(row, { targetPlayerId, clickableEnds = false, revealedIds = new Set(), alwaysFaceUp = false } = {}) {
   if (!row.length) return `<div class="trio-row trio-row--empty">Main vide</div>`;
+  const availableIndexes = row.map((_, i) => i).filter((i) => !revealedIds.has(row[i].id));
+  const lowIndex = availableIndexes[0];
+  const highIndex = availableIndexes[availableIndexes.length - 1];
   const cells = row
     .map((card, i) => {
-      const end = i === 0 ? 'low' : i === row.length - 1 ? 'high' : null;
       const revealed = revealedIds.has(card.id);
-      const inner = trioCardHtml(card.value, { faceUp: revealed || alwaysFaceUp });
+      const inner = trioCardHtml(card.value, { faceUp: revealed || alwaysFaceUp, lifted: alwaysFaceUp && revealed });
       if (revealed) return inner; // déjà révélée pour cette tentative : jamais re-cliquable
-      const clickable = clickableEnds && end && !(row.length === 1 && end === 'high'); // évite un doublon low+high sur 1 seule carte
+      const end = i === lowIndex ? 'low' : i === highIndex ? 'high' : null;
+      const clickable = clickableEnds && end && !(highIndex === lowIndex && end === 'high'); // évite un doublon low+high sur la dernière carte restante
       if (clickable) {
         return `<button type="button" class="trio-cell-btn" data-row-target="${targetPlayerId}" data-row-end="${end}">${inner}</button>`;
       }

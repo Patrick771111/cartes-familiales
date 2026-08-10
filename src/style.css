@@ -2460,6 +2460,7 @@ body.is-card-dragging * {
   font-size: 16px;
   box-sizing: border-box;
   flex: 0 0 auto;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .trio-cell--facedown {
   background: linear-gradient(145deg, #2f6b3a, #1e4a28);
@@ -2470,6 +2471,13 @@ body.is-card-dragging * {
   border: 2px solid var(--brass);
   color: #3a2e0a;
   box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+}
+/* Carte de sa PROPRE main choisie ce tour-ci : déjà face visible pour son
+   propriétaire (voir alwaysFaceUp), donc un retournement ne dirait rien —
+   elle se soulève à la place pour matérialiser la sélection. */
+.trio-cell--lifted {
+  transform: translateY(-8px);
+  box-shadow: 0 8px 12px rgba(0,0,0,0.35);
 }
 .trio-cell--gone {
   background: transparent;

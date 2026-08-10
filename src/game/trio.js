@@ -39,10 +39,21 @@ function nextPlayerId(turnOrder, fromId) {
   return turnOrder[(idx + 1) % turnOrder.length];
 }
 
-/** Carte accessible à une extrémité de rangée (`'low'` ou `'high'`), ou `null` si vide de ce côté. */
-function rowEndCard(row, end) {
-  if (!row.length) return null;
-  return end === 'low' ? row[0] : row[row.length - 1];
+/**
+ * Carte accessible à une extrémité de rangée (`'low'` ou `'high'`), en
+ * ignorant les cartes déjà révélées dans la tentative en cours (`row` reste
+ * inchangé tant que le tour n'est pas confirmé — voir `applyConfirmTurn` —
+ * donc une carte révélée une première fois doit "laisser place" à la
+ * suivante pour un nouveau choix sur la même extrémité, dans la même
+ * tentative : après avoir révélé le plus petit numéro d'une main, on peut
+ * ensuite tenter le nouveau plus petit de cette même main, etc.). `null` si
+ * ce côté n'a plus de carte disponible.
+ */
+function rowEndCard(row, end, pendingReveals = []) {
+  const revealedIds = new Set(pendingReveals.map((r) => r.source.cardId));
+  const available = row.filter((c) => !revealedIds.has(c.id));
+  if (!available.length) return null;
+  return end === 'low' ? available[0] : available[available.length - 1];
 }
 
 function noCardsLeft(state) {
@@ -151,11 +162,8 @@ export function applyRevealRow(state, playerId, targetPlayerId, end) {
 
   const target = state.players.find((p) => p.id === targetPlayerId);
   if (!target) throw new Error('Joueur introuvable.');
-  const card = rowEndCard(target.row, end);
+  const card = rowEndCard(target.row, end, state.pendingReveals);
   if (!card) throw new Error("Cette main n'a plus de carte de ce côté.");
-  if (state.pendingReveals.some((r) => r.source.cardId === card.id)) {
-    throw new Error('Cette carte est déjà révélée dans cette tentative.');
-  }
 
   return resolveReveal(state, { value: card.value, source: { type: 'row', playerId: targetPlayerId, end, cardId: card.id } });
 }
