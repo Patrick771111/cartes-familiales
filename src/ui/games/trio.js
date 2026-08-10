@@ -9,7 +9,14 @@ import {
   orderedOpponents
 } from '../gameShared.js';
 
-export function resetSelection() {}
+// Évite de programmer plusieurs fois le même auto-confirm (une par
+// re-rendu) — même principe que la déduplication par signature des bots
+// (voir trio.bot.js), mais ici côté joueur humain actif.
+let scheduledConfirmSignature = null;
+
+export function resetSelection() {
+  scheduledConfirmSignature = null;
+}
 
 export function renderTable(container, { room, player, state, onLeave }) {
   renderTrioTable(container, { room, player, state, onLeave });
@@ -17,6 +24,11 @@ export function renderTable(container, { room, player, state, onLeave }) {
 
 function trioCardHtml(value, { faceUp = false, lifted = false } = {}) {
   return `<div class="trio-cell ${faceUp ? 'trio-cell--faceup' : 'trio-cell--facedown'} ${lifted ? 'trio-cell--lifted' : ''}">${faceUp ? value : ''}</div>`;
+}
+
+/** 3 trophées à côté du nom d'un joueur, allumés selon son nombre de trios trouvés (objectif : 3 pour gagner, ou 1 seul si c'est le trio de 7). */
+function trioTrophiesHtml(count) {
+  return `<span class="trio-trophies">${Array.from({ length: 3 }, (_, i) => `<span class="trio-trophy ${i < count ? 'trio-trophy--lit' : ''}">🏆</span>`).join('')}</span>`;
 }
 
 /**
@@ -66,31 +78,34 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
   const canReveal = isMyTurn && !awaitingConfirm && state.pendingReveals.length < 3;
   const currentName = state.players.find((p) => p.id === state.currentPlayerId)?.name;
 
+  const finished = state.status === 'finished';
+
   const actionHint = !isMyTurn
     ? awaitingConfirm
       ? `${currentName || '…'} regarde le résultat…`
       : `Tour de ${currentName || '…'}`
     : awaitingConfirm
       ? state.turnOutcome.type === 'success'
-        ? `Trio de ${state.turnOutcome.trioValue} ! Clique sur "Continuer".`
-        : 'Pas de correspondance — clique sur "Continuer" pour remettre les cartes en place.'
+        ? `Trio de ${state.turnOutcome.trioValue} !`
+        : 'Pas de correspondance — les cartes retournent se cacher.'
       : state.pendingReveals.length === 0
         ? 'Révèle une carte : le centre, ou une extrémité (main d\'un adversaire ou la tienne).'
         : 'Encore une carte identique à trouver !';
 
-  const winnerBanner =
-    state.status === 'finished'
-      ? `<p class="flip7-banner flip7-banner--winner">🃏 ${
-          state.winnerId ? `${state.players.find((p) => p.id === state.winnerId)?.name || '?'} gagne la partie !` : 'Égalité — plus aucune carte disponible.'
-        }</p>`
-      : '';
+  const winnerBanner = finished
+    ? `<p class="flip7-banner flip7-banner--winner">🃏 ${
+        state.winnerId ? `${state.players.find((p) => p.id === state.winnerId)?.name || '?'} gagne la partie !` : 'Égalité — plus aucune carte disponible.'
+      }</p>`
+    : '';
 
   const revealedIds = new Set(state.pendingReveals.map((r) => r.source.cardId));
 
+  // En fin de partie, plus aucune carte à cacher : tout reste visible pour
+  // pouvoir revoir la répartition finale.
   const centerHtml = state.center
     .map((c) => {
       if (c.taken) return `<div class="trio-cell trio-cell--gone"></div>`;
-      if (revealedIds.has(c.id)) return trioCardHtml(c.value, { faceUp: true });
+      if (revealedIds.has(c.id) || finished) return trioCardHtml(c.value, { faceUp: true });
       const clickable = canReveal;
       if (clickable) {
         return `<button type="button" class="trio-cell-btn" data-center-id="${c.id}">${trioCardHtml(0, { faceUp: false })}</button>`;
@@ -103,8 +118,8 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
     .map((p) => {
       const isTurn = p.id === state.currentPlayerId;
       return `<div class="trio-player ${isTurn ? 'trio-player--turn' : ''}">
-        <p class="trio-player__name">${p.name}${connectionBadge(state, p.id)}${p.isBot ? ' 🤖' : ''} <span class="trio-player__trios">${p.trios.length} trio${p.trios.length > 1 ? 's' : ''}</span></p>
-        ${trioRowHtml(p.row, { targetPlayerId: p.id, clickableEnds: canReveal, revealedIds })}
+        <p class="trio-player__name">${p.name}${connectionBadge(state, p.id)}${p.isBot ? ' 🤖' : ''} ${trioTrophiesHtml(p.trios.length)}</p>
+        ${trioRowHtml(p.row, { targetPlayerId: p.id, clickableEnds: canReveal, revealedIds, alwaysFaceUp: finished })}
       </div>`;
     })
     .join('');
@@ -124,13 +139,12 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
           <div class="trio-row">${centerHtml}</div>
         </div>
 
-        ${awaitingConfirm && isMyTurn ? `<button id="btn-trio-confirm" class="btn btn--primary">Continuer</button>` : ''}
       </div>
 
       <div class="my-hand">
         ${
           me
-            ? `<p class="my-hand__label">Ta main${connectionBadge(state, me.id)} · ${me.trios.length} trio${me.trios.length > 1 ? 's' : ''}</p>
+            ? `<p class="my-hand__label">Ta main${connectionBadge(state, me.id)} ${trioTrophiesHtml(me.trios.length)}</p>
                ${trioRowHtml(me.row, { targetPlayerId: me.id, clickableEnds: canReveal, revealedIds, alwaysFaceUp: true })}`
             : ''
         }
@@ -152,15 +166,24 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
   wireAbandonButton(container, { room, player, state, onLeave });
 
-  container.querySelector('#btn-trio-confirm')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try {
-      await confirmTrioTurn(room, player.id);
-    } catch (err) {
-      alert(err.message || String(err));
-      e.target.disabled = false;
+  // Pas de bouton "Continuer" : une pause d'une seconde après la révélation
+  // qui termine la tentative (trio trouvé ou non) suffit à laisser le temps
+  // de voir le résultat, puis la main passe automatiquement — voir
+  // trio.bot.js pour le même principe côté bot (délai fixe, pas aléatoire,
+  // quand c'est à son tour de confirmer).
+  if (isMyTurn && awaitingConfirm) {
+    const signature = `${room.id}:${room.version}`;
+    if (scheduledConfirmSignature !== signature) {
+      scheduledConfirmSignature = signature;
+      window.setTimeout(async () => {
+        try {
+          await confirmTrioTurn(room, player.id);
+        } catch (err) {
+          // Conflit optimiste attendu si un autre appareil a déjà confirmé — la resynchro realtime prend le relais.
+        }
+      }, 1000);
     }
-  });
+  }
 
   if (canReveal) {
     container.querySelectorAll('[data-center-id]').forEach((btn) => {

@@ -2601,10 +2601,17 @@ body.is-card-dragging * {
   font-size: 13px;
   font-weight: 600;
 }
-.trio-player__trios {
-  font-weight: 400;
-  opacity: 0.7;
-  font-size: 12px;
+.trio-trophies { display: inline-flex; gap: 2px; vertical-align: middle; }
+.trio-trophy {
+  font-size: 13px;
+  opacity: 0.25;
+  filter: grayscale(1);
+  transition: opacity 0.2s ease, filter 0.2s ease;
+}
+.trio-trophy--lit {
+  opacity: 1;
+  filter: none;
+  text-shadow: 0 0 6px rgba(201, 162, 39, 0.8);
 }
 .trio-player .trio-cell { width: 22px; height: 30px; font-size: 11px; }
 

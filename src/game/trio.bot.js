@@ -63,6 +63,12 @@ export function schedule(room) {
   if (scheduled === signature) return;
   scheduled = signature;
 
+  // Pas de bouton "Continuer" côté joueur (voir src/ui/games/trio.js) : même
+  // pause fixe d'une seconde ici quand il ne reste qu'à confirmer le
+  // résultat de la tentative — pas besoin de variabilité aléatoire pour ce
+  // pas-là, qui ne simule pas une "réflexion" mais juste le temps de lire.
+  const delay = room.state.turnOutcome ? 1000 : 700 + Math.random() * 600;
+
   window.setTimeout(async () => {
     try {
       const fresh = await fetchRoomById(room.id);
@@ -79,5 +85,5 @@ export function schedule(room) {
     } catch (err) {
       // Un autre appareil a probablement déjà joué / confirmé.
     }
-  }, 700 + Math.random() * 600);
+  }, delay);
 }
