@@ -44,7 +44,10 @@ export const meta = { id: 'uno', label: 'Uno', hint: '2 à 6 joueurs — pose un
  * peut le "contre-signaler" (`catchUno`) pour lui infliger 2 cartes de
  * pénalité. La fenêtre se ferme dès qu'une action suivante a lieu (pose ou
  * pioche, par n'importe qui) : passé ce moment, plus rattrapable pour ce
- * tour-ci.
+ * tour-ci. Les boutons UNO/Contre-UNO restent affichés et cliquables en
+ * permanence (pas seulement quand ils sont valides, pour ne rien trahir) :
+ * un `callUno` à tort coûte 2 cartes de pénalité à celui qui l'a signalé ;
+ * un `catchUno` à tort ne coûte rien (juste refusé).
  */
 
 export const COLORS = ['red', 'yellow', 'green', 'blue'];
@@ -331,15 +334,37 @@ export function applyDraw(state, playerId) {
   };
 }
 
-/** Un joueur à 1 carte se signale ("UNO !") avant d'être pris en défaut. */
+/**
+ * Un joueur à 1 carte se signale ("UNO !") avant d'être pris en défaut. Un
+ * signalement à tort (fenêtre pas ouverte pour lui — pas exposé, ou exposé
+ * mais pas lui) coûte au joueur lui-même 2 cartes de pénalité : le bouton
+ * étant toujours actionnable (voir uno.js UI), c'est la seule chose qui
+ * dissuade d'appuyer "au cas où".
+ */
 export function applyCallUno(state, playerId) {
   if (state.status !== 'playing') throw new Error('La partie est terminée.');
-  if (state.unoWindowOpenFor !== playerId) throw new Error('Rien à signaler pour le moment.');
   const player = state.players.find((p) => p.id === playerId);
+  if (!player) throw new Error('Joueur introuvable.');
+
+  if (state.unoWindowOpenFor === playerId) {
+    return {
+      ...state,
+      unoWindowOpenFor: null,
+      log: [...state.log, { ts: Date.now(), message: `${player.name} annonce UNO !` }].slice(-40)
+    };
+  }
+
+  const players = state.players.map((p) => ({ ...p, hand: p.hand.slice() }));
+  const penalized = players.find((p) => p.id === playerId);
+  const drawn = drawFromStock(state.stock, state.discard, UNO_CATCH_PENALTY);
+  penalized.hand.push(...drawn.cards);
+
   return {
     ...state,
-    unoWindowOpenFor: null,
-    log: [...state.log, { ts: Date.now(), message: `${player?.name || '?'} annonce UNO !` }].slice(-40)
+    players,
+    stock: drawn.stock,
+    discard: drawn.discard,
+    log: [...state.log, { ts: Date.now(), message: `${player.name} signale UNO à tort — +${UNO_CATCH_PENALTY} cartes de pénalité !` }].slice(-40)
   };
 }
 
