@@ -69,8 +69,6 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
   // seulement si aucune carte jouable.
   const canDraw = isMyTurn && (underAttack || !myLegalMove);
   const mustDraw = isMyTurn && !underAttack && !myLegalMove;
-  const iAmExposed = state.unoWindowOpenFor === player.id;
-  const exposedOther = state.unoWindowOpenFor && state.unoWindowOpenFor !== player.id ? state.players.find((p) => p.id === state.unoWindowOpenFor) : null;
 
   // Empile les dernières poses (fenêtre glissante côté state — voir uno.js)
   // les unes sur les autres, décalées vers qui les a posées, comme au Trou du
@@ -92,12 +90,11 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
       const handHtml =
         Array.from({ length: Math.min(p.hand.length, 6) }).map(() => cardBackHtml()).join('') +
         (p.hand.length > 6 ? `<span class="opponent__count">+${p.hand.length - 5}</span>` : '');
-      const isExposed = state.unoWindowOpenFor === p.id;
       return `
         <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
           <div class="opponent__hand">${handHtml}</div>
           <p class="opponent__name">${p.name}${connectionBadge(state, p.id)} · ${status}</p>
-          ${isExposed ? `<button type="button" class="uno-catch-btn" data-catch-target="${p.id}">⚠️ Contre-UNO !</button>` : ''}
+          <button type="button" class="uno-catch-btn" data-catch-target="${p.id}">Contre-UNO</button>
         </div>`;
     })
     .join('');
@@ -153,13 +150,6 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
         <p class="americain-direction">${state.direction === -1 ? '↺ Sens inversé' : '↻ Sens normal'}</p>
 
         ${
-          iAmExposed
-            ? `<button type="button" class="btn btn--primary uno-call-btn" id="btn-call-uno">🃏 UNO !</button>`
-            : ''
-        }
-        ${exposedOther ? `<p class="uno-exposed-hint">${exposedOther.name} n'a plus qu'une carte et n'a pas signalé UNO — contre-signale-le ci-dessus !</p>` : ''}
-
-        ${
           pendingWildCardId
             ? `<div class="americain-suit-picker">
                  <p class="americain-suit-picker__label">Choisis la couleur :</p>
@@ -173,7 +163,10 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
       </div>
 
       <div class="my-hand">
-        <p class="my-hand__label">Ta main (${me.hand.length}) <small>— glisse pour réordonner</small></p>
+        <p class="my-hand__label">
+          Ta main (${me.hand.length}) <small>— glisse pour réordonner</small>
+          <button type="button" class="uno-call-btn" id="btn-call-uno">UNO !</button>
+        </p>
         <div class="my-hand__cards uno-hand">
           ${orderedHand
             .map((c) => {
