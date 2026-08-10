@@ -2475,8 +2475,6 @@ body.is-card-dragging * {
   background: transparent;
   border: 1.5px dashed rgba(247, 241, 225, 0.25);
 }
-.trio-cell--small { width: 28px; height: 38px; font-size: 13px; }
-
 .trio-row {
   display: flex;
   gap: 4px;
@@ -2505,28 +2503,6 @@ body.is-card-dragging * {
   font-size: 11px;
   color: rgba(247, 241, 225, 0.65);
   margin: 0 0 6px;
-}
-
-.trio-revealed {
-  display: flex;
-  gap: 14px;
-  justify-content: center;
-  align-items: flex-end;
-  margin: 10px 0;
-  flex-wrap: wrap;
-}
-.trio-revealed__item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.trio-revealed__item span {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: rgba(247, 241, 225, 0.65);
-  max-width: 80px;
-  text-align: center;
 }
 
 /* .trio-opponents ne fait qu'ajouter aux règles de .pouilleux-zone--others, voir style commun */

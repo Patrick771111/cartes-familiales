@@ -15,21 +15,26 @@ export function renderTable(container, { room, player, state, onLeave }) {
   renderTrioTable(container, { room, player, state, onLeave });
 }
 
-function trioCardHtml(value, { faceUp = false, small = false } = {}) {
-  return `<div class="trio-cell ${faceUp ? 'trio-cell--faceup' : 'trio-cell--facedown'} ${small ? 'trio-cell--small' : ''}">${faceUp ? value : ''}</div>`;
+function trioCardHtml(value, { faceUp = false } = {}) {
+  return `<div class="trio-cell ${faceUp ? 'trio-cell--faceup' : 'trio-cell--facedown'}">${faceUp ? value : ''}</div>`;
 }
 
 /**
  * Rangée triée d'un joueur : seules les deux extrémités (`low`/`high`) sont
  * jamais cliquables (voir trio.js) — les cases du milieu sont de simples
  * cartes cachées, non interactives, pour donner une idée de la longueur de
- * la main sans jamais en révéler le contenu.
+ * la main sans jamais en révéler le contenu. `revealedIds` : cartes de la
+ * tentative en cours à afficher face visible *à leur emplacement d'origine*
+ * (pas dans une zone séparée — on voit ainsi directement de qui/d'où vient
+ * chaque carte révélée).
  */
-function trioRowHtml(row, { targetPlayerId, clickableEnds = false } = {}) {
+function trioRowHtml(row, { targetPlayerId, clickableEnds = false, revealedIds = new Set() } = {}) {
   if (!row.length) return `<div class="trio-row trio-row--empty">Main vide</div>`;
   const cells = row
     .map((card, i) => {
       const end = i === 0 ? 'low' : i === row.length - 1 ? 'high' : null;
+      const revealed = revealedIds.has(card.id);
+      if (revealed) return trioCardHtml(card.value, { faceUp: true });
       const clickable = clickableEnds && end && !(row.length === 1 && end === 'high'); // évite un doublon low+high sur 1 seule carte
       if (clickable) {
         return `<button type="button" class="trio-cell-btn" data-row-target="${targetPlayerId}" data-row-end="${end}">${trioCardHtml(card.value, { faceUp: false })}</button>`;
@@ -38,12 +43,6 @@ function trioRowHtml(row, { targetPlayerId, clickableEnds = false } = {}) {
     })
     .join('');
   return `<div class="trio-row">${cells}</div>`;
-}
-
-function trioSourceLabel(state, source) {
-  if (source.type === 'center') return 'centre';
-  const p = state.players.find((pl) => pl.id === source.playerId);
-  return `${p?.name || '?'} (${source.end === 'low' ? 'petit' : 'grand'} bout)`;
 }
 
 function renderTrioTable(container, { room, player, state, onLeave }) {
@@ -72,13 +71,13 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
         }</p>`
       : '';
 
+  const revealedIds = new Set(state.pendingReveals.map((r) => r.source.cardId));
+
   const centerHtml = state.center
     .map((c) => {
       if (c.taken) return `<div class="trio-cell trio-cell--gone"></div>`;
-      const alreadyRevealed = state.pendingReveals.some((r) => r.source.cardId === c.id);
-      const clickable = canReveal && !alreadyRevealed;
-      const pending = state.pendingReveals.find((r) => r.source.cardId === c.id);
-      if (pending) return trioCardHtml(pending.value, { faceUp: true });
+      if (revealedIds.has(c.id)) return trioCardHtml(c.value, { faceUp: true });
+      const clickable = canReveal;
       if (clickable) {
         return `<button type="button" class="trio-cell-btn" data-center-id="${c.id}">${trioCardHtml(0, { faceUp: false })}</button>`;
       }
@@ -86,20 +85,12 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
     })
     .join('');
 
-  const revealedHtml = state.pendingReveals.length
-    ? `<div class="trio-revealed">
-        ${state.pendingReveals
-          .map((r) => `<div class="trio-revealed__item">${trioCardHtml(r.value, { faceUp: true, small: true })}<span>${trioSourceLabel(state, r.source)}</span></div>`)
-          .join('')}
-      </div>`
-    : '';
-
   const opponentsHtml = orderedOpponents(state, player.id)
     .map((p) => {
       const isTurn = p.id === state.currentPlayerId;
       return `<div class="trio-player ${isTurn ? 'trio-player--turn' : ''}">
         <p class="trio-player__name">${p.name}${connectionBadge(state, p.id)}${p.isBot ? ' 🤖' : ''} <span class="trio-player__trios">${p.trios.length} trio${p.trios.length > 1 ? 's' : ''}</span></p>
-        ${trioRowHtml(p.row, { targetPlayerId: p.id, clickableEnds: canReveal })}
+        ${trioRowHtml(p.row, { targetPlayerId: p.id, clickableEnds: canReveal, revealedIds })}
       </div>`;
     })
     .join('');
@@ -119,8 +110,6 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
           <div class="trio-row">${centerHtml}</div>
         </div>
 
-        ${revealedHtml}
-
         ${awaitingConfirm && isMyTurn ? `<button id="btn-trio-confirm" class="btn btn--primary">Continuer</button>` : ''}
       </div>
 
@@ -128,7 +117,7 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
         ${
           me
             ? `<p class="my-hand__label">Ta main${connectionBadge(state, me.id)} · ${me.trios.length} trio${me.trios.length > 1 ? 's' : ''}</p>
-               ${trioRowHtml(me.row, { targetPlayerId: me.id, clickableEnds: canReveal })}`
+               ${trioRowHtml(me.row, { targetPlayerId: me.id, clickableEnds: canReveal, revealedIds })}`
             : ''
         }
 
