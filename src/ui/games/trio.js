@@ -21,25 +21,29 @@ function trioCardHtml(value, { faceUp = false } = {}) {
 
 /**
  * Rangée triée d'un joueur : seules les deux extrémités (`low`/`high`) sont
- * jamais cliquables (voir trio.js) — les cases du milieu sont de simples
- * cartes cachées, non interactives, pour donner une idée de la longueur de
- * la main sans jamais en révéler le contenu. `revealedIds` : cartes de la
- * tentative en cours à afficher face visible *à leur emplacement d'origine*
- * (pas dans une zone séparée — on voit ainsi directement de qui/d'où vient
- * chaque carte révélée).
+ * jamais cliquables comme cible de révélation (voir trio.js) — les cases du
+ * milieu ne sont jamais une cible, juste un indicateur visuel de longueur de
+ * main. `revealedIds` : cartes de la tentative en cours à afficher face
+ * visible *à leur emplacement d'origine* (pas dans une zone séparée — on
+ * voit ainsi directement de qui/d'où vient chaque carte révélée).
+ * `alwaysFaceUp` : dans le jeu physique, chacun trie sa propre main lui-même
+ * (à la vue de ses propres cartes) — seules les mains des AUTRES et le
+ * centre sont réellement cachées ; passer `true` uniquement pour sa propre
+ * rangée (`me.row`).
  */
-function trioRowHtml(row, { targetPlayerId, clickableEnds = false, revealedIds = new Set() } = {}) {
+function trioRowHtml(row, { targetPlayerId, clickableEnds = false, revealedIds = new Set(), alwaysFaceUp = false } = {}) {
   if (!row.length) return `<div class="trio-row trio-row--empty">Main vide</div>`;
   const cells = row
     .map((card, i) => {
       const end = i === 0 ? 'low' : i === row.length - 1 ? 'high' : null;
       const revealed = revealedIds.has(card.id);
-      if (revealed) return trioCardHtml(card.value, { faceUp: true });
+      const inner = trioCardHtml(card.value, { faceUp: revealed || alwaysFaceUp });
+      if (revealed) return inner; // déjà révélée pour cette tentative : jamais re-cliquable
       const clickable = clickableEnds && end && !(row.length === 1 && end === 'high'); // évite un doublon low+high sur 1 seule carte
       if (clickable) {
-        return `<button type="button" class="trio-cell-btn" data-row-target="${targetPlayerId}" data-row-end="${end}">${trioCardHtml(card.value, { faceUp: false })}</button>`;
+        return `<button type="button" class="trio-cell-btn" data-row-target="${targetPlayerId}" data-row-end="${end}">${inner}</button>`;
       }
-      return trioCardHtml(card.value, { faceUp: false });
+      return inner;
     })
     .join('');
   return `<div class="trio-row">${cells}</div>`;
@@ -117,7 +121,7 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
         ${
           me
             ? `<p class="my-hand__label">Ta main${connectionBadge(state, me.id)} · ${me.trios.length} trio${me.trios.length > 1 ? 's' : ''}</p>
-               ${trioRowHtml(me.row, { targetPlayerId: me.id, clickableEnds: canReveal, revealedIds })}`
+               ${trioRowHtml(me.row, { targetPlayerId: me.id, clickableEnds: canReveal, revealedIds, alwaysFaceUp: true })}`
             : ''
         }
 
