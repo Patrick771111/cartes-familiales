@@ -17,6 +17,11 @@ import {
 // zéro dès que ce n'est plus mon tour.
 let pendingWildCardId = null;
 
+// Signature (room.id:room.version) de la dernière annonce "UNO !" déjà
+// affichée en grand — évite de rejouer l'animation à chaque re-rendu local
+// (ex: ouverture du sélecteur de couleur) qui ne change pas la version.
+let lastUnoAnnounceSignature = null;
+
 const KIND_ORDER = { number: 0, skip: 1, reverse: 2, drawTwo: 3, wild: 4, wildDrawFour: 5 };
 const COLOR_ORDER = { red: 0, yellow: 1, green: 2, blue: 3 };
 
@@ -43,6 +48,7 @@ function unoCardHtml(card) {
 /** Réinitialise l'état local propre à ce jeu — appelé au retour en salle d'attente. */
 export function resetSelection() {
   pendingWildCardId = null;
+  lastUnoAnnounceSignature = null;
   resetHandOrder('uno');
 }
 
@@ -69,6 +75,15 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
   // seulement si aucune carte jouable.
   const canDraw = isMyTurn && (underAttack || !myLegalMove);
   const mustDraw = isMyTurn && !underAttack && !myLegalMove;
+
+  // Annonce "UNO !" voyante pour tout le monde, une seule fois par version
+  // (une nouvelle pose/pioche s'affiche autrement en silence) — l'annonce à
+  // tort (pénalité) n'a volontairement pas droit à cet effet.
+  const lastLog = state.log[state.log.length - 1];
+  const unoAnnounceSignature = `${room.id}:${room.version}`;
+  const showUnoAnnouncement =
+    !!lastLog && / annonce UNO !$/.test(lastLog.message) && lastUnoAnnounceSignature !== unoAnnounceSignature;
+  if (showUnoAnnouncement) lastUnoAnnounceSignature = unoAnnounceSignature;
 
   // Empile les dernières poses (fenêtre glissante côté state — voir uno.js)
   // les unes sur les autres, décalées vers qui les a posées, comme au Trou du
@@ -131,6 +146,8 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
             <span class="americain-stock__count">${state.stock.length}</span>
           </button>
         </div>
+
+        ${showUnoAnnouncement ? `<div class="uno-announcement">🃏 ${lastLog.message}</div>` : ''}
 
         ${underAttack ? `<p class="uno-pending-draw">⚡ Pile de pioche : +${state.pendingDraw}</p>` : ''}
 
@@ -221,8 +238,9 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
       try {
         await catchUno(room, player.id, btn.dataset.catchTarget);
       } catch (err) {
+        // Contre-UNO inutile (fenêtre pas ouverte pour ce joueur) : refusé
+        // sans conséquence — pas de popup, on laisse le joueur retenter.
         btn.disabled = false;
-        alert(err.message || 'Impossible de contre-signaler.');
       }
     });
   });

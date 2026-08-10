@@ -1262,6 +1262,37 @@ h1 {
   margin: 4px 0 0;
 }
 
+/* Annonce "UNO !" voyante pour tous — bref pop-in puis fondu, sans minuteur
+   JS : l'animation CSS se termine seule à opacité 0, l'élément n'a donc pas
+   besoin d'être retiré du DOM. Positionné dans .table-felt (position:
+   relative) pour rester bien centré au-dessus de la pioche/défausse. */
+.uno-announcement {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(135deg, var(--brass), #f5c518);
+  color: #1a1206;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: 0.03em;
+  padding: 10px 20px;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 20;
+  animation: uno-announce-pop 2.2s ease forwards;
+}
+@keyframes uno-announce-pop {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+  12% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+  22% { transform: translate(-50%, -50%) scale(1); }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 /* Boutons UNO/Contre-UNO : toujours affichés ET toujours dans le même état
    cliquable — ni grisés ni mis en valeur selon la situation, sinon leur
    changement d'aspect trahirait à lui seul qu'il faut les jouer maintenant.
