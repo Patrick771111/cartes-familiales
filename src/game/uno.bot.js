@@ -1,5 +1,12 @@
 import { fetchRoomById, updateRoomState } from './core.js';
-import { applyPlay as applyUnoPlay, applyDraw as applyUnoDraw, isLegalCard as unoIsLegalCard, COLORS } from './uno.js';
+import {
+  applyPlay as applyUnoPlay,
+  applyDraw as applyUnoDraw,
+  applyCallUno as applyUnoCallUno,
+  applyCatchUno as applyUnoCatchUno,
+  isLegalCard as unoIsLegalCard,
+  COLORS
+} from './uno.js';
 
 function playUnoCard(room, playerId, cardId, chosenColor) {
   const newState = applyUnoPlay(room.state, playerId, cardId, chosenColor);
@@ -8,6 +15,16 @@ function playUnoCard(room, playerId, cardId, chosenColor) {
 
 function drawUnoCard(room, playerId) {
   const newState = applyUnoDraw(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+function callUno(room, playerId) {
+  const newState = applyUnoCallUno(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+function catchUno(room, playerId, targetPlayerId) {
+  const newState = applyUnoCatchUno(room.state, playerId, targetPlayerId);
   return updateRoomState(room.id, room.version, newState);
 }
 
@@ -25,6 +42,8 @@ function bestColorFor(hand, excludeCardId) {
 // - garde les Jokers/Joker+4 en réserve (plus utiles tard) sauf urgence
 // - privilégie +2/Passer contre l'adversaire le plus proche de gagner
 // - Inverser peu utile à 2 joueurs (équivaut à Passer), pénalisé à 3+
+// - sous une pile de pioche en attente, `legalCards` ne contient déjà plus
+//   que des +2/+4 (voir isLegalCard) : le bot empile s'il peut, pioche sinon
 export function chooseMove(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   if (!bot) return { type: 'draw' };
@@ -73,9 +92,60 @@ export function chooseMove(state, botId) {
 }
 
 let scheduled = null;
+let scheduledSelfUno = null;
+let scheduledCatch = null;
+
+/**
+ * Signalement/contre-signalement UNO : indépendant du tour de jeu (n'importe
+ * quel joueur peut y réagir à tout moment tant que la fenêtre est ouverte),
+ * donc évalué à chaque appel de `schedule`, pas seulement quand c'est au bot
+ * de jouer.
+ * - Un bot qui se retrouve lui-même exposé se signale quasi aussitôt (un
+ *   bot ne "triche" jamais sciemment pour lui-même).
+ * - Un bot repère un AUTRE joueur (humain ou bot) resté exposé et tente de
+ *   le contre-signaler après un court délai, pour donner un peu de tension
+ *   plutôt que de laisser la fenêtre filer sans réaction.
+ */
+function scheduleUnoWindow(room) {
+  const exposedId = room.state.unoWindowOpenFor;
+  if (!exposedId) return;
+
+  const exposedIsBot = room.state.players.find((p) => p.id === exposedId)?.isBot;
+  if (exposedIsBot) {
+    const signature = `${room.id}:${room.version}:self:${exposedId}`;
+    if (scheduledSelfUno === signature) return;
+    scheduledSelfUno = signature;
+    window.setTimeout(async () => {
+      try {
+        const fresh = await fetchRoomById(room.id);
+        if (fresh.state.unoWindowOpenFor === exposedId) await callUno(fresh, exposedId);
+      } catch (err) {
+        // Fenêtre déjà refermée (quelqu'un a joué, ou déjà signalé) — rien à faire.
+      }
+    }, 250 + Math.random() * 250);
+    return;
+  }
+
+  const catchers = room.state.players.filter((p) => p.isBot && p.id !== exposedId);
+  if (!catchers.length) return;
+  const signature = `${room.id}:${room.version}:catch:${exposedId}`;
+  if (scheduledCatch === signature) return;
+  scheduledCatch = signature;
+  const catcher = catchers[Math.floor(Math.random() * catchers.length)];
+  window.setTimeout(async () => {
+    try {
+      const fresh = await fetchRoomById(room.id);
+      if (fresh.state.unoWindowOpenFor === exposedId) await catchUno(fresh, catcher.id, exposedId);
+    } catch (err) {
+      // Fenêtre déjà refermée (le joueur visé s'est signalé entre-temps, ou quelqu'un a déjà joué).
+    }
+  }, 1200 + Math.random() * 1500);
+}
 
 export function schedule(room) {
   if (room.state.status !== 'playing') return;
+
+  scheduleUnoWindow(room);
 
   const currentId = room.state.currentPlayerId;
   const bot = room.state.players.find((p) => p.id === currentId && p.isBot);

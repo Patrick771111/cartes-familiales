@@ -22,16 +22,33 @@ export const meta = { id: 'uno', label: 'Uno', hint: '2 à 6 joueurs — pose un
  * - **Passer** : le joueur suivant passe son tour.
  * - **Inverser** : inverse le sens de jeu — à 2 joueurs, équivaut à Passer
  *   (tu rejoues), règle officielle.
- * - **+2** : le joueur suivant pioche 2 cartes et passe son tour.
+ * - **+2** / **Joker +4** : au lieu de forcer immédiatement le joueur
+ *   suivant à piocher, la pénalité s'accumule dans `pendingDraw` — le
+ *   joueur suivant peut **empiler** une autre carte +2/+4 (n'importe
+ *   laquelle des deux, y compris pour "riposter" à un +2 par un +4) pour
+ *   faire grimper la pile et la refiler au joueur d'après, ou piocher toute
+ *   la pile d'un coup (perdant alors son tour) — même s'il a une carte
+ *   d'empilement en main, piocher reste toujours un choix valable. Tant que
+ *   `pendingDraw > 0`, seules les cartes +2/+4 sont jouables (voir
+ *   `isLegalCard`).
  * - **Joker** : choisis la nouvelle couleur en cours.
- * - **Joker +4** : choisis la nouvelle couleur en cours, le joueur suivant
- *   pioche 4 cartes et passe son tour. *(Simplification : contrairement à
- *   la règle stricte du jeu physique, jouable à tout moment, même si tu as
- *   une carte de la couleur en cours — même simplification déjà en place
- *   pour le 8 du 8 américain de cette appli.)*
+ * - **Joker +4** : choisis la nouvelle couleur en cours en plus de son
+ *   effet d'empilement ci-dessus. *(Simplification : contrairement à la
+ *   règle stricte du jeu physique, jouable à tout moment, même si tu as une
+ *   carte de la couleur en cours — même simplification déjà en place pour
+ *   le 8 du 8 américain de cette appli.)*
+ *
+ * **UNO / Contre-UNO** : un joueur qui vient de poser sa carte
+ * avant-dernière (il ne lui en reste plus qu'une) doit le signaler
+ * (`callUno`) — tant qu'il ne l'a pas fait, n'importe quel autre joueur
+ * peut le "contre-signaler" (`catchUno`) pour lui infliger 2 cartes de
+ * pénalité. La fenêtre se ferme dès qu'une action suivante a lieu (pose ou
+ * pioche, par n'importe qui) : passé ce moment, plus rattrapable pour ce
+ * tour-ci.
  */
 
 export const COLORS = ['red', 'yellow', 'green', 'blue'];
+const UNO_CATCH_PENALTY = 2;
 
 const COLOR_INFO = {
   red: { label: 'Rouge', hex: '#d0342c' },
@@ -95,9 +112,15 @@ function drawFromStock(stock, discard, count) {
 /**
  * Une carte est jouable si c'est un Joker/Joker +4 (toujours autorisés), si
  * elle correspond à la couleur en cours, ou si elle correspond exactement
- * au symbole/valeur de la carte au sommet de la défausse.
+ * au symbole/valeur de la carte au sommet de la défausse. Sous le coup
+ * d'une pile de pioche en attente (`pendingDraw > 0`), seules les cartes
+ * +2/+4 comptent comme jouables — n'importe laquelle des deux, sans
+ * condition de couleur, pour riposter/empiler.
  */
 export function isLegalCard(state, card) {
+  if (state.pendingDraw > 0) {
+    return card.kind === 'drawTwo' || card.kind === 'wildDrawFour';
+  }
   if (card.kind === 'wild' || card.kind === 'wildDrawFour') return true;
   if (card.color === state.activeColor) return true;
   const topCard = state.discard[state.discard.length - 1];
@@ -154,6 +177,10 @@ export function initGame(players) {
     // Historique borné (4 dernières poses), pour un affichage empilé côté UI.
     discardHistory: [{ by: null, cards: [topCard] }],
     activeColor,
+    pendingDraw: 0,
+    // Id du joueur actuellement "exposé" (1 carte, pas encore signalé UNO),
+    // ou null. Voir applyCallUno/applyCatchUno.
+    unoWindowOpenFor: null,
     winnerId: null,
     lastMove: null,
     log: [
@@ -184,8 +211,9 @@ export function applyPlay(state, playerId, cardId, chosenColor) {
   const discardHistory = [...(state.discardHistory || []), { by: current.id, cards: [card] }].slice(-4);
   const activeColor = isWild ? chosenColor : card.color;
 
-  let stock = state.stock.slice();
+  const stock = state.stock.slice();
   let direction = state.direction || 1;
+  let pendingDraw = state.pendingDraw || 0;
   let extraLog = '';
 
   if (isWild) {
@@ -211,28 +239,25 @@ export function applyPlay(state, playerId, cardId, chosenColor) {
     nextId = nextPlayerId(state.turnOrder, nextId, direction);
   }
 
-  if (!finishedNow && card.kind === 'drawTwo' && nextId) {
-    const victim = players.find((p) => p.id === nextId);
-    const drawn = drawFromStock(stock, discard, 2);
-    stock = drawn.stock;
-    discard = drawn.discard;
-    victim.hand = [...victim.hand, ...drawn.cards];
-    extraLog = ` — ${victim.name} pioche ${drawn.cards.length} cartes et passe son tour !`;
-    nextId = nextPlayerId(state.turnOrder, nextId, direction);
+  // +2 et Joker +4 : n'empilent que la pile en attente, ne forcent plus la
+  // pioche immédiate — c'est au joueur suivant (nextId) de choisir entre
+  // empiler à son tour ou piocher toute la pile (voir applyDraw).
+  if (!finishedNow && card.kind === 'drawTwo') {
+    pendingDraw += 2;
+    extraLog += ` — pile de pioche à ${pendingDraw} !`;
   }
-
-  if (!finishedNow && card.kind === 'wildDrawFour' && nextId) {
-    const victim = players.find((p) => p.id === nextId);
-    const drawn = drawFromStock(stock, discard, 4);
-    stock = drawn.stock;
-    discard = drawn.discard;
-    victim.hand = [...victim.hand, ...drawn.cards];
-    extraLog += ` — ${victim.name} pioche ${drawn.cards.length} cartes et passe son tour !`;
-    nextId = nextPlayerId(state.turnOrder, nextId, direction);
+  if (!finishedNow && card.kind === 'wildDrawFour') {
+    pendingDraw += 4;
+    extraLog += ` — pile de pioche à ${pendingDraw} !`;
   }
 
   const cardLabel = card.kind === 'number' ? String(card.value) : card.kind;
   const logMessage = `${current.name} pose ${cardLabel}${card.color ? ` (${colorInfo(card.color).label})` : ''}${extraLog}${finishedNow ? ` — ${current.name} a gagné !` : ''}`;
+
+  // Fenêtre de rattrapage UNO : toute action (celle-ci) ferme celle
+  // éventuellement ouverte par une pose précédente — puis s'en rouvre une
+  // nouvelle si ce coup laisse le joueur à exactement 1 carte.
+  const unoWindowOpenFor = !finishedNow && current.hand.length === 1 ? current.id : null;
 
   return {
     ...state,
@@ -242,6 +267,8 @@ export function applyPlay(state, playerId, cardId, chosenColor) {
     discardHistory,
     activeColor,
     direction,
+    pendingDraw,
+    unoWindowOpenFor,
     status: finishedNow ? 'finished' : 'playing',
     winnerId: finishedNow ? current.id : state.winnerId,
     currentPlayerId: nextId,
@@ -251,9 +278,14 @@ export function applyPlay(state, playerId, cardId, chosenColor) {
 }
 
 /**
- * Pioche une carte (uniquement permis si aucune carte en main n'est jouable)
- * et passe la main — pas de "rejouer immédiatement la carte piochée" dans
- * cette version, pour rester simple.
+ * Pioche. Deux cas très différents :
+ * - `pendingDraw > 0` (sous le coup d'une pile de +2/+4 en attente) :
+ *   toujours permis, même avec une carte d'empilement en main (piocher
+ *   plutôt qu'empiler est un choix valable) — pioche la pile entière d'un
+ *   coup, qui se vide, et le tour passe.
+ * - Sinon, pioche normale d'une seule carte, uniquement permise si aucune
+ *   carte en main n'est jouable — pas de "rejouer immédiatement la carte
+ *   piochée" dans cette version, pour rester simple.
  */
 export function applyDraw(state, playerId) {
   if (state.status !== 'playing') throw new Error('La partie est terminée.');
@@ -261,6 +293,23 @@ export function applyDraw(state, playerId) {
 
   const players = state.players.map((p) => ({ ...p, hand: p.hand.slice() }));
   const current = players.find((p) => p.id === playerId);
+
+  if (state.pendingDraw > 0) {
+    const count = state.pendingDraw;
+    const drawn = drawFromStock(state.stock, state.discard, count);
+    current.hand.push(...drawn.cards);
+    return {
+      ...state,
+      players,
+      stock: drawn.stock,
+      discard: drawn.discard,
+      pendingDraw: 0,
+      unoWindowOpenFor: null,
+      currentPlayerId: nextPlayerId(state.turnOrder, current.id, state.direction || 1),
+      lastMove: { id: uniqueId(), by: current.id, type: 'draw', card: null, chosenColor: null, finished: false },
+      log: [...state.log, { ts: Date.now(), message: `${current.name} pioche ${count} carte${count > 1 ? 's' : ''} (pile) et passe son tour.` }].slice(-40)
+    };
+  }
 
   if (hasLegalMove(state, current.hand)) {
     throw new Error('Tu as un coup possible : impossible de piocher.');
@@ -275,9 +324,46 @@ export function applyDraw(state, playerId) {
     players,
     stock: drawn.stock,
     discard: drawn.discard,
+    unoWindowOpenFor: null,
     currentPlayerId: nextPlayerId(state.turnOrder, current.id, state.direction || 1),
     lastMove: { id: uniqueId(), by: current.id, type: 'draw', card: null, chosenColor: null, finished: false },
     log: [...state.log, { ts: Date.now(), message: `${current.name} pioche une carte.` }].slice(-40)
+  };
+}
+
+/** Un joueur à 1 carte se signale ("UNO !") avant d'être pris en défaut. */
+export function applyCallUno(state, playerId) {
+  if (state.status !== 'playing') throw new Error('La partie est terminée.');
+  if (state.unoWindowOpenFor !== playerId) throw new Error('Rien à signaler pour le moment.');
+  const player = state.players.find((p) => p.id === playerId);
+  return {
+    ...state,
+    unoWindowOpenFor: null,
+    log: [...state.log, { ts: Date.now(), message: `${player?.name || '?'} annonce UNO !` }].slice(-40)
+  };
+}
+
+/** Un autre joueur contre-signale un joueur à 1 carte qui ne s'est pas annoncé à temps : +2 cartes de pénalité. */
+export function applyCatchUno(state, playerId, targetPlayerId) {
+  if (state.status !== 'playing') throw new Error('La partie est terminée.');
+  if (playerId === targetPlayerId) throw new Error('Tu ne peux pas te contre-signaler toi-même.');
+  if (state.unoWindowOpenFor !== targetPlayerId) throw new Error('Rien à signaler pour ce joueur.');
+
+  const players = state.players.map((p) => ({ ...p, hand: p.hand.slice() }));
+  const catcher = players.find((p) => p.id === playerId);
+  const target = players.find((p) => p.id === targetPlayerId);
+  if (!catcher || !target) throw new Error('Joueur introuvable.');
+
+  const drawn = drawFromStock(state.stock, state.discard, UNO_CATCH_PENALTY);
+  target.hand.push(...drawn.cards);
+
+  return {
+    ...state,
+    players,
+    stock: drawn.stock,
+    discard: drawn.discard,
+    unoWindowOpenFor: null,
+    log: [...state.log, { ts: Date.now(), message: `${catcher.name} contre-signale ${target.name} : +${UNO_CATCH_PENALTY} cartes de pénalité !` }].slice(-40)
   };
 }
 
@@ -287,8 +373,20 @@ export async function playUnoCard(room, playerId, cardId, chosenColor) {
   return updateRoomState(room.id, room.version, newState);
 }
 
-/** Pioche une carte à Uno (uniquement si aucun coup possible). */
+/** Pioche à Uno — la pile en attente si elle existe, sinon une carte simple. */
 export async function drawUnoCard(room, playerId) {
   const newState = applyDraw(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Se signale "UNO !" à 1 carte, avant d'être pris en défaut. */
+export async function callUno(room, playerId) {
+  const newState = applyCallUno(room.state, playerId);
+  return updateRoomState(room.id, room.version, newState);
+}
+
+/** Contre-signale un autre joueur resté à 1 carte sans s'être annoncé. */
+export async function catchUno(room, playerId, targetPlayerId) {
+  const newState = applyCatchUno(room.state, playerId, targetPlayerId);
   return updateRoomState(room.id, room.version, newState);
 }

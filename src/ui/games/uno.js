@@ -1,5 +1,5 @@
 import { cardBackHtml } from '../cards.js';
-import { playUnoCard, drawUnoCard, isLegalCard, hasLegalMove, colorInfo, COLORS } from '../../game/uno.js';
+import { playUnoCard, drawUnoCard, callUno, catchUno, isLegalCard, hasLegalMove, colorInfo, COLORS } from '../../game/uno.js';
 import { getOrderedHand, moveCard, resetHandOrder } from '../handOrder.js';
 import { enableHandDrag } from '../dragReorder.js';
 import { openRulesModal } from '../rules.js';
@@ -62,8 +62,15 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
 
   const topCard = state.discard[state.discard.length - 1];
   const isWildTop = topCard.kind === 'wild' || topCard.kind === 'wildDrawFour';
+  const underAttack = state.pendingDraw > 0;
   const myLegalMove = isMyTurn && hasLegalMove(state, me.hand);
-  const mustDraw = isMyTurn && !myLegalMove;
+  // Sous une pile de pioche en attente, piocher reste toujours un choix
+  // valable même si j'ai une carte pour empiler (voir uno.js) — sinon,
+  // seulement si aucune carte jouable.
+  const canDraw = isMyTurn && (underAttack || !myLegalMove);
+  const mustDraw = isMyTurn && !underAttack && !myLegalMove;
+  const iAmExposed = state.unoWindowOpenFor === player.id;
+  const exposedOther = state.unoWindowOpenFor && state.unoWindowOpenFor !== player.id ? state.players.find((p) => p.id === state.unoWindowOpenFor) : null;
 
   // Empile les dernières poses (fenêtre glissante côté state — voir uno.js)
   // les unes sur les autres, décalées vers qui les a posées, comme au Trou du
@@ -85,10 +92,12 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
       const handHtml =
         Array.from({ length: Math.min(p.hand.length, 6) }).map(() => cardBackHtml()).join('') +
         (p.hand.length > 6 ? `<span class="opponent__count">+${p.hand.length - 5}</span>` : '');
+      const isExposed = state.unoWindowOpenFor === p.id;
       return `
         <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
           <div class="opponent__hand">${handHtml}</div>
           <p class="opponent__name">${p.name}${connectionBadge(state, p.id)} · ${status}</p>
+          ${isExposed ? `<button type="button" class="uno-catch-btn" data-catch-target="${p.id}">⚠️ Contre-UNO !</button>` : ''}
         </div>`;
     })
     .join('');
@@ -120,22 +129,35 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
                 .join('')}
             </div>
           </div>
-          <button type="button" class="americain-stock ${mustDraw ? 'americain-stock--pickable' : ''}" id="btn-draw" ${mustDraw ? '' : 'disabled'}>
+          <button type="button" class="americain-stock ${canDraw ? 'americain-stock--pickable' : ''}" id="btn-draw" ${canDraw ? '' : 'disabled'}>
             ${cardBackHtml()}
             <span class="americain-stock__count">${state.stock.length}</span>
           </button>
         </div>
 
+        ${underAttack ? `<p class="uno-pending-draw">⚡ Pile de pioche : +${state.pendingDraw}</p>` : ''}
+
         <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
           ${
             isMyTurn
-              ? mustDraw
-                ? 'Aucun coup possible — pioche'
-                : 'Touche une carte jouable'
+              ? underAttack
+                ? myLegalMove
+                  ? 'Empile une carte +2/+4, ou pioche la pile'
+                  : `Pioche la pile (+${state.pendingDraw})`
+                : mustDraw
+                  ? 'Aucun coup possible — pioche'
+                  : 'Touche une carte jouable'
               : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`
           }
         </div>
         <p class="americain-direction">${state.direction === -1 ? '↺ Sens inversé' : '↻ Sens normal'}</p>
+
+        ${
+          iAmExposed
+            ? `<button type="button" class="btn btn--primary uno-call-btn" id="btn-call-uno">🃏 UNO !</button>`
+            : ''
+        }
+        ${exposedOther ? `<p class="uno-exposed-hint">${exposedOther.name} n'a plus qu'une carte et n'a pas signalé UNO — contre-signale-le ci-dessus !</p>` : ''}
 
         ${
           pendingWildCardId
@@ -152,7 +174,7 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
 
       <div class="my-hand">
         <p class="my-hand__label">Ta main (${me.hand.length}) <small>— glisse pour réordonner</small></p>
-        <div class="my-hand__cards">
+        <div class="my-hand__cards uno-hand">
           ${orderedHand
             .map((c) => {
               const legal = isLegalCard(state, c);
@@ -188,6 +210,28 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
   container.querySelector('#btn-cancel-wild')?.addEventListener('click', () => {
     pendingWildCardId = null;
     renderUnoTable(container, { room, player, state, onLeave });
+  });
+
+  container.querySelector('#btn-call-uno')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await callUno(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de signaler UNO.');
+    }
+  });
+
+  container.querySelectorAll('[data-catch-target]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await catchUno(room, player.id, btn.dataset.catchTarget);
+      } catch (err) {
+        btn.disabled = false;
+        alert(err.message || 'Impossible de contre-signaler.');
+      }
+    });
   });
 
   container.querySelectorAll('.uno-color-picker__option').forEach((btn) => {

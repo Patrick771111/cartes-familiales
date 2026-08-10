@@ -1247,6 +1247,48 @@ h1 {
 }
 .uno-color-picker__option:disabled { opacity: 0.5; cursor: default; }
 
+/* Chevauchement bien plus léger que le générique -18px des mains "cartes
+   françaises" (.hand-card) : les cartes Uno portent un gros symbole/chiffre
+   centré, pas des index en coin — un fort recouvrement les rend illisibles. */
+.uno-hand .hand-card { margin-left: -8px; }
+.uno-hand .hand-card:first-child { margin-left: 0; }
+
+.uno-pending-draw {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--red-suit);
+  margin: 4px 0 0;
+}
+
+.uno-call-btn { display: block; margin: 12px auto 0; }
+
+.uno-catch-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--red-suit);
+  background: rgba(211, 47, 47, 0.18);
+  color: var(--cream);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 8px;
+  margin-top: 4px;
+  cursor: pointer;
+}
+.uno-catch-btn:hover, .uno-catch-btn:focus-visible { background: rgba(211, 47, 47, 0.32); outline: none; }
+.uno-catch-btn:disabled { opacity: 0.5; cursor: default; }
+
+.uno-exposed-hint {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: rgba(247, 241, 225, 0.75);
+  margin: 8px 0 0;
+}
+
 /* ---------- Blackjack ---------- */
 
 .blackjack-felt { padding: 20px 14px 16px; }

@@ -11,8 +11,8 @@ export const html = `
   <ul>
     <li><strong>Passer</strong> : le joueur suivant passe son tour.</li>
     <li><strong>Inverser</strong> : inverse le sens du jeu — à 2 joueurs, ça revient à passer (tu rejoues aussitôt).</li>
-    <li><strong>+2</strong> : le joueur suivant pioche 2 cartes et son tour est sauté.</li>
+    <li><strong>+2</strong> / <strong>Joker +4</strong> : toujours jouables (le +4 quelle que soit ta main) — au lieu de piocher aussitôt, la pénalité s'ajoute à une <strong>pile de pioche</strong>. Le joueur suivant peut soit empiler à son tour une autre carte +2 ou +4 (les deux se mélangent librement) pour faire grimper la pile et la refiler encore plus loin, soit piocher toute la pile d'un coup (et perdre son tour) — même s'il a une carte pour empiler, piocher reste toujours possible.</li>
     <li><strong>Joker</strong> : toujours jouable — choisis la nouvelle couleur en cours.</li>
-    <li><strong>Joker +4</strong> : toujours jouable — choisis la nouvelle couleur, le joueur suivant pioche 4 cartes et son tour est sauté.</li>
   </ul>
+  <p><strong>UNO !</strong> Dès que tu poses ta carte avant-dernière (il ne t'en reste plus qu'une), signale-le avec le bouton "UNO !". Tant que tu ne l'as pas fait, n'importe quel autre joueur peut te "contre-signaler" pour t'infliger 2 cartes de pénalité — mais seulement avant que quelqu'un d'autre n'ait joué ou pioché entre-temps : passé ce moment, tu es tiré d'affaire pour ce tour-ci.</p>
 `;
