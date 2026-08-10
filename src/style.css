@@ -1171,6 +1171,82 @@ h1 {
 .americain-suit-picker__option--dark { color: var(--dark-suit); }
 .americain-suit-picker__option--red { color: var(--red-suit); }
 
+/* ---------- Uno ---------- */
+/* Réutilise .americain-stock/.americain-suit-picker/.americain-direction
+   (mécanique quasi identique : pioche, défausse empilée, sens de jeu,
+   sélecteur pour une carte "joker") — seules les cartes elles-mêmes et le
+   sélecteur de couleur ont besoin de styles propres. */
+
+.uno-felt { padding: 20px 14px 24px; }
+
+.uno-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  margin-bottom: 14px;
+}
+.uno-center .trouduc-pile { flex-shrink: 0; }
+.uno-center .trouduc-pile__stack { width: 140px; }
+
+.uno-card {
+  width: 44px;
+  height: 64px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 20px;
+  color: #fff;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}
+.uno-card--red { background: #d0342c; }
+.uno-card--yellow { background: #f5c518; color: #3a2e0a; text-shadow: none; }
+.uno-card--green { background: #2e9e3d; }
+.uno-card--blue { background: #1259a5; }
+.uno-card--wild {
+  background: conic-gradient(#d0342c 0deg 90deg, #f5c518 90deg 180deg, #2e9e3d 180deg 270deg, #1259a5 270deg 360deg);
+  font-size: 15px;
+}
+
+.trouduc-pile__cards.uno-discard-top { position: relative; }
+
+.uno-active-color {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--cream);
+  box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+}
+
+.uno-color-picker__option {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.uno-color-picker__option:hover, .uno-color-picker__option:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--brass);
+  outline: none;
+}
+.uno-color-picker__option:disabled { opacity: 0.5; cursor: default; }
+
 /* ---------- Blackjack ---------- */
 
 .blackjack-felt { padding: 20px 14px 16px; }
