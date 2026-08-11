@@ -49,7 +49,7 @@ function nextPlayerId(turnOrder, fromId) {
  * ensuite tenter le nouveau plus petit de cette même main, etc.). `null` si
  * ce côté n'a plus de carte disponible.
  */
-function rowEndCard(row, end, pendingReveals = []) {
+export function rowEndCard(row, end, pendingReveals = []) {
   const revealedIds = new Set(pendingReveals.map((r) => r.source.cardId));
   const available = row.filter((c) => !revealedIds.has(c.id));
   if (!available.length) return null;

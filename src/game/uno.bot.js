@@ -45,6 +45,11 @@ function bestColorFor(hand, excludeCardId) {
 // - Inverser peu utile à 2 joueurs (équivaut à Passer), pénalisé à 3+
 // - sous une pile de pioche en attente, `legalCards` ne contient déjà plus
 //   que des +2/+4 (voir isLegalCard) : le bot empile s'il peut, pioche sinon
+// - à égalité de kindWeight (ex: plusieurs chiffres), écopes en priorité la
+//   couleur la plus représentée dans sa main : garde le reste plus diversifié
+//   en couleurs, donc plus de chances d'avoir un coup légal aux tours
+//   suivants, plutôt que de finir avec une pile de cartes toutes de la même
+//   couleur bloquée en main.
 export function chooseMove(state, botId) {
   const bot = state.players.find((p) => p.id === botId);
   if (!bot) return { type: 'draw' };
@@ -80,10 +85,16 @@ export function chooseMove(state, botId) {
     return 0;
   };
 
+  const colorCounts = { red: 0, yellow: 0, green: 0, blue: 0 };
+  bot.hand.forEach((c) => {
+    if (c.color) colorCounts[c.color] += 1;
+  });
+  const colorWeight = (c) => (c.color ? colorCounts[c.color] : 0);
+
   const nonWilds = legalCards.filter((c) => c.kind !== 'wild' && c.kind !== 'wildDrawFour');
   const pool = (bot.hand.length <= 2 ? legalCards : nonWilds.length ? nonWilds : legalCards).slice();
 
-  pool.sort((a, b) => kindWeight(b) - kindWeight(a));
+  pool.sort((a, b) => kindWeight(b) - kindWeight(a) || colorWeight(b) - colorWeight(a));
   const card = pool[0];
 
   if (card.kind === 'wild' || card.kind === 'wildDrawFour') {
