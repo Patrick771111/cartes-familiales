@@ -5,6 +5,7 @@ import {
   applyCallUno as applyUnoCallUno,
   applyCatchUno as applyUnoCatchUno,
   isLegalCard as unoIsLegalCard,
+  isJumpInCard as unoIsJumpInCard,
   COLORS
 } from './uno.js';
 
@@ -94,6 +95,38 @@ export function chooseMove(state, botId) {
 let scheduled = null;
 let scheduledSelfUno = null;
 let scheduledCatch = null;
+let scheduledJumpInVersion = null;
+
+/**
+ * Interruption hors tour (carte identique à celle en haut de la défausse,
+ * voir isJumpInCard) : un bot qui en détient une tente sa chance après un
+ * délai aléatoire, pour laisser une vraie fenêtre à un joueur humain plus
+ * rapide — si le sommet a changé d'ici là (quelqu'un d'autre a déjà joué),
+ * la tentative échoue simplement et ne fait rien.
+ */
+function scheduleJumpIns(room) {
+  const signature = `${room.id}:${room.version}`;
+  if (scheduledJumpInVersion === signature) return;
+  scheduledJumpInVersion = signature;
+
+  const candidates = room.state.players.filter(
+    (p) => p.isBot && p.id !== room.state.currentPlayerId && p.hand.some((c) => unoIsJumpInCard(room.state, c))
+  );
+  candidates.forEach((bot) => {
+    window.setTimeout(async () => {
+      try {
+        const fresh = await fetchRoomById(room.id);
+        if (fresh.state.status !== 'playing') return;
+        const freshBot = fresh.state.players.find((p) => p.id === bot.id);
+        const card = freshBot?.hand.find((c) => unoIsJumpInCard(fresh.state, c));
+        if (!card) return; // Le sommet a changé : plus d'opportunité.
+        await playUnoCard(fresh, bot.id, card.id);
+      } catch (err) {
+        // Un autre joueur a été plus rapide (ou le tour normal a eu lieu entre-temps) — rien à faire.
+      }
+    }, 600 + Math.random() * 1500);
+  });
+}
 
 /**
  * Signalement/contre-signalement UNO : indépendant du tour de jeu (n'importe
@@ -146,6 +179,7 @@ export function schedule(room) {
   if (room.state.status !== 'playing') return;
 
   scheduleUnoWindow(room);
+  scheduleJumpIns(room);
 
   const currentId = room.state.currentPlayerId;
   const bot = room.state.players.find((p) => p.id === currentId && p.isBot);

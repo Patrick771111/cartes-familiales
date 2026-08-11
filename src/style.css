@@ -1293,6 +1293,18 @@ h1 {
   100% { opacity: 0; }
 }
 
+/* Carte de sa propre main jouable en interruption (hors tour, voir
+   isJumpInCard) : liseré doré pulsé pour la distinguer d'une carte jouable
+   à son tour normal — visible seulement sur ses propres cartes, aucune
+   fuite d'info sur la main des autres. */
+.hand-card--jumpin .uno-card, .hand-card--jumpin .card {
+  animation: uno-jumpin-pulse 1.3s ease-in-out infinite;
+}
+@keyframes uno-jumpin-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--brass), 0 0 6px rgba(212, 175, 55, 0.35); }
+  50% { box-shadow: 0 0 0 2px var(--brass), 0 0 14px rgba(212, 175, 55, 0.75); }
+}
+
 /* Boutons UNO/Contre-UNO : toujours affichés ET toujours dans le même état
    cliquable — ni grisés ni mis en valeur selon la situation, sinon leur
    changement d'aspect trahirait à lui seul qu'il faut les jouer maintenant.

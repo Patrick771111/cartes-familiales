@@ -1,5 +1,5 @@
 import { cardBackHtml } from '../cards.js';
-import { playUnoCard, drawUnoCard, callUno, catchUno, isLegalCard, hasLegalMove, colorInfo, COLORS } from '../../game/uno.js';
+import { playUnoCard, drawUnoCard, callUno, catchUno, isLegalCard, isJumpInCard, hasLegalMove, colorInfo, COLORS } from '../../game/uno.js';
 import { getOrderedHand, moveCard, resetHandOrder } from '../handOrder.js';
 import { enableHandDrag } from '../dragReorder.js';
 import { openRulesModal } from '../rules.js';
@@ -187,9 +187,13 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
         <div class="my-hand__cards uno-hand">
           ${orderedHand
             .map((c) => {
-              const legal = isLegalCard(state, c);
-              const playable = isMyTurn && legal;
-              return `<div class="hand-card ${playable ? '' : 'hand-card--unplayable'} ${pendingWildCardId === c.id ? 'hand-card--selected' : ''}" data-card-id="${c.id}">${unoCardHtml(c)}</div>`;
+              const legalForTurn = isMyTurn && isLegalCard(state, c);
+              // Interruption : jouable hors tour si strictement identique au sommet
+              // de la défausse (voir isJumpInCard) — visible uniquement sur ses
+              // propres cartes, aucune fuite d'info sur la main d'autrui.
+              const jumpInEligible = !isMyTurn && isJumpInCard(state, c);
+              const playable = legalForTurn || jumpInEligible;
+              return `<div class="hand-card ${playable ? '' : 'hand-card--unplayable'} ${jumpInEligible ? 'hand-card--jumpin' : ''} ${pendingWildCardId === c.id ? 'hand-card--selected' : ''}" data-card-id="${c.id}">${unoCardHtml(c)}</div>`;
             })
             .join('') || '<p class="my-hand__empty">Tu as fini, bravo ! Suis la suite de la partie ci-dessus.</p>'}
         </div>
@@ -260,24 +264,26 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
     });
   });
 
-  if (isMyTurn) {
-    container.querySelectorAll('.my-hand .hand-card:not(.hand-card--unplayable)').forEach((el) => {
-      el.addEventListener('click', async () => {
-        const id = el.dataset.cardId;
-        const card = me.hand.find((c) => c.id === id);
-        if (card.kind === 'wild' || card.kind === 'wildDrawFour') {
-          pendingWildCardId = id;
-          renderUnoTable(container, { room, player, state, onLeave });
-          return;
-        }
-        try {
-          await playUnoCard(room, player.id, id);
-        } catch (err) {
-          alert(err.message || 'Impossible de jouer cette carte.');
-        }
-      });
+  // Pas de garde sur isMyTurn ici : une carte reste sélectionnable dans le
+  // DOM hors tour uniquement si elle est éligible à l'interruption (voir le
+  // calcul de `playable` ci-dessus) — les Jokers en sont exclus, donc la
+  // branche pendingWildCardId ci-dessous n'est jamais atteinte hors tour.
+  container.querySelectorAll('.my-hand .hand-card:not(.hand-card--unplayable)').forEach((el) => {
+    el.addEventListener('click', async () => {
+      const id = el.dataset.cardId;
+      const card = me.hand.find((c) => c.id === id);
+      if (card.kind === 'wild' || card.kind === 'wildDrawFour') {
+        pendingWildCardId = id;
+        renderUnoTable(container, { room, player, state, onLeave });
+        return;
+      }
+      try {
+        await playUnoCard(room, player.id, id);
+      } catch (err) {
+        alert(err.message || 'Impossible de jouer cette carte.');
+      }
     });
-  }
+  });
 
   const myHandEl = container.querySelector('.my-hand__cards');
   if (myHandEl) {

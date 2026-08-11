@@ -48,6 +48,17 @@ export const meta = { id: 'uno', label: 'Uno', hint: '2 à 6 joueurs — pose un
  * permanence (pas seulement quand ils sont valides, pour ne rien trahir) :
  * un `callUno` à tort coûte 2 cartes de pénalité à celui qui l'a signalé ;
  * un `catchUno` à tort ne coûte rien (juste refusé).
+ *
+ * **Interruption (carte identique)** : à tout moment, même hors tour, un
+ * joueur qui détient une carte strictement identique (même couleur, même
+ * symbole/valeur) à celle en haut de la défausse peut la jouer avant que le
+ * joueur dont c'est le tour n'ait lui-même joué — elle prend effet à sa
+ * place, le tour continue ensuite normalement à partir de l'intéressé (voir
+ * `isJumpInCard`). Les Jokers/Joker +4 sont exclus (tous visuellement
+ * identiques entre eux, une "interruption" n'aurait pas de sens). Comme
+ * l'état de la partie est arbitré par version (`updateRoomState`), la
+ * fenêtre se ferme d'elle-même dès que quelqu'un — le joueur en tour ou un
+ * autre intercepteur — a effectivement joué : aucun état dédié à gérer.
  */
 
 export const COLORS = ['red', 'yellow', 'green', 'blue'];
@@ -135,6 +146,19 @@ export function hasLegalMove(state, hand) {
   return hand.some((card) => isLegalCard(state, card));
 }
 
+/**
+ * Une carte permet d'interrompre le tour en cours si elle est strictement
+ * identique (même type ET même couleur ET même valeur) à celle en haut de
+ * la défausse — les Jokers/Joker +4 sont exclus (sans couleur propre, toute
+ * "identité" entre eux serait triviale). Ne dépend pas de qui joue : c'est
+ * `applyPlay` qui l'utilise pour autoriser un coup hors tour.
+ */
+export function isJumpInCard(state, card) {
+  if (card.kind === 'wild' || card.kind === 'wildDrawFour') return false;
+  const top = state.discard[state.discard.length - 1];
+  return card.kind === top.kind && card.color === top.color && card.value === top.value;
+}
+
 export function initGame(players) {
   if (players.length < 2 || players.length > 6) {
     throw new Error('Uno se joue de 2 à 6 joueurs.');
@@ -193,15 +217,25 @@ export function initGame(players) {
   };
 }
 
-/** Pose une carte. `chosenColor` obligatoire uniquement pour un Joker/Joker +4. */
+/**
+ * Pose une carte. `chosenColor` obligatoire uniquement pour un Joker/Joker
+ * +4. Hors tour, uniquement autorisé en interruption (`isJumpInCard`) — le
+ * tour continue ensuite normalement à partir de l'intercepteur, comme s'il
+ * avait joué à sa place (voir `nextPlayerId` plus bas, calculé depuis sa
+ * propre position dans `turnOrder`).
+ */
 export function applyPlay(state, playerId, cardId, chosenColor) {
   if (state.status !== 'playing') throw new Error('La partie est terminée.');
-  if (state.currentPlayerId !== playerId) throw new Error("Ce n'est pas ton tour.");
 
   const players = state.players.map((p) => ({ ...p, hand: p.hand.slice() }));
   const current = players.find((p) => p.id === playerId);
+  if (!current) throw new Error('Joueur introuvable.');
   const card = current.hand.find((c) => c.id === cardId);
   if (!card) throw new Error("Cette carte n'est pas dans ta main.");
+
+  const isMyTurn = state.currentPlayerId === playerId;
+  const jumpIn = !isMyTurn && isJumpInCard(state, card);
+  if (!isMyTurn && !jumpIn) throw new Error("Ce n'est pas ton tour.");
   if (!isLegalCard(state, card)) throw new Error('Coup invalide.');
   const isWild = card.kind === 'wild' || card.kind === 'wildDrawFour';
   if (isWild && !COLORS.includes(chosenColor)) throw new Error('Choisis une couleur.');
@@ -255,7 +289,7 @@ export function applyPlay(state, playerId, cardId, chosenColor) {
   }
 
   const cardLabel = card.kind === 'number' ? String(card.value) : card.kind;
-  const logMessage = `${current.name} pose ${cardLabel}${card.color ? ` (${colorInfo(card.color).label})` : ''}${extraLog}${finishedNow ? ` — ${current.name} a gagné !` : ''}`;
+  const logMessage = `${current.name} pose ${cardLabel}${card.color ? ` (${colorInfo(card.color).label})` : ''}${jumpIn ? ' — interruption, hors tour !' : ''}${extraLog}${finishedNow ? ` — ${current.name} a gagné !` : ''}`;
 
   // Fenêtre de rattrapage UNO : toute action (celle-ci) ferme celle
   // éventuellement ouverte par une pose précédente — puis s'en rouvre une
@@ -275,7 +309,7 @@ export function applyPlay(state, playerId, cardId, chosenColor) {
     status: finishedNow ? 'finished' : 'playing',
     winnerId: finishedNow ? current.id : state.winnerId,
     currentPlayerId: nextId,
-    lastMove: { id: uniqueId(), by: current.id, type: 'play', card, chosenColor: isWild ? chosenColor : null, finished: finishedNow },
+    lastMove: { id: uniqueId(), by: current.id, type: 'play', card, chosenColor: isWild ? chosenColor : null, finished: finishedNow, jumpIn },
     log: [...state.log, { ts: Date.now(), message: logMessage }].slice(-40)
   };
 }
