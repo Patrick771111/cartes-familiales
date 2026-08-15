@@ -1,5 +1,5 @@
 import { suitInfo } from '../game/deck.js';
-import { suitCardImage, cardBackImage, jokerImage, classiqueFigureImage } from './cardThemes.js';
+import { suitCardImage, cardBackImage, jokerImage, classiqueFigureImage, classiqueJokerImage } from './cardThemes.js';
 
 function activeCardTheme() {
   return document.documentElement.dataset.cardTheme;
@@ -53,11 +53,12 @@ function pipsHtml(rank, symbol) {
 
 /**
  * Figure (V/D/R) du rendu "classique" : monogramme encadré par défaut, ou —
- * si `src/assets/cards/classique/<role>.webp` existe — une illustration
- * incrustée dans ce même cadre (voir classiqueFigureImage dans
- * cardThemes.js). Volontairement PAS une illustration plein cadre comme
- * autoBrands/mascotte : le cadre et l'index de coin du système "classique"
- * restent visibles, seul le monogramme/les ornements cèdent la place.
+ * si `src/assets/cards/classique/<role>-<color>.webp` existe pour la couleur
+ * d'encre de cette famille (dark/red/gold) — une illustration incrustée dans
+ * ce même cadre (voir classiqueFigureImage dans cardThemes.js). Volontairement
+ * PAS une illustration plein cadre comme autoBrands/mascotte : le cadre et
+ * l'index de coin du système "classique" restent visibles, seul le
+ * monogramme/les ornements cèdent la place.
  */
 function courtHtml(label, symbol, imageUrl) {
   if (imageUrl) {
@@ -75,7 +76,7 @@ function courtHtml(label, symbol, imageUrl) {
 /** Joker (Cinq Rois uniquement, voir buildCinqRoisDeck) : ni rang ni famille — cadre + "JOKER", ornements multicolores pour signaler le wild (ou illustration incrustée, même logique que courtHtml). */
 function jokerHtml(card, theme, extra) {
   const illustration = jokerImage(theme, card.id);
-  const classiqueImg = !illustration ? classiqueFigureImage('joker') : null;
+  const classiqueImg = !illustration ? classiqueJokerImage(card.id) : null;
   const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
   const body = classiqueImg
     ? `<div class="card__frame" aria-hidden="true"></div><img class="card__illustration" src="${classiqueImg}" alt="" aria-hidden="true" />`
@@ -114,7 +115,7 @@ export function cardFaceHtml(card, themeOverride, extraClass) {
   const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
   const isCourt = COURT_RANKS.includes(card.rank);
   const label = rankLabel(card.rank);
-  const classiqueImg = !illustration && isCourt ? classiqueFigureImage(role) : null;
+  const classiqueImg = !illustration && isCourt ? classiqueFigureImage(role, suit.color) : null;
   // Une figure illustrée (plein cadre autoBrands/mascotte, ou incrustée
   // classique) ne montre le symbole de famille nulle part ailleurs sur la
   // carte (pas de pips, pas d'ornement) — sans lui, impossible de distinguer

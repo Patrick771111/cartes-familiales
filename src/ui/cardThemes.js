@@ -129,12 +129,23 @@ const AUTO_BRANDS = buildAutoBrandsRegistry(autoBrandsFiles);
 const MASCOTTE = buildMascotteRegistry(mascotteFiles);
 const GAME_SLOTS = buildGameSlotRegistry(gameSlotFiles);
 
-/** `{ valet: url, dame: url, roi: url, joker: url }` — clés absentes tant que le fichier correspondant n'existe pas (voir classiqueFigureImage). */
-const CLASSIQUE_FIGURES = Object.fromEntries(
-  Object.entries(classiqueFiles)
-    .map(([path, url]) => [path.match(/classique\/(\w+)\.webp$/)?.[1], url])
-    .filter(([role]) => role)
-);
+/**
+ * `{ roi: { dark: url, red: url, gold: url }, dame: {...}, ... }` — une
+ * illustration par rôle ET par couleur d'encre (`dark`/`red`/`gold`, mêmes
+ * valeurs que `suit.color` dans deck.js et `EXTRA_SUITS` dans cards.js) :
+ * sans ça, un roi dessiné en une seule couleur d'encre ne permet pas de
+ * distinguer ♥ de ♦ ni ♠ de ♣ au premier coup d'œil (voir classiqueFigureImage).
+ * Convention de fichier : `classique/<role>-<couleur>.webp`. Clés absentes
+ * tant que le fichier correspondant n'existe pas.
+ */
+const CLASSIQUE_FIGURES = {};
+for (const [path, url] of Object.entries(classiqueFiles)) {
+  const match = path.match(/classique\/(\w+)-(dark|red|gold)\.webp$/);
+  if (!match) continue;
+  const [, role, color] = match;
+  CLASSIQUE_FIGURES[role] = CLASSIQUE_FIGURES[role] || {};
+  CLASSIQUE_FIGURES[role][color] = url;
+}
 
 /** Thème "phare" (illustration plein cadre standard pour tous les rôles/familles) — conservé pour compat. */
 export const CARD_ILLUSTRATION_THEME_ID = 'autoBrands';
@@ -176,16 +187,31 @@ export function suitCardImage(themeId, suitKey, role = 'number') {
 }
 
 /**
- * Illustration incrustée pour une figure/joker du rendu "classique" par
- * défaut (voir .card--court/.card--joker dans cards.js) — `null` tant que le
- * fichier `src/assets/cards/classique/<role>.webp` n'existe pas encore, auquel
- * cas le monogramme CSS reste affiché (pas de repli "number", contrairement à
- * autoBrands : seuls valet/dame/roi/joker sont concernés ici, jamais une
- * carte numérale). N'a de sens que pour le thème "classique" — les thèmes
- * autoBrands/mascotte gardent leur propre illustration plein cadre.
+ * Illustration incrustée pour une figure du rendu "classique" par défaut
+ * (voir .card--court dans cards.js) — `null` tant que le fichier
+ * `src/assets/cards/classique/<role>-<color>.webp` n'existe pas encore,
+ * auquel cas le monogramme CSS reste affiché (pas de repli "number",
+ * contrairement à autoBrands : seuls valet/dame/roi sont concernés ici,
+ * jamais une carte numérale). `color` = `dark`/`red`/`gold` (voir
+ * `suit.color` dans deck.js et `EXTRA_SUITS` dans cards.js). N'a de sens que
+ * pour le thème "classique" — les thèmes autoBrands/mascotte gardent leur
+ * propre illustration plein cadre.
  */
-export function classiqueFigureImage(role) {
-  return CLASSIQUE_FIGURES[role] || null;
+export function classiqueFigureImage(role, color) {
+  return CLASSIQUE_FIGURES[role]?.[color] || null;
+}
+
+/**
+ * Illustration du Joker "classique" (voir .card--joker dans cards.js) : le
+ * Joker n'a pas de famille propre, donc pas de couleur à respecter — les 3
+ * variantes d'encre (dark/red/gold) sont juste piochées pour la variété
+ * visuelle, de façon stable par id de carte (jamais un vrai Math.random, qui
+ * ferait "clignoter" l'illustration à chaque re-rendu — même principe que
+ * `stablePick`/jokerImage pour le thème autoBrands).
+ */
+export function classiqueJokerImage(seed) {
+  const pool = Object.values(CLASSIQUE_FIGURES.joker || {});
+  return stablePick(pool, seed);
 }
 
 export function cardBackImage(themeId) {
