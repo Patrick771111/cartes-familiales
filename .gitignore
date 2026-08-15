@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.local
+
+# Config de lancement locale (chemins absolus propres à chaque machine, voir mcp__Claude_Browser__preview_start)
+.claude/launch.json
+
+# Bundles/pages générés par le skill e2e-regression — jamais commités (voir .claude/skills/e2e-regression/SKILL.md)
+_test_*

@@ -11,10 +11,7 @@ export const FELT_THEMES = [
 ];
 
 export const CARD_THEMES = [
-  { id: 'classique', label: 'Classique', hint: 'Lettre + symbole, sobre.' },
-  { id: 'moderne', label: 'Moderne', hint: 'Grande lettre minimaliste.' },
-  { id: 'retro', label: 'Rétro', hint: 'Cadre double, style ancien.' },
-  { id: 'royal', label: 'Royal', hint: 'Icônes pour les figures (V/D/R).' },
+  { id: 'classique', label: 'Classique', hint: 'Pips et figures dessinés, sobre.' },
   { id: 'autoBrands', label: 'Marques auto', hint: 'Une marque par famille, illustrée.' },
   { id: 'mascotte', label: 'Mascotte', hint: 'Croquis dessinés à la main pour les figures et les cartes spéciales.' }
 ];

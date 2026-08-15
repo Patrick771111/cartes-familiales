@@ -3,10 +3,9 @@ import {
   drawCinqRoisFromDiscard,
   discardCinqRois,
   canGoOut as cinqRoisCanGoOut,
-  rankLabel as cinqRoisRankLabel,
-  suitInfo as cinqRoisSuitInfo
+  rankLabel as cinqRoisRankLabel
 } from '../../game/cinqrois.js';
-import { suitCardImage, cardBackImage, jokerImage } from '../cardThemes.js';
+import { cardFaceHtml, cardBackHtml } from '../cards.js';
 import { enableDragToZone } from '../dragToZone.js';
 import { isCardDragEnabled } from '../settings.js';
 import { openRulesModal } from '../rules.js';
@@ -24,43 +23,20 @@ export function renderTable(container, { room, player, state, onLeave }) {
   renderCinqRoisTable(container, { room, player, state, onLeave });
 }
 
-function cinqRoisRoleForRank(rank) {
-  if (rank === 11) return 'valet';
-  if (rank === 12) return 'dame';
-  if (rank === 13) return 'roi';
-  return 'number';
-}
-
+/**
+ * Rendu de carte partagé avec tous les autres jeux (pips, figures, dos, thèmes
+ * illustrés — voir cards.js) : `cardFaceHtml` sait déjà gérer la 5ᵉ famille
+ * (★, `resolveSuit`) et les jokers des Cinq Rois. Seuls l'atout et la
+ * sélection sont propres à ce jeu, passés en modificateurs (3ᵉ argument).
+ */
 function cinqRoisCardHtml(card, trumpRank, selected = false) {
-  const theme = document.documentElement.dataset.cardTheme;
-
-  if (card.isJoker) {
-    const illustration = jokerImage(theme, card.id);
-    const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
-    return `<div class="cinqrois-card cinqrois-card--joker ${illustration ? 'cinqrois-card--illustrated' : ''} ${selected ? 'cinqrois-card--selected' : ''}" data-card-id="${card.id}"${style}>${illustration ? '' : '!'}</div>`;
-  }
-
-  const info = cinqRoisSuitInfo(card.suit);
-  const isTrump = card.rank === trumpRank;
-  const illustration = suitCardImage(theme, card.suit, cinqRoisRoleForRank(card.rank));
-  const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
-  const colorClass = illustration
-    ? 'cinqrois-card--illustrated'
-    : info?.color === 'red'
-      ? 'cinqrois-card--red'
-      : info?.color === 'gold'
-        ? 'cinqrois-card--gold'
-        : 'cinqrois-card--dark';
-  return `<div class="cinqrois-card ${colorClass} ${isTrump ? 'cinqrois-card--trump' : ''} ${selected ? 'cinqrois-card--selected' : ''}" data-card-id="${card.id}"${style}>
-    <span class="cinqrois-card__rank">${cinqRoisRankLabel(card.rank)}</span>
-    <span class="cinqrois-card__suit">${info?.symbol || ''}</span>
-  </div>`;
+  const isTrump = !card.isJoker && card.rank === trumpRank;
+  const extra = [isTrump ? 'card--trump' : '', selected ? 'card--selected' : ''].filter(Boolean).join(' ');
+  return cardFaceHtml(card, undefined, extra);
 }
 
 function cinqRoisCardBackHtml() {
-  const illustration = cardBackImage(document.documentElement.dataset.cardTheme);
-  const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
-  return `<div class="cinqrois-card cinqrois-card--back ${illustration ? 'cinqrois-card--back-illustrated' : ''}"${style}></div>`;
+  return cardBackHtml();
 }
 
 function renderCinqRoisTable(container, { room, player, state, onLeave }) {
@@ -153,7 +129,7 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
             ${
               topDiscard
                 ? cinqRoisCardHtml(topDiscard, state.trumpRank)
-                : '<div class="cinqrois-card cinqrois-card--empty">—</div>'
+                : '<div class="card card--empty-slot">—</div>'
             }
             <span class="cinqrois-pile__label">Défausse</span>
           </div>
@@ -199,8 +175,8 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
     return remaining.length >= 3 && cinqRoisCanGoOut(remaining, state.trumpRank);
   };
   const refreshSelection = () => {
-    container.querySelectorAll('#cinqrois-hand .cinqrois-card').forEach((el) => {
-      el.classList.toggle('cinqrois-card--selected', el.dataset.cardId === selectedCardId);
+    container.querySelectorAll('#cinqrois-hand .card').forEach((el) => {
+      el.classList.toggle('card--selected', el.dataset.cardId === selectedCardId);
     });
     const goOutBtn = container.querySelector('#btn-cinqrois-goout');
     if (goOutBtn) goOutBtn.disabled = !canGoOutWith(selectedCardId);
@@ -271,7 +247,7 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
 
   if (isMyTurn && state.phase === 'discard') {
     const handEl = container.querySelector('#cinqrois-hand');
-    handEl?.querySelectorAll('.cinqrois-card[data-card-id]').forEach((el) => {
+    handEl?.querySelectorAll('.card[data-card-id]').forEach((el) => {
       el.style.cursor = isCardDragEnabled() ? 'grab' : 'pointer';
     });
     if (handEl) {

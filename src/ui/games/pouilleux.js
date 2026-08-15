@@ -119,7 +119,7 @@ function renderTableNow(container, { room, player, state, onLeave }) {
       ? Array.from({ length: target.hand.length })
           .map(
             (_, i) =>
-              `<button type="button" class="card card--back target-card--pickable" data-pick-index="${i}"><span class="card__back-pattern"></span></button>`
+              `<button type="button" class="card card--back target-card--pickable" data-pick-index="${i}"></button>`
           )
           .join('')
       : target.hand.length === 0

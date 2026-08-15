@@ -9,6 +9,9 @@
   --brass-soft: #E4C765;
   --red-suit: #B33A3A;
   --dark-suit: #201E18;
+  /* 5ᵉ famille (★, Cinq Rois uniquement, voir cards.js) — plus sombre que
+     --brass pour rester lisible en texte sur fond crème (--cream). */
+  --gold-suit: #8A6A12;
   --line: rgba(247, 241, 225, 0.16);
 
   --font-display: 'Fraunces', Georgia, serif;
@@ -539,8 +542,6 @@ h1 {
   box-shadow: 0 6px 16px rgba(0,0,0,0.45);
 }
 .trouduc-pile__cards .card:first-child { margin-left: 0; }
-.trouduc-pile__cards .card__pip { font-size: 30px; }
-.trouduc-pile__cards .card__corner { font-size: 12px; }
 .trouduc-pile__label, .trouduc-pile__empty {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -573,8 +574,6 @@ h1 {
   }
 }
 .trouduc-hand-rows .card { width: 64px; height: 92px; }
-.trouduc-hand-rows .card__pip { font-size: 30px; }
-.trouduc-hand-rows .card__corner { font-size: 12px; }
 
 .hand-card {
   position: relative;
@@ -665,8 +664,6 @@ h1 {
   height: 122px;
   box-shadow: 0 10px 26px rgba(0,0,0,0.5);
 }
-.draw-reveal__card .card__pip { font-size: 38px; }
-.draw-reveal__card .card__corner { font-size: 14px; }
 
 .draw-reveal__label {
   font-family: var(--font-mono);
@@ -764,7 +761,14 @@ h1 {
 .log ul { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; gap: 4px; }
 .log li { color: rgba(247, 241, 225, 0.7); }
 
-/* ---------- Carte à jouer ---------- */
+/* ---------- Carte à jouer ----------
+   `container-type: inline-size` sur .card : tout ce qui compose la face
+   (index de coin, pips, monogramme des figures) se dimensionne en `cqw`
+   (% de la largeur de LA CARTE elle-même) plutôt qu'en px fixes. Ça évite
+   d'avoir à dupliquer une règle de taille pour chaque contexte qui redéfinit
+   `.card { width/height }` (main, pli, révélation de pioche, mode
+   spectateur, mains adverses révélées, responsive...) — il suffit de changer
+   la largeur de la carte, le contenu suit automatiquement. */
 
 .card {
   width: 56px;
@@ -773,64 +777,239 @@ h1 {
   position: relative;
   box-shadow: 0 3px 8px rgba(0,0,0,0.35);
   flex-shrink: 0;
+  container-type: inline-size;
 }
 
-.card--dark, .card--red {
+.card--dark, .card--red, .card--gold {
   background: var(--cream);
   border: 1px solid rgba(0,0,0,0.08);
 }
 .card--dark { color: var(--dark-suit); }
 .card--red { color: var(--red-suit); }
+.card--gold { color: var(--gold-suit); }
 
+/* Modificateurs d'état génériques (utilisés par les Cinq Rois, voir
+   cinqrois.js — passés en 3ᵉ argument de cardFaceHtml) : carte atout, et
+   carte sélectionnée dans sa propre main (soulevée + liseré, cohérent avec
+   .hand-card--selected utilisé par les autres jeux, sans en dépendre puisque
+   les Cinq Rois n'enveloppent pas leurs cartes dans un .hand-card). */
+.card--trump { box-shadow: 0 0 0 2px var(--brass); }
+.card--selected:not(.is-dragging-source) {
+  transform: translateY(-8px);
+  box-shadow: 0 0 0 2px var(--brass), 0 8px 12px rgba(0,0,0,0.35);
+}
+
+/* Emplacement vide (ex. défausse pas encore entamée) : gabarit d'une carte
+   sans en être une — pointillés, pas de contenu. */
+.card--empty-slot {
+  background: transparent;
+  border: 1.5px dashed var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(247, 241, 225, 0.4);
+  box-shadow: none;
+}
+
+/* Index de coin : la valeur seule (le symbole n'y est plus répété — les pips
+   au centre jouent déjà ce rôle). Une occurrence en haut à gauche, une
+   mirroir en bas à droite, comme sur une vraie carte — offsets identiques
+   de part et d'autre pour rester point-symétrique par rapport au centre. */
 .card__corner {
   position: absolute;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.05;
-  font-family: var(--font-body);
-  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 19cqw;
+  line-height: 1;
 }
-.card__corner--top { top: 4px; left: 5px; }
-.card__corner--bottom { bottom: 4px; right: 5px; transform: rotate(180deg); }
+.card__corner--top { top: 5cqw; left: 6cqw; }
+.card__corner--bottom { bottom: 5cqw; right: 6cqw; transform: rotate(180deg); }
 
-.card__pip {
+/* Pips : un conteneur centré (marge symétrique obligatoire des 4 côtés,
+   sinon le motif entier se décale par rapport au centre de la carte) et une
+   disposition par nombre (façon Bicycle), classes .card__pips--1 à --10. */
+.card__pips { position: absolute; inset: 10cqw; }
+.card__pips i {
+  position: absolute;
+  top: 0; left: 0;
+  font-style: normal;
+  line-height: 1;
+  font-size: 16cqw;
+  /* Boîte de centrage légèrement plus grande que le glyphe plutôt que
+     translate(-50%,-50%) sur le texte brut : les glyphes ♣♦♥♠ ne sont pas
+     centrés dans leur boîte de police par défaut (ancre visuellement basse),
+     flex + line-height:1 replace l'encre du symbole au centre géométrique
+     voulu. Une boîte trop large empièterait sur l'index de coin pour les
+     valeurs à 2 chiffres ("10") — 1.1em est le compromis retenu. */
+  width: 1.1em;
+  height: 1.1em;
+  margin: -0.55em 0 0 -0.55em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card__pips--1 i { top: 50%; left: 50%; font-size: 30cqw; }
+
+.card__pips--2 i:nth-child(1) { top: 14%; left: 50%; }
+.card__pips--2 i:nth-child(2) { top: 86%; left: 50%; }
+
+.card__pips--3 i:nth-child(1) { top: 12%; left: 50%; }
+.card__pips--3 i:nth-child(2) { top: 50%; left: 50%; }
+.card__pips--3 i:nth-child(3) { top: 88%; left: 50%; }
+
+.card__pips--4 i:nth-child(1) { top: 12%; left: 33%; }
+.card__pips--4 i:nth-child(2) { top: 12%; left: 67%; }
+.card__pips--4 i:nth-child(3) { top: 88%; left: 33%; }
+.card__pips--4 i:nth-child(4) { top: 88%; left: 67%; }
+
+.card__pips--5 i:nth-child(1) { top: 12%; left: 33%; }
+.card__pips--5 i:nth-child(2) { top: 12%; left: 67%; }
+.card__pips--5 i:nth-child(3) { top: 50%; left: 50%; }
+.card__pips--5 i:nth-child(4) { top: 88%; left: 33%; }
+.card__pips--5 i:nth-child(5) { top: 88%; left: 67%; }
+
+.card__pips--6 i:nth-child(1) { top: 12%; left: 33%; }
+.card__pips--6 i:nth-child(2) { top: 12%; left: 67%; }
+.card__pips--6 i:nth-child(3) { top: 50%; left: 33%; }
+.card__pips--6 i:nth-child(4) { top: 50%; left: 67%; }
+.card__pips--6 i:nth-child(5) { top: 88%; left: 33%; }
+.card__pips--6 i:nth-child(6) { top: 88%; left: 67%; }
+
+.card__pips--7 i:nth-child(1) { top: 12%; left: 33%; }
+.card__pips--7 i:nth-child(2) { top: 12%; left: 67%; }
+.card__pips--7 i:nth-child(3) { top: 31%; left: 50%; }
+.card__pips--7 i:nth-child(4) { top: 50%; left: 33%; }
+.card__pips--7 i:nth-child(5) { top: 50%; left: 67%; }
+.card__pips--7 i:nth-child(6) { top: 88%; left: 33%; }
+.card__pips--7 i:nth-child(7) { top: 88%; left: 67%; }
+
+.card__pips--8 i:nth-child(1) { top: 12%; left: 33%; }
+.card__pips--8 i:nth-child(2) { top: 12%; left: 67%; }
+.card__pips--8 i:nth-child(3) { top: 31%; left: 50%; }
+.card__pips--8 i:nth-child(4) { top: 50%; left: 33%; }
+.card__pips--8 i:nth-child(5) { top: 50%; left: 67%; }
+.card__pips--8 i:nth-child(6) { top: 69%; left: 50%; }
+.card__pips--8 i:nth-child(7) { top: 88%; left: 33%; }
+.card__pips--8 i:nth-child(8) { top: 88%; left: 67%; }
+
+.card__pips--9 i:nth-child(1) { top: 8%; left: 33%; }
+.card__pips--9 i:nth-child(2) { top: 8%; left: 67%; }
+.card__pips--9 i:nth-child(3) { top: 36%; left: 33%; }
+.card__pips--9 i:nth-child(4) { top: 36%; left: 67%; }
+.card__pips--9 i:nth-child(5) { top: 50%; left: 50%; }
+.card__pips--9 i:nth-child(6) { top: 64%; left: 33%; }
+.card__pips--9 i:nth-child(7) { top: 64%; left: 67%; }
+.card__pips--9 i:nth-child(8) { top: 92%; left: 33%; }
+.card__pips--9 i:nth-child(9) { top: 92%; left: 67%; }
+
+.card__pips--10 i:nth-child(1) { top: 8%; left: 33%; }
+.card__pips--10 i:nth-child(2) { top: 8%; left: 67%; }
+.card__pips--10 i:nth-child(3) { top: 22%; left: 50%; }
+.card__pips--10 i:nth-child(4) { top: 36%; left: 33%; }
+.card__pips--10 i:nth-child(5) { top: 36%; left: 67%; }
+.card__pips--10 i:nth-child(6) { top: 64%; left: 33%; }
+.card__pips--10 i:nth-child(7) { top: 64%; left: 67%; }
+.card__pips--10 i:nth-child(8) { top: 78%; left: 50%; }
+.card__pips--10 i:nth-child(9) { top: 92%; left: 33%; }
+.card__pips--10 i:nth-child(10) { top: 92%; left: 67%; }
+
+.card__pips--6 i, .card__pips--7 i, .card__pips--8 i, .card__pips--9 i, .card__pips--10 i { font-size: 13cqw; }
+
+/* Figures (Valet/Dame/Roi) : monogramme encadré façon blason plutôt qu'une
+   illustration figurative (pas d'atelier graphique ici) — cadre fin, un
+   rang de petits symboles de la famille au-dessus et en-dessous (mirroir),
+   grand monogramme central. Point-symétrique comme le reste de la carte. */
+.card--court, .card--joker { display: flex; align-items: center; justify-content: center; }
+.card__frame {
+  position: absolute;
+  inset: 13cqw;
+  border: 1px solid currentColor;
+  border-radius: 6cqw;
+  opacity: 0.35;
+}
+.card__mono {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 38cqw;
+  position: relative;
+  z-index: 1;
+}
+.card__ornament {
+  position: absolute;
+  left: 50%;
+  font-size: 14cqw;
+  letter-spacing: 0.15em;
+  opacity: 0.55;
+}
+.card__ornament--top { top: 24cqw; transform: translateX(-50%); }
+.card__ornament--bottom { bottom: 24cqw; transform: translateX(-50%) rotate(180deg); }
+
+/* Joker (Cinq Rois) : même gabarit que les figures (cadre + ornements), mais
+   sans famille propre — couleur dédiée, et "JOKER" (5 lettres) est bien plus
+   large qu'un monogramme à 1 lettre, d'où le font-size réduit. */
+.card--joker { background: var(--cream); border: 1px solid rgba(0,0,0,0.08); color: #6B3FA0; }
+.card__mono--joker { font-size: 15cqw; letter-spacing: 0.03em; }
+
+/* Dos de carte : médaillon laiton sur trame tissée feutre, remplace le
+   chevron plat d'origine. Médaillon en pseudo-éléments (pas de markup
+   supplémentaire dans cards.js) : anneau (::before) + monogramme (::after),
+   tous deux centrés, donc automatiquement au centre quelle que soit la
+   taille de la carte dans son contexte. */
+.card--back {
+  background: repeating-linear-gradient(45deg, var(--felt-600) 0 5px, var(--felt-700) 5px 10px);
+  border: 1.5px solid var(--brass);
+  overflow: hidden;
+}
+.card--back::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 46%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1.5px solid var(--brass-soft);
+  background: var(--felt-900);
+}
+.card--back::after {
+  content: 'CF';
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 26px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13cqw;
+  color: var(--brass-soft);
 }
 
-.card--back {
-  background: repeating-linear-gradient(135deg, var(--felt-500) 0 6px, var(--felt-700) 6px 12px);
-  border: 1.5px solid var(--brass);
-}
-
-/* ---------- Thèmes de cartes (réglage d'affichage) ----------
-   Par défaut ("classique", pas d'attribut ou data-card-theme="classique") rien
-   ne change. "moderne"/"retro"/"royal" n'habillent que les figures (Valet/
-   Dame/Roi) — les cartes numérales restent identiques. "autoBrands" est à
-   part : illustration plein cadre sur TOUTES les cartes (numérales comprises),
-   fournie en JS par cardFaceHtml/cardBackHtml (voir cards.js + cardThemes.js)
-   puisque les URLs des images sont générées par Vite, pas figées en CSS. Les
-   sélecteurs ciblent [data-card-theme] sans exiger :root, pour pouvoir aussi
-   être appliqués localement (aperçu dans la modale de réglages). */
+/* ---------- Thèmes de cartes illustrés (réglage d'affichage) ----------
+   Par défaut ("classique", pas d'attribut ou data-card-theme="classique")
+   rien ne change : rendu dessiné en CSS ci-dessus. "autoBrands"/"mascotte"
+   remplacent la face par une illustration plein cadre, fournie en JS par
+   cardFaceHtml/cardBackHtml (voir cards.js + cardThemes.js) puisque les URLs
+   des images sont générées par Vite, pas figées en CSS. Les sélecteurs
+   ciblent [data-card-theme] sans exiger :root, pour pouvoir aussi être
+   appliqués localement (aperçu dans la modale de réglages). */
 
 .card--illustrated {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
 }
-.card--illustrated .card__pip,
-.card--illustrated .card__figure { display: none; }
+.card--illustrated .card__pips,
+.card--illustrated .card__frame,
+.card--illustrated .card__ornament,
+.card--illustrated .card__mono { display: none; }
 .card--illustrated .card__corner {
   /* Fond opaque pour la lisibilité par-dessus l'illustration, mais surtout
      PAS de `color` ici : ça écraserait le rouge/noir hérité de .card--red /
      .card--dark plus haut dans la cascade et afficherait tout en noir. */
   background: rgba(245, 240, 230, 0.88);
   border-radius: 4px;
-  padding: 0 3px;
+  padding: 0 0.15em;
   line-height: 1.15;
 }
 .card--back-illustrated {
@@ -839,74 +1018,8 @@ h1 {
   background-repeat: no-repeat;
   border-color: transparent;
 }
-.card--back-illustrated .card__back-pattern { display: none; }
-
-.card__figure {
-  position: absolute;
-  inset: 0;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-
-[data-card-theme="moderne"] .card[data-rank="J"] .card__pip,
-[data-card-theme="moderne"] .card[data-rank="Q"] .card__pip,
-[data-card-theme="moderne"] .card[data-rank="K"] .card__pip { display: none; }
-[data-card-theme="moderne"] .card[data-rank="J"] .card__figure,
-[data-card-theme="moderne"] .card[data-rank="Q"] .card__figure,
-[data-card-theme="moderne"] .card[data-rank="K"] .card__figure {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-}
-[data-card-theme="moderne"] .card__figure::before {
-  content: attr(data-rank);
-  font-family: var(--font-body);
-  font-weight: 700;
-  font-size: 30px;
-  opacity: 0.88;
-}
-[data-card-theme="moderne"] .card__figure::after {
-  content: '';
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.45;
-}
-
-[data-card-theme="retro"] .card[data-rank="J"],
-[data-card-theme="retro"] .card[data-rank="Q"],
-[data-card-theme="retro"] .card[data-rank="K"] {
-  box-shadow: inset 0 0 0 2px currentColor, inset 0 0 0 5px var(--cream), 0 3px 8px rgba(0,0,0,0.35);
-}
-[data-card-theme="retro"] .card[data-rank="J"] .card__pip,
-[data-card-theme="retro"] .card[data-rank="Q"] .card__pip,
-[data-card-theme="retro"] .card[data-rank="K"] .card__pip { font-size: 19px; }
-[data-card-theme="retro"] .card[data-rank="J"] .card__figure,
-[data-card-theme="retro"] .card[data-rank="Q"] .card__figure,
-[data-card-theme="retro"] .card[data-rank="K"] .card__figure {
-  display: block;
-  inset: 7px;
-  border: 1px solid currentColor;
-  border-radius: 4px;
-  opacity: 0.45;
-}
-
-[data-card-theme="royal"] .card[data-rank="J"] .card__pip,
-[data-card-theme="royal"] .card[data-rank="Q"] .card__pip,
-[data-card-theme="royal"] .card[data-rank="K"] .card__pip { display: none; }
-[data-card-theme="royal"] .card[data-rank="J"] .card__figure,
-[data-card-theme="royal"] .card[data-rank="Q"] .card__figure,
-[data-card-theme="royal"] .card[data-rank="K"] .card__figure {
-  display: flex;
-  font-size: 32px;
-}
-[data-card-theme="royal"] .card[data-rank="J"] .card__figure::before { content: '♞'; }
-[data-card-theme="royal"] .card[data-rank="Q"] .card__figure::before { content: '♛'; }
-[data-card-theme="royal"] .card[data-rank="K"] .card__figure::before { content: '♚'; }
+.card--back-illustrated::before,
+.card--back-illustrated::after { display: none; }
 
 /* ---------- Réglages d'affichage (bouton flottant + modale) ---------- */
 
@@ -1036,10 +1149,6 @@ h1 {
 .settings-card-theme--active { border-color: var(--brass); background: rgba(201, 162, 39, 0.12); }
 .settings-card-theme__preview { flex-shrink: 0; }
 .settings-card-theme__preview .card { width: 44px; height: 64px; overflow: hidden; }
-.settings-card-theme__preview .card__corner { font-size: 9px; }
-.settings-card-theme__preview .card__pip { font-size: 20px; }
-.settings-card-theme__preview[data-card-theme="moderne"] .card__figure::before { font-size: 22px; }
-.settings-card-theme__preview[data-card-theme="royal"] .card__figure::before { font-size: 24px; }
 .settings-card-theme__text { display: flex; flex-direction: column; gap: 2px; text-align: left; }
 .settings-card-theme__text strong { font-size: 14px; }
 .settings-card-theme__text small { font-size: 12px; color: rgba(247, 241, 225, 0.6); }
@@ -1834,14 +1943,11 @@ body.is-card-dragging * {
 
 .odd-card-reveal { display: flex; justify-content: center; margin: 8px 0 20px; }
 .odd-card-reveal .card { width: 88px; height: 128px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
-.odd-card-reveal .card__pip { font-size: 40px; }
-.odd-card-reveal .card__corner { font-size: 15px; }
 
 /* ---------- Responsive : petits écrans ---------- */
 
 @media (max-width: 360px) {
   .card { width: 48px; height: 70px; }
-  .card__pip { font-size: 22px; }
 }
 
 /* ---------- Mode paysage : table et main côte à côte plutôt qu'empilées,
@@ -1959,8 +2065,6 @@ body.is-card-dragging * {
   .table-felt, .my-hand, .log { max-width: 640px; }
 
   .trouduc-pile__cards .card { width: 84px; height: 122px; }
-  .trouduc-pile__cards .card__pip { font-size: 36px; }
-  .trouduc-pile__cards .card__corner { font-size: 14px; }
   .trouduc-pile__stack { min-height: 220px; }
   .americain-center .trouduc-pile__stack { width: 170px; }
 
@@ -1998,8 +2102,6 @@ body.is-card-dragging * {
 .spectator-player__hand { display: flex; flex-wrap: wrap; gap: 2px; }
 .spectator-player__hand .card { width: 36px; height: 52px; margin-left: -16px; }
 .spectator-player__hand .card:first-child { margin-left: 0; }
-.spectator-player__hand .card__pip { font-size: 16px; }
-.spectator-player__hand .card__corner { font-size: 9px; }
 .spectator-player--turn {
   opacity: 1;
   border-color: var(--brass);
@@ -2016,13 +2118,9 @@ body.is-card-dragging * {
 .opponent__hand--revealed { flex-wrap: wrap; gap: 2px; }
 .opponent__hand--revealed .card { width: 30px; height: 44px; margin-left: -14px; }
 .opponent__hand--revealed .card:first-child { margin-left: 0; }
-.opponent__hand--revealed .card__pip { font-size: 14px; }
-.opponent__hand--revealed .card__corner { font-size: 8px; }
 
 .trouduc-seat__hand--revealed .card { width: 36px; height: 53px; margin-left: -18px; }
 .trouduc-seat__hand--revealed .card:first-child { margin-left: 0; }
-.trouduc-seat__hand--revealed .card__pip { font-size: 16px; }
-.trouduc-seat__hand--revealed .card__corner { font-size: 9px; }
 
 /* ---------- Pouilleux : écran en trois zones (autres joueurs / cible de la
    pioche, agrandie / ma main), pensé pour rester lisible jusqu'à 6 joueurs. ---------- */
@@ -2097,8 +2195,6 @@ body.is-card-dragging * {
 }
 .pouilleux-zone--target .pouilleux-target__hand .card:last-child,
 .pouilleux-zone--target .pouilleux-target__hand .target-card--pickable:last-child { margin-right: 0; }
-.pouilleux-zone--target .pouilleux-target__hand .card__pip { font-size: 24px; }
-.pouilleux-zone--target .pouilleux-target__hand .card__corner { font-size: 11px; }
 
 .target-card--pickable {
   appearance: none;
@@ -2176,19 +2272,18 @@ body.is-card-dragging * {
   align-items: center;
   overflow: visible;
 }
-.cinqrois-seat__backs .cinqrois-card {
+.cinqrois-seat__backs .card {
   width: 28px;
   height: 40px;
-  font-size: 10px;
   flex-shrink: 0;
 }
-.cinqrois-seat__backs .cinqrois-card--back {
+.cinqrois-seat__backs .card--back {
   width: 18px;
   height: 26px;
   margin-left: -10px;
   flex-shrink: 0;
 }
-.cinqrois-seat__backs .cinqrois-card--back:first-child { margin-left: 0; }
+.cinqrois-seat__backs .card--back:first-child { margin-left: 0; }
 .cinqrois-center {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr);
@@ -2243,8 +2338,8 @@ body.is-card-dragging * {
   padding: 4px;
   border-radius: 12px;
 }
-.cinqrois-pile .cinqrois-card,
-.cinqrois-discard .cinqrois-card {
+.cinqrois-pile .card,
+.cinqrois-discard .card {
   width: 52px !important;
   height: 74px !important;
   flex-shrink: 0;
@@ -2293,81 +2388,12 @@ body.is-card-dragging * {
   margin-left: auto;
   margin-right: auto;
 }
-.cinqrois-card {
-  position: relative;
-  width: 52px;
-  height: 74px;
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 16px;
-  background: #f5f0e6;
-  color: #1a1a1a;
-  border: 1px solid rgba(0,0,0,0.15);
-  user-select: none;
-  flex-shrink: 0;
-  touch-action: none;
-}
-.cinqrois-card--red { color: #b91c1c; }
-.cinqrois-card--gold { color: #a16207; }
-.cinqrois-card--dark { color: #1a1a1a; }
-.cinqrois-card--joker {
-  background: #4a1a6b;
-  color: #f3e8ff;
-  font-size: 20px;
-}
-.cinqrois-card--trump {
-  box-shadow: inset 0 0 0 2px #c9a227;
-}
-.cinqrois-card--selected:not(.is-dragging-source) {
-  transform: translateY(-8px);
-  box-shadow: 0 0 0 2px var(--brass, #c9a227);
-}
-.cinqrois-card--back {
-  background: linear-gradient(135deg, #1e3a5f, #0f2744);
-  border-color: rgba(255,255,255,0.1);
-}
-.cinqrois-card--empty {
-  background: transparent;
-  border-style: dashed;
-  opacity: 0.4;
-}
-.cinqrois-card__rank { line-height: 1; }
-.cinqrois-card__suit { font-size: 18px; line-height: 1.1; }
+/* Les cartes elles-mêmes (pips, figures, dos, illustré, joker, atout,
+   sélection) sont désormais le composant .card partagé — voir la section
+   "Carte à jouer" plus haut et .card--joker/--trump/--selected/--empty-slot.
+   Cette section ne garde que la mise en page propre aux Cinq Rois (sièges,
+   pioche/défausse, main). */
 
-/* Thème "Marques auto" (voir cardThemes.js) : illustration en fond plutôt
-   que le rang+symbole texte centrés. Le rang reste affiché (indispensable
-   pour jouer), en petit badge dans un coin plutôt que centré en grand,
-   pour laisser l'illustration respirer sur une carte aussi petite. */
-.cinqrois-card--illustrated {
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  color: #1a1a1a;
-}
-.cinqrois-card--illustrated .cinqrois-card__suit { display: none; }
-.cinqrois-card--illustrated .cinqrois-card__rank {
-  position: absolute;
-  top: 2px;
-  left: 3px;
-  background: rgba(245, 240, 230, 0.88);
-  border-radius: 3px;
-  padding: 0 3px;
-  font-size: 11px;
-  line-height: 1.3;
-}
-.cinqrois-card--joker.cinqrois-card--illustrated {
-  border: 2px solid var(--brass, #c9a227);
-}
-.cinqrois-card--back-illustrated {
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  border-color: rgba(0,0,0,0.15);
-}
 .cinqrois-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2735,21 +2761,18 @@ body.is-card-dragging * {
   max-width: none;
   align-items: center;
 }
-.cinqrois-seat__backs .cinqrois-card {
+.cinqrois-seat__backs .card {
   width: 28px;
   height: 40px;
-  font-size: 10px;
   margin-left: 0;
   flex-shrink: 0;
 }
-.cinqrois-seat__backs .cinqrois-card--back {
+.cinqrois-seat__backs .card--back {
   width: 18px;
   height: 26px;
   margin-left: -10px;
 }
-.cinqrois-seat__backs .cinqrois-card--back:first-child { margin-left: 0; }
-.cinqrois-seat__backs .cinqrois-card__rank { font-size: 10px; }
-.cinqrois-seat__backs .cinqrois-card__suit { font-size: 11px; }
+.cinqrois-seat__backs .card--back:first-child { margin-left: 0; }
 .cinqrois-seat--laid { opacity: 1; }
 .cinqrois-seat--laid .cinqrois-seat__status { color: var(--brass, #c9a227); }
 
@@ -2785,10 +2808,9 @@ body.is-card-dragging * {
   gap: 6px;
   justify-content: center;
 }
-.cinqrois-lay-overlay__cards .cinqrois-card {
+.cinqrois-lay-overlay__cards .card {
   width: 44px;
   height: 62px;
-  font-size: 14px;
 }
 @keyframes cinqrois-lay-fade {
   0% { opacity: 0; }
