@@ -1,5 +1,5 @@
 import { suitInfo } from '../game/deck.js';
-import { suitCardImage, cardBackImage, jokerImage } from './cardThemes.js';
+import { suitCardImage, cardBackImage, jokerImage, classiqueFigureImage } from './cardThemes.js';
 
 function activeCardTheme() {
   return document.documentElement.dataset.cardTheme;
@@ -51,8 +51,20 @@ function pipsHtml(rank, symbol) {
   return `<div class="card__pips card__pips--${count}">${pips}</div>`;
 }
 
-/** Monogramme encadré (voir .card--court dans style.css) pour une figure — pas d'illustration figurative, juste du CSS. */
-function courtHtml(label, symbol) {
+/**
+ * Figure (V/D/R) du rendu "classique" : monogramme encadré par défaut, ou —
+ * si `src/assets/cards/classique/<role>.webp` existe — une illustration
+ * incrustée dans ce même cadre (voir classiqueFigureImage dans
+ * cardThemes.js). Volontairement PAS une illustration plein cadre comme
+ * autoBrands/mascotte : le cadre et l'index de coin du système "classique"
+ * restent visibles, seul le monogramme/les ornements cèdent la place.
+ */
+function courtHtml(label, symbol, imageUrl) {
+  if (imageUrl) {
+    return `
+      <div class="card__frame" aria-hidden="true"></div>
+      <img class="card__illustration" src="${imageUrl}" alt="" aria-hidden="true" />`;
+  }
   return `
       <div class="card__frame" aria-hidden="true"></div>
       <span class="card__ornament card__ornament--top" aria-hidden="true">${symbol} ${symbol} ${symbol}</span>
@@ -60,16 +72,20 @@ function courtHtml(label, symbol) {
       <span class="card__ornament card__ornament--bottom" aria-hidden="true">${symbol} ${symbol} ${symbol}</span>`;
 }
 
-/** Joker (Cinq Rois uniquement, voir buildCinqRoisDeck) : ni rang ni famille — cadre + "JOKER", ornements multicolores pour signaler le wild. */
+/** Joker (Cinq Rois uniquement, voir buildCinqRoisDeck) : ni rang ni famille — cadre + "JOKER", ornements multicolores pour signaler le wild (ou illustration incrustée, même logique que courtHtml). */
 function jokerHtml(card, theme, extra) {
   const illustration = jokerImage(theme, card.id);
+  const classiqueImg = !illustration ? classiqueFigureImage('joker') : null;
   const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
-  return `
-    <div class="card card--joker ${illustration ? 'card--illustrated' : ''} ${extra}" data-card-id="${card.id}"${style}>
-      <div class="card__frame" aria-hidden="true"></div>
+  const body = classiqueImg
+    ? `<div class="card__frame" aria-hidden="true"></div><img class="card__illustration" src="${classiqueImg}" alt="" aria-hidden="true" />`
+    : `<div class="card__frame" aria-hidden="true"></div>
       <span class="card__ornament card__ornament--top" aria-hidden="true">★ ♥ ♦ ♣ ♠</span>
       <span class="card__mono card__mono--joker">JOKER</span>
-      <span class="card__ornament card__ornament--bottom" aria-hidden="true">★ ♥ ♦ ♣ ♠</span>
+      <span class="card__ornament card__ornament--bottom" aria-hidden="true">★ ♥ ♦ ♣ ♠</span>`;
+  return `
+    <div class="card card--joker ${illustration ? 'card--illustrated' : ''} ${classiqueImg ? 'card--figure-illustrated' : ''} ${extra}" data-card-id="${card.id}"${style}>
+      ${body}
     </div>`;
 }
 
@@ -93,15 +109,24 @@ export function cardFaceHtml(card, themeOverride, extraClass) {
   const extra = typeof extraClass === 'string' ? extraClass : '';
   if (card.isJoker) return jokerHtml(card, theme, extra);
   const suit = resolveSuit(card.suit);
-  const illustration = suitCardImage(theme, card.suit, roleForRank(card.rank));
+  const role = roleForRank(card.rank);
+  const illustration = suitCardImage(theme, card.suit, role);
   const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
   const isCourt = COURT_RANKS.includes(card.rank);
   const label = rankLabel(card.rank);
+  const classiqueImg = !illustration && isCourt ? classiqueFigureImage(role) : null;
+  // Une figure illustrée (plein cadre autoBrands/mascotte, ou incrustée
+  // classique) ne montre le symbole de famille nulle part ailleurs sur la
+  // carte (pas de pips, pas d'ornement) — sans lui, impossible de distinguer
+  // ♥ de ♦ ou ♠ de ♣ (l'index de coin ne donne que la couleur rouge/noir).
+  // Les cartes numérales (pips) et les figures en monogramme CSS (ornement)
+  // n'en ont pas besoin, le symbole y est déjà visible ailleurs.
+  const suitTag = isCourt && (illustration || classiqueImg) ? `<i class="card__corner-suit">${suit.symbol}</i>` : '';
   return `
-    <div class="card card--${suit.color} ${illustration ? 'card--illustrated' : ''} ${isCourt ? 'card--court' : ''} ${extra}" data-card-id="${card.id}" data-rank="${card.rank}"${style}>
-      <span class="card__corner card__corner--top">${label}</span>
-      <span class="card__corner card__corner--bottom">${label}</span>
-      ${isCourt ? courtHtml(label, suit.symbol) : pipsHtml(card.rank, suit.symbol)}
+    <div class="card card--${suit.color} ${illustration ? 'card--illustrated' : ''} ${isCourt ? 'card--court' : ''} ${classiqueImg ? 'card--figure-illustrated' : ''} ${extra}" data-card-id="${card.id}" data-rank="${card.rank}"${style}>
+      <span class="card__corner card__corner--top">${label}${suitTag}</span>
+      <span class="card__corner card__corner--bottom">${label}${suitTag}</span>
+      ${isCourt ? courtHtml(label, suit.symbol, classiqueImg) : pipsHtml(card.rank, suit.symbol)}
     </div>`;
 }
 

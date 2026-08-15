@@ -44,6 +44,11 @@ const SUIT_TO_BRAND_FOLDER = { H: 'ferrari', D: 'renault', C: 'land-rover', S: '
 
 const autoBrandsFiles = import.meta.glob('../assets/cards/auto-brands/**/*.webp', { eager: true, import: 'default' });
 const mascotteFiles = import.meta.glob('../assets/cards/mascotte/**/*.webp', { eager: true, import: 'default' });
+// Illustrations des figures/joker pour le thème "classique" (pas plein cadre
+// comme autoBrands/mascotte — incrustées dans le cadre existant, voir
+// classiqueFigureImage ci-dessous et .card__illustration dans style.css).
+// Même convention "un rôle = une image" que mascotte : valet/dame/roi/joker.webp.
+const classiqueFiles = import.meta.glob('../assets/cards/classique/*.webp', { eager: true, import: 'default' });
 // Un seul glob, générique à tous les thèmes présents et futurs : couvre
 // `<theme>/games/<gameId>/<slotKey>.webp` et `<theme>/games/<gameId>/_pool/*.webp`.
 const gameSlotFiles = import.meta.glob('../assets/cards/*/games/**/*.webp', { eager: true, import: 'default' });
@@ -124,6 +129,13 @@ const AUTO_BRANDS = buildAutoBrandsRegistry(autoBrandsFiles);
 const MASCOTTE = buildMascotteRegistry(mascotteFiles);
 const GAME_SLOTS = buildGameSlotRegistry(gameSlotFiles);
 
+/** `{ valet: url, dame: url, roi: url, joker: url }` — clés absentes tant que le fichier correspondant n'existe pas (voir classiqueFigureImage). */
+const CLASSIQUE_FIGURES = Object.fromEntries(
+  Object.entries(classiqueFiles)
+    .map(([path, url]) => [path.match(/classique\/(\w+)\.webp$/)?.[1], url])
+    .filter(([role]) => role)
+);
+
 /** Thème "phare" (illustration plein cadre standard pour tous les rôles/familles) — conservé pour compat. */
 export const CARD_ILLUSTRATION_THEME_ID = 'autoBrands';
 
@@ -161,6 +173,19 @@ export function suitCardImage(themeId, suitKey, role = 'number') {
     return MASCOTTE.byRole[role] || null;
   }
   return null;
+}
+
+/**
+ * Illustration incrustée pour une figure/joker du rendu "classique" par
+ * défaut (voir .card--court/.card--joker dans cards.js) — `null` tant que le
+ * fichier `src/assets/cards/classique/<role>.webp` n'existe pas encore, auquel
+ * cas le monogramme CSS reste affiché (pas de repli "number", contrairement à
+ * autoBrands : seuls valet/dame/roi/joker sont concernés ici, jamais une
+ * carte numérale). N'a de sens que pour le thème "classique" — les thèmes
+ * autoBrands/mascotte gardent leur propre illustration plein cadre.
+ */
+export function classiqueFigureImage(role) {
+  return CLASSIQUE_FIGURES[role] || null;
 }
 
 export function cardBackImage(themeId) {

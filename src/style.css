@@ -811,19 +811,37 @@ h1 {
   box-shadow: none;
 }
 
-/* Index de coin : la valeur seule (le symbole n'y est plus répété — les pips
-   au centre jouent déjà ce rôle). Une occurrence en haut à gauche, une
-   mirroir en bas à droite, comme sur une vraie carte — offsets identiques
-   de part et d'autre pour rester point-symétrique par rapport au centre. */
+/* Index de coin : la valeur seule (le symbole n'y est pas répété — les pips
+   au centre ou l'ornement des figures en monogramme jouent déjà ce rôle).
+   Une occurrence en haut à gauche, une mirroir en bas à droite, comme sur
+   une vraie carte — offsets identiques de part et d'autre pour rester
+   point-symétrique par rapport au centre. */
 .card__corner {
   position: absolute;
+  display: flex;
+  align-items: center;
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 19cqw;
   line-height: 1;
 }
-.card__corner--top { top: 5cqw; left: 6cqw; }
-.card__corner--bottom { bottom: 5cqw; right: 6cqw; transform: rotate(180deg); }
+.card__corner--top { top: 3cqw; left: 4cqw; }
+.card__corner--bottom { bottom: 3cqw; right: 4cqw; transform: rotate(180deg); }
+
+/* Exception : une figure illustrée (voir cards.js, `suitTag`) ne montre le
+   symbole de famille nulle part ailleurs sur la carte — sans lui, rouge/noir
+   seul ne distingue pas ♥ de ♦ ni ♠ de ♣. Petit symbole ajouté juste sous la
+   valeur, dans le coin. `.card__corner` en flex (ci-dessus) aligne son
+   centre optique sur celui de la lettre, peu importe l'écart de métriques
+   entre les deux polices — plus fiable qu'un vertical-align. */
+.card__corner-suit {
+  display: block;
+  font-style: normal;
+  font-family: var(--font-body);
+  font-size: 1em;
+  line-height: 1;
+  margin-left: 0.15em;
+}
 
 /* Pips : un conteneur centré (marge symétrique obligatoire des 4 côtés,
    sinon le motif entier se décale par rapport au centre de la carte) et une
@@ -834,87 +852,86 @@ h1 {
   top: 0; left: 0;
   font-style: normal;
   line-height: 1;
-  font-size: 16cqw;
-  /* Boîte de centrage légèrement plus grande que le glyphe plutôt que
-     translate(-50%,-50%) sur le texte brut : les glyphes ♣♦♥♠ ne sont pas
-     centrés dans leur boîte de police par défaut (ancre visuellement basse),
-     flex + line-height:1 replace l'encre du symbole au centre géométrique
-     voulu. Une boîte trop large empièterait sur l'index de coin pour les
-     valeurs à 2 chiffres ("10") — 1.1em est le compromis retenu. */
-  width: 1.1em;
-  height: 1.1em;
-  margin: -0.55em 0 0 -0.55em;
+  font-size: 26cqw;
+  /* Boîte de centrage au plus près du glyphe plutôt que translate(-50%,-50%)
+     sur le texte brut : les glyphes ♣♦♥♠ ne sont pas centrés dans leur boîte
+     de police par défaut (ancre visuellement basse), flex + line-height:1
+     replace l'encre du symbole au centre géométrique voulu. Boîte resserrée
+     à 1em (pas plus) pour laisser un maximum de clairance aux dispositions
+     denses (8 à 10 pips) sans avoir à réduire la taille du symbole lui-même
+     — la taille ne doit pas varier selon le nombre de pips sur la carte. */
+  width: 0.8em;
+  height: 0.8em;
+  margin: -0.4em 0 0 -0.4em;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.card__pips--1 i { top: 50%; left: 50%; font-size: 30cqw; }
+.card__pips--1 i { top: 50%; left: 50%; font-size: 46cqw; }
 
-.card__pips--2 i:nth-child(1) { top: 14%; left: 50%; }
-.card__pips--2 i:nth-child(2) { top: 86%; left: 50%; }
+.card__pips--2 i:nth-child(1) { top: 18%; left: 50%; }
+.card__pips--2 i:nth-child(2) { top: 82%; left: 50%; }
 
-.card__pips--3 i:nth-child(1) { top: 12%; left: 50%; }
+.card__pips--3 i:nth-child(1) { top: 18%; left: 50%; }
 .card__pips--3 i:nth-child(2) { top: 50%; left: 50%; }
-.card__pips--3 i:nth-child(3) { top: 88%; left: 50%; }
+.card__pips--3 i:nth-child(3) { top: 82%; left: 50%; }
 
-.card__pips--4 i:nth-child(1) { top: 12%; left: 33%; }
-.card__pips--4 i:nth-child(2) { top: 12%; left: 67%; }
-.card__pips--4 i:nth-child(3) { top: 88%; left: 33%; }
-.card__pips--4 i:nth-child(4) { top: 88%; left: 67%; }
+.card__pips--4 i:nth-child(1) { top: 18%; left: 28%; }
+.card__pips--4 i:nth-child(2) { top: 18%; left: 72%; }
+.card__pips--4 i:nth-child(3) { top: 82%; left: 28%; }
+.card__pips--4 i:nth-child(4) { top: 82%; left: 72%; }
 
-.card__pips--5 i:nth-child(1) { top: 12%; left: 33%; }
-.card__pips--5 i:nth-child(2) { top: 12%; left: 67%; }
+.card__pips--5 i:nth-child(1) { top: 18%; left: 28%; }
+.card__pips--5 i:nth-child(2) { top: 18%; left: 72%; }
 .card__pips--5 i:nth-child(3) { top: 50%; left: 50%; }
-.card__pips--5 i:nth-child(4) { top: 88%; left: 33%; }
-.card__pips--5 i:nth-child(5) { top: 88%; left: 67%; }
+.card__pips--5 i:nth-child(4) { top: 82%; left: 28%; }
+.card__pips--5 i:nth-child(5) { top: 82%; left: 72%; }
 
-.card__pips--6 i:nth-child(1) { top: 12%; left: 33%; }
-.card__pips--6 i:nth-child(2) { top: 12%; left: 67%; }
-.card__pips--6 i:nth-child(3) { top: 50%; left: 33%; }
-.card__pips--6 i:nth-child(4) { top: 50%; left: 67%; }
-.card__pips--6 i:nth-child(5) { top: 88%; left: 33%; }
-.card__pips--6 i:nth-child(6) { top: 88%; left: 67%; }
+.card__pips--6 i:nth-child(1) { top: 18%; left: 28%; }
+.card__pips--6 i:nth-child(2) { top: 18%; left: 72%; }
+.card__pips--6 i:nth-child(3) { top: 50%; left: 28%; }
+.card__pips--6 i:nth-child(4) { top: 50%; left: 72%; }
+.card__pips--6 i:nth-child(5) { top: 82%; left: 28%; }
+.card__pips--6 i:nth-child(6) { top: 82%; left: 72%; }
 
-.card__pips--7 i:nth-child(1) { top: 12%; left: 33%; }
-.card__pips--7 i:nth-child(2) { top: 12%; left: 67%; }
-.card__pips--7 i:nth-child(3) { top: 31%; left: 50%; }
-.card__pips--7 i:nth-child(4) { top: 50%; left: 33%; }
-.card__pips--7 i:nth-child(5) { top: 50%; left: 67%; }
-.card__pips--7 i:nth-child(6) { top: 88%; left: 33%; }
-.card__pips--7 i:nth-child(7) { top: 88%; left: 67%; }
+.card__pips--7 i:nth-child(1) { top: 18%; left: 28%; }
+.card__pips--7 i:nth-child(2) { top: 18%; left: 72%; }
+.card__pips--7 i:nth-child(3) { top: 34%; left: 50%; }
+.card__pips--7 i:nth-child(4) { top: 50%; left: 28%; }
+.card__pips--7 i:nth-child(5) { top: 50%; left: 72%; }
+.card__pips--7 i:nth-child(6) { top: 82%; left: 28%; }
+.card__pips--7 i:nth-child(7) { top: 82%; left: 72%; }
 
-.card__pips--8 i:nth-child(1) { top: 12%; left: 33%; }
-.card__pips--8 i:nth-child(2) { top: 12%; left: 67%; }
-.card__pips--8 i:nth-child(3) { top: 31%; left: 50%; }
-.card__pips--8 i:nth-child(4) { top: 50%; left: 33%; }
-.card__pips--8 i:nth-child(5) { top: 50%; left: 67%; }
-.card__pips--8 i:nth-child(6) { top: 69%; left: 50%; }
-.card__pips--8 i:nth-child(7) { top: 88%; left: 33%; }
-.card__pips--8 i:nth-child(8) { top: 88%; left: 67%; }
+.card__pips--8 i:nth-child(1) { top: 18%; left: 28%; }
+.card__pips--8 i:nth-child(2) { top: 18%; left: 72%; }
+.card__pips--8 i:nth-child(3) { top: 34%; left: 50%; }
+.card__pips--8 i:nth-child(4) { top: 50%; left: 28%; }
+.card__pips--8 i:nth-child(5) { top: 50%; left: 72%; }
+.card__pips--8 i:nth-child(6) { top: 66%; left: 50%; }
+.card__pips--8 i:nth-child(7) { top: 82%; left: 28%; }
+.card__pips--8 i:nth-child(8) { top: 82%; left: 72%; }
 
-.card__pips--9 i:nth-child(1) { top: 8%; left: 33%; }
-.card__pips--9 i:nth-child(2) { top: 8%; left: 67%; }
-.card__pips--9 i:nth-child(3) { top: 36%; left: 33%; }
-.card__pips--9 i:nth-child(4) { top: 36%; left: 67%; }
+.card__pips--9 i:nth-child(1) { top: 13%; left: 28%; }
+.card__pips--9 i:nth-child(2) { top: 13%; left: 72%; }
+.card__pips--9 i:nth-child(3) { top: 37%; left: 28%; }
+.card__pips--9 i:nth-child(4) { top: 37%; left: 72%; }
 .card__pips--9 i:nth-child(5) { top: 50%; left: 50%; }
-.card__pips--9 i:nth-child(6) { top: 64%; left: 33%; }
-.card__pips--9 i:nth-child(7) { top: 64%; left: 67%; }
-.card__pips--9 i:nth-child(8) { top: 92%; left: 33%; }
-.card__pips--9 i:nth-child(9) { top: 92%; left: 67%; }
+.card__pips--9 i:nth-child(6) { top: 63%; left: 28%; }
+.card__pips--9 i:nth-child(7) { top: 63%; left: 72%; }
+.card__pips--9 i:nth-child(8) { top: 87%; left: 28%; }
+.card__pips--9 i:nth-child(9) { top: 87%; left: 72%; }
 
-.card__pips--10 i:nth-child(1) { top: 8%; left: 33%; }
-.card__pips--10 i:nth-child(2) { top: 8%; left: 67%; }
-.card__pips--10 i:nth-child(3) { top: 22%; left: 50%; }
-.card__pips--10 i:nth-child(4) { top: 36%; left: 33%; }
-.card__pips--10 i:nth-child(5) { top: 36%; left: 67%; }
-.card__pips--10 i:nth-child(6) { top: 64%; left: 33%; }
-.card__pips--10 i:nth-child(7) { top: 64%; left: 67%; }
-.card__pips--10 i:nth-child(8) { top: 78%; left: 50%; }
-.card__pips--10 i:nth-child(9) { top: 92%; left: 33%; }
-.card__pips--10 i:nth-child(10) { top: 92%; left: 67%; }
-
-.card__pips--6 i, .card__pips--7 i, .card__pips--8 i, .card__pips--9 i, .card__pips--10 i { font-size: 13cqw; }
+.card__pips--10 i:nth-child(1) { top: 13%; left: 28%; }
+.card__pips--10 i:nth-child(2) { top: 13%; left: 72%; }
+.card__pips--10 i:nth-child(3) { top: 25%; left: 50%; }
+.card__pips--10 i:nth-child(4) { top: 37%; left: 28%; }
+.card__pips--10 i:nth-child(5) { top: 37%; left: 72%; }
+.card__pips--10 i:nth-child(6) { top: 63%; left: 28%; }
+.card__pips--10 i:nth-child(7) { top: 63%; left: 72%; }
+.card__pips--10 i:nth-child(8) { top: 75%; left: 50%; }
+.card__pips--10 i:nth-child(9) { top: 87%; left: 28%; }
+.card__pips--10 i:nth-child(10) { top: 87%; left: 72%; }
 
 /* Figures (Valet/Dame/Roi) : monogramme encadré façon blason plutôt qu'une
    illustration figurative (pas d'atelier graphique ici) — cadre fin, un
@@ -938,12 +955,34 @@ h1 {
 .card__ornament {
   position: absolute;
   left: 50%;
-  font-size: 14cqw;
-  letter-spacing: 0.15em;
+  font-size: 19cqw;
+  letter-spacing: 0.1em;
   opacity: 0.55;
+  /* Sans largeur explicite, un élément absolument positionné avec juste
+     `left` calcule sa largeur "shrink-to-fit" par rapport à la moitié droite
+     de la carte (aucun `right` posé) — au-delà d'une certaine taille de
+     police le texte finit par y passer à la ligne. white-space:nowrap
+     l'empêche, quitte à déborder symétriquement (translateX(-50%) recentre
+     toujours), sans risque puisque rien ne le découpe. */
+  white-space: nowrap;
 }
-.card__ornament--top { top: 24cqw; transform: translateX(-50%); }
-.card__ornament--bottom { bottom: 24cqw; transform: translateX(-50%) rotate(180deg); }
+.card__ornament--top { top: 22cqw; transform: translateX(-50%); }
+.card__ornament--bottom { bottom: 22cqw; transform: translateX(-50%) rotate(180deg); }
+
+/* Figure/joker illustrée (voir classiqueFigureImage dans cardThemes.js) :
+   incrustée DANS le cadre existant plutôt qu'en plein cadre comme
+   autoBrands/mascotte — le cadre garde tout l'espace disponible (inset plus
+   généreux qu'avec le monogramme texte) et l'index de coin reste visible
+   par-dessus, cohérent avec le reste du système "classique". */
+.card--figure-illustrated .card__frame { inset: 8cqw; }
+.card__illustration {
+  position: absolute;
+  inset: 10cqw;
+  width: calc(100% - 20cqw);
+  height: calc(100% - 20cqw);
+  object-fit: contain;
+  object-position: center;
+}
 
 /* Joker (Cinq Rois) : même gabarit que les figures (cadre + ornements), mais
    sans famille propre — couleur dédiée, et "JOKER" (5 lettres) est bien plus
