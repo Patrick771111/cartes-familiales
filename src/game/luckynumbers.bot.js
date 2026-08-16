@@ -68,16 +68,23 @@ function cellBounds(board, index) {
 }
 
 /**
- * Après avoir posé `value` en `index`, toutes les cases encore vides doivent
- * conserver un intervalle non vide — sinon la pose condamne le jardin.
+ * Après avoir posé `value` en `index`, aucune case encore vide qui était
+ * jouable ne doit devenir condamnée à cause de CE coup précis. Ne compte pas
+ * une case déjà condamnée AVANT ce coup (ex: deux tuiles de même valeur
+ * tombées sur la diagonale au tirage initial, ce qui arrive — les couleurs
+ * partagent les mêmes valeurs 1-20) : sinon le premier blocage, même hors de
+ * son contrôle, interdirait éternellement toute pose au bot pour le reste de
+ * la partie (il ne ferait plus jamais que piocher/défausser).
  */
 function placementKeepsBoardViable(board, index, value) {
   const next = board.slice();
   next[index] = { id: 'tmp', value };
   for (let i = 0; i < 16; i++) {
     if (next[i]) continue;
-    const { min, max } = cellBounds(next, i);
-    if (min > max) return false;
+    const before = cellBounds(board, i);
+    if (before.min > before.max) continue; // déjà condamnée avant ce coup, pas la faute de celui-ci
+    const after = cellBounds(next, i);
+    if (after.min > after.max) return false;
   }
   return true;
 }
