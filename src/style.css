@@ -1655,6 +1655,12 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   background: conic-gradient(#d0342c 0deg 90deg, #f5c518 90deg 180deg, #2e9e3d 180deg 270deg, #1259a5 270deg 360deg);
   font-size: 15px;
 }
+/* Illustration officielle (CC0) en couverture du fond coloré/dégradé — voir unoCardArt.js. */
+.uno-card--illustrated {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
 
 .trouduc-pile__cards.uno-discard-top { position: relative; }
 
@@ -1699,9 +1705,13 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
    8 américain (même raisonnement : toute la main paraît non jouable dès que
    ce n'est pas mon tour). Les cartes Uno (.uno-card) n'héritent pas du
    filter grayscale générique de `.hand-card--unplayable .card` (classe
-   différente) : il faut le poser explicitement ici. */
+   différente) : il faut le poser explicitement ici. Grayscale PARTIEL
+   (contrairement au 8 américain, en niveaux de gris purs) : à l'Uno la
+   couleur EST l'information de jouabilité, un grayscale complet la rend
+   impossible à deviner — juste assez pour distinguer visuellement une
+   carte jouable d'une carte grisée, sans effacer rouge/bleu/vert/jaune. */
 .uno-screen .hand-card--unplayable { opacity: 1; }
-.uno-screen .hand-card--unplayable .uno-card { filter: grayscale(1) brightness(0.7); }
+.uno-screen .hand-card--unplayable .uno-card { filter: grayscale(0.5) brightness(0.8); }
 
 .uno-pending-draw {
   text-align: center;

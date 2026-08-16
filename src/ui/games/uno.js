@@ -3,6 +3,7 @@ import { playUnoCard, drawUnoCard, callUno, catchUno, isLegalCard, isJumpInCard,
 import { getOrderedHand, moveCard, resetHandOrder } from '../handOrder.js';
 import { enableHandDrag, applyDynamicHandOverlap } from '../dragReorder.js';
 import { openRulesModal } from '../rules.js';
+import { unoCardImage } from '../unoCardArt.js';
 import {
   connectionBadge,
   endGameActionsHtml,
@@ -38,12 +39,17 @@ function sortedUnoHand(hand) {
 }
 
 export function unoCardHtml(card) {
+  const colorClass = card.color ? `uno-card--${card.color}` : 'uno-card--wild';
+  const image = unoCardImage(card);
+  if (image) {
+    return `<div class="uno-card ${colorClass} uno-card--illustrated" data-card-id="${card.id}" style="background-image:url('${image}')"></div>`;
+  }
   if (card.kind === 'wild' || card.kind === 'wildDrawFour') {
     const label = card.kind === 'wildDrawFour' ? '+4' : '🌈';
     return `<div class="uno-card uno-card--wild" data-card-id="${card.id}">${label}</div>`;
   }
   const label = card.kind === 'number' ? card.value : card.kind === 'skip' ? '⊘' : card.kind === 'reverse' ? '⇄' : '+2';
-  return `<div class="uno-card uno-card--${card.color}" data-card-id="${card.id}">${label}</div>`;
+  return `<div class="uno-card ${colorClass}" data-card-id="${card.id}">${label}</div>`;
 }
 
 /** Réinitialise l'état local propre à ce jeu — appelé au retour en salle d'attente. */

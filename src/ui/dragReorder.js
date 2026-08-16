@@ -6,35 +6,69 @@ const TAP_THRESHOLD_PX = 8;
 /**
  * Recouvrement des cartes en main ajusté dynamiquement selon leur nombre :
  * peu de cartes → pas (ou peu) de chevauchement, beaucoup de cartes → elles
- * se resserrent pour tenir sans faire déborder `handEl` (jamais plus que
- * `maxOverlapRatio` du visuel d'une carte, sous peine de devenir illisibles).
- * L'ordre du DOM (gauche → droite) reste l'ordre d'empilement naturel — la
- * carte la plus à gauche est donc toujours la plus enfouie, y compris après
- * un glisser-déposer via `enableHandDrag` (qui ne fait que réordonner ce
- * même DOM).
+ * se resserrent (jamais plus que `maxOverlapRatio` du visuel d'une carte,
+ * sous peine de devenir illisibles). Si même ce chevauchement maximal ne
+ * suffit pas à tenir sur une rangée, la main passe sur 2-3 rangées
+ * (`maxRows`) plutôt que de déborder avec un défilement horizontal — chaque
+ * rangée est forcée via un séparateur `flex-basis:100%` (technique flexbox
+ * standard), pas laissée au calcul automatique du navigateur, pour garder
+ * le contrôle exact de la répartition. L'ordre du DOM (gauche → droite,
+ * haut → bas) reste l'ordre d'empilement naturel — la carte la plus à
+ * gauche/en haut est donc toujours la plus enfouie, y compris après un
+ * glisser-déposer via `enableHandDrag` (qui ne fait que réordonner ce même
+ * DOM).
  */
-export function applyDynamicHandOverlap(handEl, { maxOverlapRatio = 0.75, minMarginPx = -4 } = {}) {
+export function applyDynamicHandOverlap(handEl, { maxOverlapRatio = 0.72, minMarginPx = -4, maxRows = 3 } = {}) {
+  handEl.querySelectorAll('.hand-row-break').forEach((el) => el.remove());
   const cards = Array.from(handEl.querySelectorAll(':scope > [data-card-id]'));
   if (cards.length < 2) return;
 
   const cardWidth = cards[0].getBoundingClientRect().width;
   if (!cardWidth) return;
-  const containerWidth = handEl.clientWidth;
+  // Marge de sécurité (8px) sur toute la largeur utilisable : sans elle, un
+  // nombre de cartes pile à la limite calcule un chevauchement qui tient au
+  // sous-pixel près — le navigateur fait alors lui-même un retour à la ligne
+  // pour 1 seule carte en trop, au lieu d'une répartition équilibrée sur les
+  // rangées prévues ici.
+  const containerWidth = handEl.clientWidth - 8;
+  const maxOverlap = cardWidth * maxOverlapRatio;
+
+  const applyRowMargins = (rowCards) => {
+    const n = rowCards.length;
+    const totalFlat = n * cardWidth;
+    let marginLeft = Math.max(minMarginPx, 4);
+    if (totalFlat > containerWidth && n > 1) {
+      const overlapNeeded = (totalFlat - containerWidth) / (n - 1);
+      marginLeft = -Math.min(overlapNeeded, maxOverlap);
+    }
+    rowCards.forEach((el, i) => {
+      el.style.marginLeft = i === 0 ? '0' : `${marginLeft}px`;
+    });
+  };
 
   const totalFlat = cards.length * cardWidth;
-  let marginLeft;
   if (totalFlat <= containerWidth) {
-    // Tiennent sans se chevaucher : petit espace régulier plutôt qu'un contact brut.
-    marginLeft = Math.max(minMarginPx, 4);
-  } else {
-    const overlapNeeded = (totalFlat - containerWidth) / (cards.length - 1);
-    const maxOverlap = cardWidth * maxOverlapRatio;
-    marginLeft = -Math.min(overlapNeeded, maxOverlap);
+    handEl.style.flexWrap = 'nowrap';
+    applyRowMargins(cards);
+    return;
   }
 
-  cards.forEach((el, i) => {
-    el.style.marginLeft = i === 0 ? '0' : `${marginLeft}px`;
-  });
+  handEl.style.flexWrap = 'wrap';
+  const step = cardWidth - maxOverlap;
+  const perRowAtMaxOverlap = Math.max(1, Math.floor((containerWidth - cardWidth) / step) + 1);
+  const rows = Math.min(maxRows, Math.max(1, Math.ceil(cards.length / perRowAtMaxOverlap)));
+  const perRow = Math.ceil(cards.length / rows);
+
+  for (let i = 0; i < cards.length; i += perRow) {
+    const rowCards = cards.slice(i, i + perRow);
+    applyRowMargins(rowCards);
+    if (i + perRow < cards.length) {
+      const brk = document.createElement('div');
+      brk.className = 'hand-row-break';
+      brk.style.cssText = 'flex-basis:100%; width:0; height:6px;';
+      rowCards[rowCards.length - 1].after(brk);
+    }
+  }
 }
 
 export function enableHandDrag(handEl, { onDrop, onTap } = {}) {

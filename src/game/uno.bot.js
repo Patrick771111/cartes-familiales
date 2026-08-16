@@ -214,5 +214,5 @@ export function schedule(room) {
     } catch (err) {
       // Conflit optimiste attendu si un autre appareil a joué en même temps — la resynchro realtime prend le relais.
     }
-  }, 900 + Math.random() * 700);
+  }, 1000 + Math.random() * 700);
 }

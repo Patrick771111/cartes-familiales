@@ -127,13 +127,14 @@ function drawFromStock(stock, discard, count) {
  * Une carte est jouable si c'est un Joker/Joker +4 (toujours autorisés), si
  * elle correspond à la couleur en cours, ou si elle correspond exactement
  * au symbole/valeur de la carte au sommet de la défausse. Sous le coup
- * d'une pile de pioche en attente (`pendingDraw > 0`), seules les cartes
- * +2/+4 comptent comme jouables — n'importe laquelle des deux, sans
- * condition de couleur, pour riposter/empiler.
+ * d'une pile de pioche en attente (`pendingDraw > 0`), seule une carte du
+ * MÊME type que celle qui a lancé la pile (+2 sur +2, +4 sur +4) compte
+ * comme jouable — impossible de riposter un +2 avec un +4 ou l'inverse.
  */
 export function isLegalCard(state, card) {
   if (state.pendingDraw > 0) {
-    return card.kind === 'drawTwo' || card.kind === 'wildDrawFour';
+    const topCard = state.discard[state.discard.length - 1];
+    return card.kind === topCard.kind && (card.kind === 'drawTwo' || card.kind === 'wildDrawFour');
   }
   if (card.kind === 'wild' || card.kind === 'wildDrawFour') return true;
   if (card.color === state.activeColor) return true;
