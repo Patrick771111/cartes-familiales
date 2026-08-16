@@ -47,6 +47,39 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
 // si elle n'était pas mémorisée en dehors de la fonction de rendu.
 let selectedGameIdByRoom = null;
 
+/**
+ * Construit le lien d'invitation vers ce salon précis (?room=<code>, lu au
+ * démarrage par main.js/tryJoinRoomByCode) et le propose via le partage natif
+ * du téléphone (Telegram, WhatsApp, SMS… l'ami choisit) — repli sur la copie
+ * dans le presse-papier si l'appareil ne propose pas de partage natif
+ * (desktop, essentiellement).
+ */
+async function shareInviteLink(room) {
+  const url = `${window.location.origin}${window.location.pathname}?room=${room.code}`;
+  const shareData = { title: 'Cartes en famille', text: 'Rejoins la partie sur Cartes en famille !', url };
+
+  if (navigator.share) {
+    try {
+      await navigator.share(shareData);
+    } catch (err) {
+      // AbortError si l'utilisateur ferme le sélecteur sans choisir — rien à faire.
+    }
+    return;
+  }
+
+  if (navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(url);
+      alert('Lien copié ! Colle-le dans Telegram (ou ailleurs) pour inviter.');
+      return;
+    } catch (err) {
+      // repli sur le prompt ci-dessous
+    }
+  }
+
+  window.prompt('Copie ce lien pour inviter :', url);
+}
+
 function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   const state = room.state;
   if (selectedGameIdByRoom?.roomId !== room.id) selectedGameIdByRoom = null;
@@ -86,6 +119,8 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
                   : "En attente que l'hôte lance la partie…"
           }
         </p>
+
+        <button type="button" class="btn btn--ghost btn--small" id="btn-invite">📤 Inviter un ami</button>
 
         <ul class="player-list">
           ${state.players
@@ -189,6 +224,8 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   container.querySelector('#btn-leave')?.addEventListener('click', () => {
     if (window.confirm('Quitter la table ?')) onLeave?.();
   });
+
+  container.querySelector('#btn-invite')?.addEventListener('click', () => shareInviteLink(room));
 
   container.querySelectorAll('.player-chip__kick').forEach((btn) => {
     btn.addEventListener('click', () => {

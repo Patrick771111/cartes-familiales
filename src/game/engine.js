@@ -9,6 +9,7 @@ import * as core from './core.js';
 export {
   ConflictError,
   fetchRoomById,
+  fetchRoomByCode,
   initRelay,
   isRelayActive,
   stopRelay,

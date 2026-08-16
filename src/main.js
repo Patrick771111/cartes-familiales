@@ -19,6 +19,7 @@ import {
   reportRelayStatus,
   playAgain,
   fetchRoomById,
+  fetchRoomByCode,
   watchRoom,
   initRelay,
   isRelayActive,
@@ -221,6 +222,25 @@ function enterRoom(room, player) {
   unsubscribe = watchRoom(room.id, (freshRow) => draw(freshRow));
 }
 
+/**
+ * Rejoint directement un salon désigné par son code (lien d'invitation
+ * partagé, ex: Telegram — voir le bouton "Inviter" de la salle d'attente
+ * dans game.js). Si le code ne correspond plus à rien (salon fermé
+ * entre-temps), repli silencieux sur l'écran des salons habituel.
+ */
+async function tryJoinRoomByCode(profile, code) {
+  const room = await fetchRoomByCode(code);
+  if (!room) {
+    alert("Ce lien d'invitation n'est plus valide — le salon a peut-être été fermé.");
+    await showRoomList(profile);
+    return;
+  }
+  await leaveOtherRooms(profile, room.id);
+  const joined = await ensureMembership(room, profile);
+  const reclaimed = await reclaimStaleHost(joined, profile);
+  enterRoom(reclaimed, profile);
+}
+
 function stopRoomListPolling() {
   if (roomListPollHandle) {
     window.clearInterval(roomListPollHandle);
@@ -320,15 +340,30 @@ async function boot() {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
+  // Lien d'invitation (?room=CODE, voir le bouton "Inviter" de la salle
+  // d'attente) : nettoyé de l'URL tout de suite pour qu'un rechargement de
+  // page ne retente pas de rejoindre (ex: après avoir quitté ce salon).
+  const joinCode = new URLSearchParams(window.location.search).get('room');
+  if (joinCode) window.history.replaceState({}, '', window.location.pathname);
+
   const profile = getLocalProfile();
 
   if (!profile) {
     renderNamePrompt(app, {
       onSubmit: async (name) => {
         const newProfile = createLocalIdentity(name);
-        await showRoomList(newProfile);
+        if (joinCode) {
+          await tryJoinRoomByCode(newProfile, joinCode);
+        } else {
+          await showRoomList(newProfile);
+        }
       }
     });
+    return;
+  }
+
+  if (joinCode) {
+    await tryJoinRoomByCode(profile, joinCode);
     return;
   }
 

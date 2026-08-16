@@ -2,10 +2,10 @@
 // présence, hôte), et rien de spécifique à un jeu en particulier — voir
 // engine.js, qui assemble ce fichier avec la découverte dynamique des jeux
 // (src/game/<id>.js) pour former l'API complète utilisée par l'UI.
-import { createRoom, listRooms, deleteRoom } from '../supabase/sync.js';
+import { createRoom, listRooms, deleteRoom, fetchRoomByCode } from '../supabase/sync.js';
 import { fetchRoomById, updateRoomState, subscribeRoom, ConflictError, initRelay, isRelayActive, stopRelay } from '../webrtc/relay.js';
 
-export { ConflictError, fetchRoomById, updateRoomState, initRelay, isRelayActive, stopRelay };
+export { ConflictError, fetchRoomById, updateRoomState, initRelay, isRelayActive, stopRelay, fetchRoomByCode };
 
 /**
  * Applique une action pure sur l'état puis l'écrit avec verrou optimiste.
