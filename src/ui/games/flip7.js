@@ -32,12 +32,16 @@ function flip7ActionSlotKey(card) {
   return card.kind;
 }
 
-function flip7CardHtml(card) {
+export function flip7CardHtml(card) {
   const theme = document.documentElement.dataset.cardTheme;
-  // Mêmes illustrations "numéro" que le Trio pour 1-12 (voir
-  // classique/games/flip7/) ; le 0, propre à Flip 7, a la sienne.
+  // Illustrations 1-12 mutualisées avec le Trio/La Suite Infernale (voir
+  // classique/games/numbers/) ; le 0, propre à Flip 7 (aucun autre jeu ne
+  // l'utilise), reste dans son propre dossier.
   if (card.kind === 'number') {
-    const illustration = gameCardImage(theme, 'flip7', String(card.value), card.value);
+    const illustration =
+      card.value === 0
+        ? gameCardImage(theme, 'flip7', '0', card.value)
+        : gameCardImage(theme, 'numbers', String(card.value), card.value);
     const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
     return `<div class="flip7-card flip7-card--number ${illustration ? 'flip7-card--illustrated' : ''}"${style}>${illustration ? '' : card.value}</div>`;
   }

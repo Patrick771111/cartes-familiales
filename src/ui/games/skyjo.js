@@ -51,7 +51,7 @@ function skyjoValueClass(v) {
 // glisser-déposer de la carte piochée ou du bouton Flip (voir plus bas).
 // `flipTargetFor` (idem, uniquement sa propre grille) surligne les cases
 // cachées valides comme cible pendant que le mode Flip est armé.
-function skyjoGridHtml(grid, clickableClassFor, enableDrop, flipTargetFor) {
+export function skyjoGridHtml(grid, clickableClassFor, enableDrop, flipTargetFor) {
   return `<div class="skyjo-grid">
     ${grid
       .map((cell, i) => {

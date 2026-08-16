@@ -55,8 +55,8 @@ export function renderTable(container, { room, player, state, onLeave }) {
 function suiteInfernaleCardHtml(card) {
   const theme = document.documentElement.dataset.cardTheme;
   if (card.kind === 'number') {
-    // Mêmes illustrations 1-10 que le Trio/Flip 7 (voir classique/games/suiteinfernale/).
-    const illustration = gameCardImage(theme, 'suiteinfernale', String(card.value), card.value);
+    // Illustrations 1-10 mutualisées avec le Trio/Flip 7 (voir classique/games/numbers/).
+    const illustration = gameCardImage(theme, 'numbers', String(card.value), card.value);
     const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
     return `<div class="suiteinfernale-card suiteinfernale-card--number ${illustration ? 'suiteinfernale-card--illustrated' : ''}"${style}>${illustration ? '' : card.value}</div>`;
   }
@@ -87,7 +87,7 @@ function suiteInfernaleSlotTitle(card, index) {
  * glisser-déposer d'une attaque ciblée (ex : retirer/voler LA carte visée),
  * en plus de la zone globale posée sur `.opponent` (voir `restHtml`).
  */
-function suiteInfernaleSequenceHtml(sequence, { clickableIndexes, targetId } = {}) {
+export function suiteInfernaleSequenceHtml(sequence, { clickableIndexes, targetId } = {}) {
   return `<div class="suiteinfernale-sequence">
     ${sequence
       .map((card, i) => {

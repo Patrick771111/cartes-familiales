@@ -29,16 +29,18 @@ export function renderTable(container, { room, player, state, onLeave }) {
  * centre est piochable n'importe où (contrairement aux mains, triées, où
  * seules les deux extrémités comptent), le désordre visuel le signale.
  */
-function trioJitter(seed) {
+export function trioJitter(seed) {
   let h = 0;
   const s = String(seed);
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   return { angle: (Math.abs(h) % 17) - 8, offsetY: (Math.abs(h >> 4) % 7) - 3 };
 }
 
-function trioCardHtml(value, { faceUp = false, lifted = false, jitter = null } = {}) {
+export function trioCardHtml(value, { faceUp = false, lifted = false, jitter = null } = {}) {
   const theme = document.documentElement.dataset.cardTheme;
-  const illustration = faceUp ? gameCardImage(theme, 'trio', String(value), value) : null;
+  // Illustrations 1-12 mutualisées (voir classique/games/numbers/) — Flip 7
+  // et La Suite Infernale réutilisent exactement les mêmes fichiers.
+  const illustration = faceUp ? gameCardImage(theme, 'numbers', String(value), value) : null;
   const bg = illustration ? `background-image:url('${illustration}');` : '';
   // `lifted` (transform CSS via classe) et `jitter` (transform inline) ne se
   // combinent jamais en pratique : lifted ne s'utilise que sur sa propre
@@ -49,7 +51,7 @@ function trioCardHtml(value, { faceUp = false, lifted = false, jitter = null } =
 }
 
 /** 3 trophées à côté du nom d'un joueur, allumés selon son nombre de trios trouvés (objectif : 3 pour gagner, ou 1 seul si c'est le trio de 7). */
-function trioTrophiesHtml(count) {
+export function trioTrophiesHtml(count) {
   return `<span class="trio-trophies">${Array.from({ length: 3 }, (_, i) => `<span class="trio-trophy ${i < count ? 'trio-trophy--lit' : ''}">🏆</span>`).join('')}</span>`;
 }
 
@@ -72,7 +74,7 @@ function trioTrophiesHtml(count) {
  * partagé), les autres joueurs voyant en plus la carte se retourner de leur
  * côté puisqu'elle leur était, elle, réellement cachée.
  */
-function trioRowHtml(row, { targetPlayerId, clickableEnds = false, revealedIds = new Set(), alwaysFaceUp = false } = {}) {
+export function trioRowHtml(row, { targetPlayerId, clickableEnds = false, revealedIds = new Set(), alwaysFaceUp = false } = {}) {
   if (!row.length) return `<div class="trio-row trio-row--empty">Main vide</div>`;
   const availableIndexes = row.map((_, i) => i).filter((i) => !revealedIds.has(row[i].id));
   const lowIndex = availableIndexes[0];

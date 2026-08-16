@@ -1556,7 +1556,7 @@ h1 {
   box-shadow: 0 3px 8px rgba(0,0,0,0.35);
 }
 .flip7-card--number {
-  background: var(--cream);
+  background-color: var(--cream);
   color: var(--dark-suit);
   font-family: var(--font-mono);
   font-size: 22px;
@@ -1574,13 +1574,17 @@ h1 {
   border-color: rgba(0,0,0,0.15);
   padding: 0;
 }
+/* `background-color` (pas le raccourci `background`) : ces règles suivent
+   `.flip7-card--illustrated` dans la feuille de style, et le raccourci
+   réinitialiserait background-size/position/repeat qu'elle vient de poser,
+   laissant les cartes spéciales illustrées s'afficher non recadrées. */
 .flip7-card--modifier {
-  background: var(--brass-soft);
+  background-color: var(--brass-soft);
   color: var(--felt-900);
   font-size: 14px;
 }
 .flip7-card--action {
-  background: var(--felt-500);
+  background-color: var(--felt-500);
   border: 1.5px solid var(--brass);
   color: var(--cream);
   font-size: 10px;
@@ -1860,13 +1864,16 @@ h1 {
   box-shadow: 0 3px 8px rgba(0,0,0,0.35);
 }
 .suiteinfernale-card--number {
-  background: var(--cream);
+  background-color: var(--cream);
   color: var(--dark-suit);
   font-family: var(--font-mono);
   font-size: 22px;
 }
+/* `background-color`, pas le raccourci `background` — même piège que Flip 7 :
+   sans ça, un futur réordonnancement de ces règles par rapport à
+   `.suiteinfernale-card--illustrated` casserait le recadrage des illustrations. */
 .suiteinfernale-card--special {
-  background: var(--felt-500);
+  background-color: var(--felt-500);
   border: 1.5px solid var(--brass);
   color: var(--cream);
   font-size: 10px;

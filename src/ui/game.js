@@ -1,8 +1,13 @@
-import { cardFaceHtml } from './cards.js';
+import { cardFaceHtml, cardBackHtml } from './cards.js';
 import { AVAILABLE_GAMES, startGame, claimHost, addBot, HOST_STALE_MS } from '../game/engine.js';
 import { rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { SEQUENCE_TARGET as SUITE_INFERNALE_TARGET } from '../game/suiteinfernale.js';
 import { connectionBadge, getRevealHands, toggleRevealHands, resetRevealHands } from './gameShared.js';
+import { trioCardHtml, trioRowHtml, trioTrophiesHtml, trioJitter } from './games/trio.js';
+import { suiteInfernaleSequenceHtml } from './games/suiteinfernale.js';
+import { flip7CardHtml } from './games/flip7.js';
+import { skyjoGridHtml } from './games/skyjo.js';
+import { unoCardHtml } from './games/uno.js';
 
 // Un fichier par jeu, découvert dynamiquement : ajouter/retirer un jeu ne
 // touche jamais ce fichier, il suffit d'ajouter/retirer src/ui/games/<id>.js
@@ -201,6 +206,9 @@ function spectatorPlayerStatus(game, state, p, isTrouduc) {
   if (game === 'flip7' && Array.isArray(p.display)) {
     return `${p.display.length} carte${p.display.length > 1 ? 's' : ''} · ${p.score ?? 0} pts`;
   }
+  if (game === 'trio' && Array.isArray(p.trios)) {
+    return `${p.trios.length} trio${p.trios.length > 1 ? 's' : ''} · ${p.row.length} en main`;
+  }
   if (Array.isArray(p.hand)) {
     return `${p.hand.length} carte${p.hand.length > 1 ? 's' : ''}${p.score != null ? ` · ${p.score} pts` : ''}`;
   }
@@ -218,6 +226,25 @@ function spectatorHandHtml(game, state, p, reveal) {
     ).join('');
     return `<div class="spectator-player__hand spectator-player__hand--lucky">${cells}</div>`;
   }
+  if (game === 'flip7' && Array.isArray(p.display)) {
+    return `<div class="flip7-hand">${p.display.map(flip7CardHtml).join('') || '<span class="spectator-player__empty">—</span>'}</div>`;
+  }
+  if (game === 'skyjo' && Array.isArray(p.grid)) {
+    return skyjoGridHtml(p.grid);
+  }
+  // La suite est déjà publique en jeu réel (visible de tous, sans bouton
+  // "afficher") — jamais la main privée (`p.hand`), qui tomberait sinon dans
+  // le repli générique `Array.isArray(p.hand)` juste en dessous.
+  if (game === 'suiteinfernale' && Array.isArray(p.sequence)) {
+    return suiteInfernaleSequenceHtml(p.sequence);
+  }
+  // La rangée du Trio se rend toujours face cachée (sauf cartes révélées
+  // dans la tentative en cours) — `trioRowHtml` gère déjà cette visibilité
+  // carte par carte, rien à cacher ici derrière le bouton "afficher".
+  if (game === 'trio' && Array.isArray(p.row)) {
+    const revealedIds = new Set((state.pendingReveals || []).map((r) => r.source.cardId));
+    return trioRowHtml(p.row, { revealedIds, alwaysFaceUp: state.status === 'finished' });
+  }
   if (Array.isArray(p.laidCards) && p.laidCards.length) {
     return `<div class="spectator-player__hand">${p.laidCards.map(cardFaceHtml).join('')}</div>`;
   }
@@ -231,8 +258,10 @@ export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms 
   const state = room.state;
   const isTrouduc = room.game === 'trouduc';
   const currentName = state.players.find((p) => p.id === state.currentPlayerId)?.name;
-  // Jeux de plateau / info ouverte : tout est déjà visible, pas de bouton masquer.
-  const openInfoGame = room.game === 'luckynumbers' || room.game === 'flip7';
+  // Jeux de plateau / info ouverte : déjà entièrement visible d'un vrai
+  // joueur en partie (mains adverses publiques, ou plateau qui gère lui-même
+  // la visibilité carte par carte comme Skyjo/Trio) — pas de bouton masquer.
+  const openInfoGame = ['luckynumbers', 'flip7', 'blackjack', 'skyjo', 'suiteinfernale', 'trio'].includes(room.game);
   const revealHands = getRevealHands();
   const showBoards = openInfoGame || revealHands;
 
@@ -272,6 +301,49 @@ export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms 
          </div>`
       : '';
 
+  // Trio : le centre (cartes piochables par tous) est l'essentiel du plateau
+  // — sans lui la vue spectateur ne montre que des noms, rien de la partie.
+  // Même logique de visibilité carte par carte que `renderTrioTable`.
+  const trioCenterHtml =
+    room.game === 'trio' && Array.isArray(state.center)
+      ? (() => {
+          const revealedIds = new Set((state.pendingReveals || []).map((r) => r.source.cardId));
+          const cells = state.center
+            .map((c) => {
+              const jitter = trioJitter(c.id);
+              if (c.taken) return `<div class="trio-cell trio-cell--gone" style="transform: rotate(${jitter.angle}deg) translateY(${jitter.offsetY}px);"></div>`;
+              const faceUp = revealedIds.has(c.id) || state.status === 'finished';
+              return trioCardHtml(c.value, { faceUp, jitter });
+            })
+            .join('');
+          return `<div class="trio-center"><p class="trio-center__label">Centre</p><div class="trio-row">${cells}</div></div>`;
+        })()
+      : '';
+
+  // Blackjack : la banque n'est pas un "joueur" de `state.players`, donc
+  // invisible sans ce bloc dédié — même règle de carte cachée qu'en jeu réel.
+  const blackjackDealerHtml =
+    room.game === 'blackjack' && state.dealer
+      ? `<div class="blackjack-dealer">
+           <p class="blackjack-dealer__label">🏦 Banque</p>
+           <div class="blackjack-hand">${
+             state.dealer.hidden ? cardFaceHtml(state.dealer.hand[0]) + cardBackHtml() : state.dealer.hand.map(cardFaceHtml).join('')
+           }</div>
+         </div>`
+      : '';
+
+  // 8 américain / Uno : la carte du dessus de la défausse (ce que tout le
+  // monde doit suivre) — pas l'historique empilé animé de la vue joueur,
+  // une simple carte suffit à comprendre l'état de la partie.
+  const topDiscardCard = state.discard?.length ? state.discard[state.discard.length - 1] : null;
+  const discardTopHtml =
+    topDiscardCard && (room.game === 'americain' || room.game === 'uno')
+      ? `<div class="trouduc-pile trouduc-pile--active">
+           <div class="trouduc-pile__cards">${room.game === 'uno' ? unoCardHtml(topDiscardCard) : cardFaceHtml(topDiscardCard)}</div>
+           <p class="trouduc-pile__label">Défausse</p>
+         </div>`
+      : '';
+
   container.innerHTML = `
     <div class="screen screen--table">
       <div class="table-felt">
@@ -279,6 +351,8 @@ export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms 
         <button class="btn btn--link btn--small" id="btn-back-to-rooms">← Retour aux salons</button>
 
         ${luckyCenterHtml}
+        ${trioCenterHtml}
+        ${blackjackDealerHtml}
 
         <ul class="spectator-players">
           ${state.players
@@ -306,6 +380,7 @@ export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms 
         }
 
         ${pileHtml}
+        ${discardTopHtml}
 
         <div class="turn-banner">${currentName ? `Tour de ${currentName}` : 'En attente…'}</div>
       </div>

@@ -36,7 +36,7 @@ function sortedUnoHand(hand) {
   });
 }
 
-function unoCardHtml(card) {
+export function unoCardHtml(card) {
   if (card.kind === 'wild' || card.kind === 'wildDrawFour') {
     const label = card.kind === 'wildDrawFour' ? '+4' : '🌈';
     return `<div class="uno-card uno-card--wild" data-card-id="${card.id}">${label}</div>`;
