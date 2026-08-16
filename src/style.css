@@ -2221,12 +2221,11 @@ body.is-card-dragging * {
   .trio-screen .trio-opponents {
     flex: 1 1 100%;
     justify-content: center;
-    max-height: 30vh;
     overflow-y: auto;
   }
   .trio-screen .trio-felt,
   .trio-screen .my-hand {
-    max-height: 60vh;
+    max-height: 46vh;
     overflow-y: auto;
   }
 }
@@ -2864,14 +2863,20 @@ body.is-card-dragging * {
   .trio-screen {
     padding-bottom: 64px; /* réserve la rangée de bulles fixes, en bas en portrait */
   }
+  /* Le centre (bandeau + 9 cases max) a un contenu compact et fixe : pas
+     besoin qu'il capte tout l'espace restant (flex:1) au détriment des
+     adversaires, qui devaient sinon défiler même à 2-3 joueurs. Les
+     adversaires récupèrent donc l'espace libéré ; overflow-y reste posé en
+     filet de sécurité (5 adversaires par ex.) mais ne devrait plus servir
+     dans le cas courant. */
   .trio-screen .trio-opponents {
-    flex: 0 1 auto;
-    max-height: 22vh;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
   }
   .trio-screen .trio-felt {
-    flex: 1 1 auto;
-    min-height: 0;
+    flex: 0 0 auto;
+    max-height: 44vh;
     overflow-y: auto;
   }
   .trio-screen .my-hand {
