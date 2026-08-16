@@ -24,10 +24,17 @@ const FLIP7_ACTION_LABEL = { freeze: '❄️ Freeze', flipThree: '🔀 Flip Thre
 let flip7PrevCurrentPlayerId = null;
 let flip7BustFreeze = null; // { name, display } pendant le gel, sinon null
 let flip7BustFreezeTimer = null;
+// Dernier appel reçu PENDANT le gel (ex: un bot a déjà rejoué) — sans ça, le
+// setTimeout ci-dessous ré-affiche l'état capturé au moment du gel (périmé)
+// au lieu du dernier connu, et peut définitivement désynchroniser l'écran de
+// l'état réel de la partie (plus aucune main/bouton visible pour le joueur
+// dont c'est vraiment le tour = partie qui semble bloquée).
+let flip7LatestArgs = null;
 
 export function resetSelection() {
   flip7PrevCurrentPlayerId = null;
   flip7BustFreeze = null;
+  flip7LatestArgs = null;
   if (flip7BustFreezeTimer) {
     window.clearTimeout(flip7BustFreezeTimer);
     flip7BustFreezeTimer = null;
@@ -35,7 +42,10 @@ export function resetSelection() {
 }
 
 export function renderTable(container, { room, player, state, onLeave }) {
-  if (flip7BustFreezeTimer) return; // le gel en cours affiche déjà la bonne vue, rien à refaire
+  if (flip7BustFreezeTimer) {
+    flip7LatestArgs = { container, room, player, state, onLeave };
+    return; // le gel en cours affiche déjà la bonne vue — on mémorise juste la suite pour après
+  }
 
   const bustedPlayer =
     flip7PrevCurrentPlayerId && flip7PrevCurrentPlayerId !== state.currentPlayerId
@@ -48,8 +58,10 @@ export function renderTable(container, { room, player, state, onLeave }) {
     flip7BustFreezeTimer = window.setTimeout(() => {
       flip7BustFreezeTimer = null;
       flip7BustFreeze = null;
-      flip7PrevCurrentPlayerId = state.currentPlayerId;
-      renderTable(container, { room, player, state, onLeave });
+      const latest = flip7LatestArgs || { container, room, player, state, onLeave };
+      flip7LatestArgs = null;
+      flip7PrevCurrentPlayerId = latest.state.currentPlayerId;
+      renderTable(latest.container, latest);
     }, 1000);
     return;
   }
