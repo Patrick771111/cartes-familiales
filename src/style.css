@@ -648,24 +648,24 @@ h1 {
 /* Main en deux rangées superposées, groupées par rang (ce qui compte au Trou du
    Cul) : jamais de défilement horizontal nécessaire — tout est calculé pour
    tenir dans la largeur de l'écran, y compris dans le pire des cas (aucune paire
-   en main). La deuxième rangée ne chevauche que légèrement la première, pour que
-   chaque carte reste facile à toucher individuellement. */
+   en main). column-reverse : la 2e rangée (.trouduc-hand-row--2, seconde dans le
+   DOM) s'affiche au-dessus de la première — c'est donc la première
+   (.trouduc-hand-row, plus proche des bulles) qui chevauche légèrement vers le
+   haut, en avant-plan, pour que chaque carte reste facile à toucher individuellement. */
 .trouduc-hand-rows {
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   padding: 8px 4px;
 }
 .trouduc-hand-row {
   display: flex;
   align-items: flex-end;
-}
-.trouduc-hand-row--2 {
   margin-top: -20px;
   position: relative;
   z-index: 1;
 }
 @media (min-width: 700px) {
-  .trouduc-hand-row--2 {
+  .trouduc-hand-row {
     margin-top: 6px;
   }
 }
@@ -1418,6 +1418,7 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
    l'estompage (opacity) rendait ça trop illisible ici. Même traitement à
    l'Uno, voir style.css section Uno. */
 .americain-screen .hand-card--unplayable { opacity: 1; }
+.americain-screen .hand-card--unplayable .card { filter: grayscale(1) brightness(0.7); }
 
 .americain-center {
   display: flex;
@@ -1659,7 +1660,7 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
    filter grayscale générique de `.hand-card--unplayable .card` (classe
    différente) : il faut le poser explicitement ici. */
 .uno-screen .hand-card--unplayable { opacity: 1; }
-.uno-screen .hand-card--unplayable .uno-card { filter: grayscale(0.6); }
+.uno-screen .hand-card--unplayable .uno-card { filter: grayscale(1) brightness(0.7); }
 
 .uno-pending-draw {
   text-align: center;
