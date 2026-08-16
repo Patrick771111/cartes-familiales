@@ -88,6 +88,34 @@ export function abandonButtonLabel(state, player) {
   return state.hostId === player.id ? 'Abandonner la partie' : 'Quitter la partie';
 }
 
+/**
+ * Journal de la partie en popup (bulle 📄 du HUD) plutôt qu'un <details>
+ * repliable dans le flux de la main — même famille de modale que les
+ * réglages/règles. `state.log` passé directement : la modale n'a pas besoin
+ * de rester "live", elle se ferme avant le prochain tour de toute façon.
+ */
+export function openLogModal(state) {
+  const overlay = document.createElement('div');
+  overlay.className = 'settings-overlay';
+  overlay.innerHTML = `
+    <div class="settings-modal rules-modal" role="dialog" aria-modal="true" aria-label="Journal de la partie">
+      <div class="settings-modal__header">
+        <h2>Journal de la partie</h2>
+        <button type="button" class="settings-modal__close" aria-label="Fermer">✕</button>
+      </div>
+      <div class="rules-modal__content">
+        <ul class="log-modal__list">${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('') || '<li>Rien à signaler pour l\'instant.</li>'}</ul>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+  overlay.querySelector('.settings-modal__close').addEventListener('click', close);
+}
+
 export function wireEndGameActions(container, room) {
   container.querySelector('#btn-continue')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
