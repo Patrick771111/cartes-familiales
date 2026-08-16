@@ -8,6 +8,7 @@ import { suiteInfernaleSequenceHtml } from './games/suiteinfernale.js';
 import { flip7CardHtml } from './games/flip7.js';
 import { skyjoGridHtml } from './games/skyjo.js';
 import { unoCardHtml } from './games/uno.js';
+import { gameCoverImage } from './gameCovers.js';
 
 // Un fichier par jeu, découvert dynamiquement : ajouter/retirer un jeu ne
 // touche jamais ce fichier, il suffit d'ajouter/retirer src/ui/games/<id>.js
@@ -100,13 +101,19 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
               <div class="game-picker">
                 <p class="game-picker__label">Quel jeu ?</p>
                 <div class="game-picker__options">
-                  ${AVAILABLE_GAMES.map(
-                    (g) => `
-                      <label class="game-picker__option">
+                  ${AVAILABLE_GAMES.map((g) => {
+                    const cover = gameCoverImage(g.id);
+                    return `
+                      <label class="game-picker__option ${cover ? 'game-picker__option--cover' : ''}" title="${g.label} — ${g.hint}">
                         <input type="radio" name="game" value="${g.id}" ${g.id === selectedGameId ? 'checked' : ''} />
-                        <span>${g.label}<br/><small>${g.hint}</small></span>
-                      </label>`
-                  ).join('')}
+                        ${
+                          cover
+                            ? `<span class="game-picker__art" style="background-image:url('${cover}')"></span>
+                               <span class="game-picker__hint">${g.hint}</span>`
+                            : `<span class="game-picker__fallback"><span class="game-picker__fallback-label">${g.label}</span><small>${g.hint}</small></span>`
+                        }
+                      </label>`;
+                  }).join('')}
                 </div>
               </div>
               <button id="btn-start" class="btn btn--primary"></button>`

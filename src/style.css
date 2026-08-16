@@ -295,24 +295,69 @@ h1 {
   color: rgba(247, 241, 225, 0.5);
   margin: 0 0 8px;
 }
-.game-picker__options { display: flex; flex-direction: column; gap: 8px; }
-.game-picker__option {
-  display: flex;
-  align-items: center;
+/* Jaquettes façon Steam — grille de capsules plutôt qu'une liste de radios
+   textuelles ; l'input radio reste dans le DOM (accessibilité, clic natif
+   sur le <label>) mais visuellement masqué, `:has(input:checked)` porte la
+   sélection. */
+.game-picker__options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
   gap: 10px;
-  background: var(--felt-900);
-  border: 1px solid var(--line);
+}
+.game-picker__option {
+  position: relative;
+  aspect-ratio: 2 / 3;
   border-radius: 10px;
-  padding: 10px 14px;
-  font-size: 14px;
+  overflow: hidden;
   cursor: pointer;
+  background: var(--felt-900);
+  border: 2px solid var(--line);
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.game-picker__option:has(input:checked) { border-color: var(--brass); }
-.game-picker__option input { accent-color: var(--brass); width: 16px; height: 16px; }
-.game-picker__option small {
-  color: rgba(247, 241, 225, 0.5);
-  font-size: 12px;
+.game-picker__option:hover { transform: translateY(-2px); }
+.game-picker__option:has(input:checked) {
+  border-color: var(--brass);
+  box-shadow: 0 0 0 2px rgba(201, 162, 39, 0.35), 0 6px 14px rgba(0,0,0,0.4);
 }
+.game-picker__option:focus-within { outline: 2px solid var(--brass-soft); outline-offset: 2px; }
+.game-picker__option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  margin: 0;
+}
+
+.game-picker__art { position: absolute; inset: 0; background-size: cover; background-position: center; }
+/* Nombre de joueurs en incrustation plutôt qu'à côté : les jaquettes portent
+   déjà le titre du jeu, un second libellé ferait doublon. */
+.game-picker__hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 5px 6px 3px;
+  font-size: 9px;
+  line-height: 1.2;
+  text-align: center;
+  color: rgba(247, 241, 225, 0.92);
+  background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+}
+
+/* Repli texte pour un jeu sans jaquette encore fournie — même gabarit de
+   carte que les jaquettes illustrées, pour rester cohérent dans la grille. */
+.game-picker__fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 100%;
+  padding: 8px 6px;
+  text-align: center;
+}
+.game-picker__fallback-label { font-size: 12px; font-weight: 600; line-height: 1.2; }
+.game-picker__fallback small { color: rgba(247, 241, 225, 0.5); font-size: 9px; }
 
 /* ---------- Table de jeu ---------- */
 
