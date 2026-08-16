@@ -78,6 +78,31 @@ h1 {
 
 /* ---------- Carte "panneau" (lobby / attente / fin) ---------- */
 
+.lobby-card__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.lobby-card__heading h1 { margin: 0 0 16px; }
+.lobby-card__close {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: rgba(247, 241, 225, 0.55);
+  width: 30px;
+  height: 30px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.lobby-card__close:hover, .lobby-card__close:focus-visible {
+  color: #F0B4B4;
+  border-color: #F0B4B4;
+}
+
 .lobby-card {
   width: 100%;
   max-width: 420px;
@@ -96,12 +121,6 @@ h1 {
 }
 
 .lobby-form { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
-
-.lobby-card__rename-hint {
-  font-size: 13px;
-  color: rgba(247, 241, 225, 0.5);
-  margin: 4px 0 0;
-}
 
 .lobby-form label {
   font-size: 13px;
@@ -201,31 +220,38 @@ h1 {
   font-family: var(--font-mono);
 }
 
-.player-list { list-style: none; padding: 0; margin: 0 0 24px; display: flex; flex-direction: column; gap: 8px; }
-.player-list li {
+/* Bulles ajustées au contenu plutôt qu'une ligne pleine largeur par
+   participant — flex-wrap pour que plusieurs bulles se partagent une ligne. */
+.player-list { list-style: none; padding: 0; margin: 0 0 24px; display: flex; flex-wrap: wrap; gap: 8px; }
+.player-chip {
   background: var(--felt-900);
-  border-radius: 10px;
-  padding: 10px 14px;
-  font-size: 15px;
-  display: flex;
+  border-radius: 999px;
+  padding: 6px 8px 6px 14px;
+  font-size: 14px;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 6px;
+  max-width: 100%;
+}
+.player-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.player-list__kick {
+.player-chip__kick {
   background: none;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 50%;
   color: rgba(247, 241, 225, 0.55);
-  width: 36px;
-  height: 36px;
+  width: 22px;
+  height: 22px;
   flex-shrink: 0;
-  font-size: 15px;
+  font-size: 11px;
   line-height: 1;
   cursor: pointer;
 }
-.player-list__kick:hover, .player-list__kick:focus-visible {
+.player-chip__kick:hover, .player-chip__kick:focus-visible {
   color: #F0B4B4;
   border-color: #F0B4B4;
 }
@@ -280,7 +306,7 @@ h1 {
   color: var(--felt-900);
   padding: 2px 7px;
   border-radius: 5px;
-  margin-left: 6px;
+  flex-shrink: 0;
 }
 .tag--you { background: var(--felt-500); color: var(--cream); }
 
@@ -329,20 +355,12 @@ h1 {
 }
 
 .game-picker__art { position: absolute; inset: 0; background-size: cover; background-position: center; }
-/* Nombre de joueurs en incrustation plutôt qu'à côté : les jaquettes portent
-   déjà le titre du jeu, un second libellé ferait doublon. */
-.game-picker__hint {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 5px 6px 3px;
-  font-size: 9px;
-  line-height: 1.2;
-  text-align: center;
-  color: rgba(247, 241, 225, 0.92);
-  background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
-}
+
+/* Effectif actuel incompatible avec ce jeu (min/max ou règle spéciale — voir
+   playerCountAllowed dans engine.js) : jaquette grisée plutôt qu'un texte
+   d'effectif en incrustation ; le détail reste accessible via le `title`. */
+.game-picker__option--disabled { opacity: 0.5; filter: grayscale(0.8); }
+.game-picker__option--disabled:hover { transform: none; }
 
 /* Repli texte pour un jeu sans jaquette encore fournie — même gabarit de
    carte que les jaquettes illustrées, pour rester cohérent dans la grille. */

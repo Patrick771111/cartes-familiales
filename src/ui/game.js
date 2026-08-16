@@ -1,5 +1,5 @@
 import { cardFaceHtml, cardBackHtml } from './cards.js';
-import { AVAILABLE_GAMES, startGame, claimHost, addBot, HOST_STALE_MS } from '../game/engine.js';
+import { AVAILABLE_GAMES, startGame, claimHost, addBot, HOST_STALE_MS, playerCountAllowed } from '../game/engine.js';
 import { rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { SEQUENCE_TARGET as SUITE_INFERNALE_TARGET } from '../game/suiteinfernale.js';
 import { connectionBadge, getRevealHands, toggleRevealHands, resetRevealHands } from './gameShared.js';
@@ -52,7 +52,6 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   if (selectedGameIdByRoom?.roomId !== room.id) selectedGameIdByRoom = null;
   const selectedGameId = selectedGameIdByRoom?.gameId || AVAILABLE_GAMES[0].id;
   const isHost = state.hostId === player.id;
-  const me = state.players.find((p) => p.id === player.id);
   const currentHost = state.players.find((p) => p.id === state.hostId);
   const hostIsBot = currentHost?.isBot === true;
   const hostIsStale = !hostIsBot && Date.now() - (state.hostLastSeen || 0) > HOST_STALE_MS;
@@ -62,7 +61,10 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
     <div class="screen screen--waiting">
       <div class="lobby-card">
         <p class="eyebrow">Cartes en famille</p>
-        <h1>${state.roomEmoji || '🎲'} ${state.roomName || 'Table ouverte'}</h1>
+        <div class="lobby-card__heading">
+          <h1>${state.roomEmoji || '🎲'} Salon ${state.roomName || 'ouvert'}</h1>
+          <button class="lobby-card__close" id="btn-leave" title="Quitter la table" aria-label="Quitter la table">✕</button>
+        </div>
         <p class="lobby-card__intro">
           ${
             hostIsBot
@@ -79,9 +81,10 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
           ${state.players
             .map(
               (p) => `
-                <li>
-                  <span>${p.name}${connectionBadge(state, p.id)}${p.isBot ? ' 🤖' : ''}${p.id === state.hostId ? ' <span class="tag">hôte</span>' : ''}${p.id === player.id ? ' <span class="tag tag--you">toi</span>' : ''}</span>
-                  ${isHost && p.id !== player.id ? `<button class="player-list__kick" data-kick-id="${p.id}" title="Retirer ${p.name}" aria-label="Retirer ${p.name}">✕</button>` : ''}
+                <li class="player-chip">
+                  <span class="player-chip__name">${p.name}${connectionBadge(state, p.id)}${p.isBot ? ' 🤖' : ''}</span>
+                  ${p.id === state.hostId ? '<span class="tag">hôte</span>' : ''}${p.id === player.id ? '<span class="tag tag--you">toi</span>' : ''}
+                  ${isHost && p.id !== player.id ? `<button class="player-chip__kick" data-kick-id="${p.id}" title="Retirer ${p.name}" aria-label="Retirer ${p.name}">✕</button>` : ''}
                 </li>`
             )
             .join('')}
@@ -103,13 +106,13 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
                 <div class="game-picker__options">
                   ${AVAILABLE_GAMES.map((g) => {
                     const cover = gameCoverImage(g.id);
+                    const disabled = !playerCountAllowed(g.id, state.players.length);
                     return `
-                      <label class="game-picker__option ${cover ? 'game-picker__option--cover' : ''}" title="${g.label} — ${g.hint}">
+                      <label class="game-picker__option ${cover ? 'game-picker__option--cover' : ''} ${disabled ? 'game-picker__option--disabled' : ''}" title="${g.label} — ${g.hint}">
                         <input type="radio" name="game" value="${g.id}" ${g.id === selectedGameId ? 'checked' : ''} />
                         ${
                           cover
-                            ? `<span class="game-picker__art" style="background-image:url('${cover}')"></span>
-                               <span class="game-picker__hint">${g.hint}</span>`
+                            ? `<span class="game-picker__art" style="background-image:url('${cover}')"></span>`
                             : `<span class="game-picker__fallback"><span class="game-picker__fallback-label">${g.label}</span><small>${g.hint}</small></span>`
                         }
                       </label>`;
@@ -119,8 +122,6 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
               <button id="btn-start" class="btn btn--primary"></button>`
             : ''
         }
-        <p class="lobby-card__rename-hint">Ce n'est pas ${me?.name || 'toi'} ? Change de prénom dans les réglages ⚙️ (en haut à droite).</p>
-        <button class="btn btn--link" id="btn-leave">Quitter la table</button>
       </div>
     </div>
   `;
@@ -130,11 +131,11 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
     if (!startBtn) return;
     const selectedId = container.querySelector('input[name="game"]:checked')?.value;
     const game = AVAILABLE_GAMES.find((g) => g.id === selectedId) || AVAILABLE_GAMES[0];
-    const canStart = state.players.length >= game.minPlayers;
+    const canStart = playerCountAllowed(game.id, state.players.length);
     startBtn.disabled = !canStart;
     startBtn.textContent = canStart
       ? `Lancer la partie (${state.players.length} joueur${state.players.length > 1 ? 's' : ''})`
-      : `En attente (minimum ${game.minPlayers} joueur${game.minPlayers > 1 ? 's' : ''})`;
+      : `En attente (${game.hint})`;
   };
   updateStartButton();
   container.querySelectorAll('input[name="game"]').forEach((r) =>

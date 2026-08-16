@@ -53,6 +53,29 @@ AVAILABLE_GAMES_LIST.sort((a, b) => a.label.localeCompare(b.label, 'fr'));
 export const AVAILABLE_GAMES = AVAILABLE_GAMES_LIST;
 const DEFAULT_GAME = AVAILABLE_GAMES_LIST.find((g) => g.id === 'pouilleux')?.id || AVAILABLE_GAMES_LIST[0]?.id;
 
+/**
+ * `playerCount` permet-il de lancer `gameId` ? Même règle que `startGame`
+ * (`validatePlayerCount` custom si le jeu en définit un — ex. trouduc.js,
+ * "exactement 4" — sinon min/max de `meta`), réutilisée par le sélecteur de
+ * jeu pour griser les jaquettes incompatibles avec l'effectif actuel.
+ */
+export function playerCountAllowed(gameId, playerCount) {
+  const mod = GAME_INITIALIZERS[gameId];
+  if (!mod) return true;
+  if (mod.validatePlayerCount) {
+    try {
+      mod.validatePlayerCount(Array.from({ length: playerCount }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const minPlayers = mod.meta?.minPlayers ?? 2;
+  if (playerCount < minPlayers) return false;
+  if (mod.meta?.maxPlayers && playerCount > mod.meta.maxPlayers) return false;
+  return true;
+}
+
 /** Crée un nouveau salon vide (salle d'attente) sur le premier jeu disponible. */
 export async function createNewRoom() {
   return core.createNewRoom(DEFAULT_GAME);
