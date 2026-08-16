@@ -222,21 +222,6 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
         </div>
 
         ${
-          (() => {
-            const text = finished
-              ? 'Partie terminée'
-              : state.pendingAttack
-                ? '' // le bandeau d'attaque ci-dessous suffit
-                : isMyTurn
-                  ? canDraw
-                    ? 'Touche la pioche'
-                    : 'Joue une carte, ou défausses-en une'
-                  : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`;
-            return text ? `<div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">${text}</div>` : '';
-          })()
-        }
-
-        ${
           pendingAttackInfo
             ? `<div class="suiteinfernale-attack-banner">
                  <p>${pendingAttackInfo.attackerName} attaque ${pendingAttackInfo.targetName} avec ${pendingAttackInfo.label} !</p>

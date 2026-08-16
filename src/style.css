@@ -3780,13 +3780,11 @@ body.is-card-dragging * {
   background-position: center;
   background-repeat: no-repeat;
 }
+/* Pas de panneau de feutre séparé : le fond de l'écran (photo + dégradé,
+   voir .suiteinfernale-screen) apparaît directement derrière la suite/main. */
 .suiteinfernale-felt {
-  background-image:
-    radial-gradient(120% 100% at 50% 30%, rgba(43, 90, 66, 0.8), rgba(23, 61, 44, 0.9) 75%),
-    url('/assets/backgrounds/games/suiteinfernale.jpg') !important;
-  background-size: cover, cover !important;
-  background-position: center, center !important;
-  background-repeat: no-repeat !important;
+  background: none !important;
+  border: none;
 }
 
 /* --- Cinq Rois --- */
