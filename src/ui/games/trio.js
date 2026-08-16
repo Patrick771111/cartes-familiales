@@ -1,5 +1,6 @@
 import { revealTrioCenter, revealTrioRow, confirmTrioTurn } from '../../game/trio.js';
 import { openRulesModal } from '../rules.js';
+import { gameCardImage } from '../cardThemes.js';
 import {
   connectionBadge,
   endGameActionsHtml,
@@ -22,8 +23,29 @@ export function renderTable(container, { room, player, state, onLeave }) {
   renderTrioTable(container, { room, player, state, onLeave });
 }
 
-function trioCardHtml(value, { faceUp = false, lifted = false } = {}) {
-  return `<div class="trio-cell ${faceUp ? 'trio-cell--faceup' : 'trio-cell--facedown'} ${lifted ? 'trio-cell--lifted' : ''}">${faceUp ? value : ''}</div>`;
+/**
+ * Rotation + décalage vertical stables par id de carte (jamais Math.random,
+ * qui ferait "sauter" le vrac à chaque re-rendu) — voir centerHtml : le
+ * centre est piochable n'importe où (contrairement aux mains, triées, où
+ * seules les deux extrémités comptent), le désordre visuel le signale.
+ */
+function trioJitter(seed) {
+  let h = 0;
+  const s = String(seed);
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return { angle: (Math.abs(h) % 17) - 8, offsetY: (Math.abs(h >> 4) % 7) - 3 };
+}
+
+function trioCardHtml(value, { faceUp = false, lifted = false, jitter = null } = {}) {
+  const theme = document.documentElement.dataset.cardTheme;
+  const illustration = faceUp ? gameCardImage(theme, 'trio', String(value), value) : null;
+  const bg = illustration ? `background-image:url('${illustration}');` : '';
+  // `lifted` (transform CSS via classe) et `jitter` (transform inline) ne se
+  // combinent jamais en pratique : lifted ne s'utilise que sur sa propre
+  // main (toujours triée, jamais en vrac), jitter que sur le centre.
+  const rotate = jitter ? `transform: rotate(${jitter.angle}deg) translateY(${jitter.offsetY}px);` : '';
+  const style = bg || rotate ? ` style="${bg}${rotate}"` : '';
+  return `<div class="trio-cell ${faceUp ? 'trio-cell--faceup' : 'trio-cell--facedown'} ${illustration ? 'trio-cell--illustrated' : ''} ${lifted ? 'trio-cell--lifted' : ''}"${style}>${faceUp && !illustration ? value : ''}</div>`;
 }
 
 /** 3 trophées à côté du nom d'un joueur, allumés selon son nombre de trios trouvés (objectif : 3 pour gagner, ou 1 seul si c'est le trio de 7). */
@@ -80,17 +102,28 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
 
   const finished = state.status === 'finished';
 
-  const actionHint = !isMyTurn
-    ? awaitingConfirm
-      ? `${currentName || '…'} regarde le résultat…`
-      : `Tour de ${currentName || '…'}`
-    : awaitingConfirm
-      ? state.turnOutcome.type === 'success'
-        ? `Trio de ${state.turnOutcome.trioValue} !`
-        : 'Pas de correspondance — les cartes retournent se cacher.'
-      : state.pendingReveals.length === 0
-        ? 'Révèle une carte : le centre, ou une extrémité (main d\'un adversaire ou la tienne).'
-        : 'Encore une carte identique à trouver !';
+// Texte visible du bandeau très court (surtout pour "à toi de jouer", le cas
+// le plus fréquent) — l'explication complète passe en infobulle (`title`,
+// même convention que Cinq Rois/Suite Infernale) plutôt que d'imposer une
+// longue phrase à l'écran à chaque tour.
+let actionHint;
+let actionHintDetail = '';
+if (!isMyTurn) {
+  actionHint = awaitingConfirm ? `${currentName || '…'} regarde…` : `Tour de ${currentName || '…'}`;
+} else if (awaitingConfirm) {
+  if (state.turnOutcome.type === 'success') {
+    actionHint = `Trio de ${state.turnOutcome.trioValue} !`;
+  } else {
+    actionHint = 'Pas de trio';
+    actionHintDetail = 'Pas de correspondance — les cartes retournent se cacher.';
+  }
+} else if (state.pendingReveals.length === 0) {
+  actionHint = 'Ton tour';
+  actionHintDetail = 'Révèle une carte : le centre, ou une extrémité (main d\'un adversaire ou la tienne).';
+} else {
+  actionHint = 'Encore une !';
+  actionHintDetail = 'Encore une carte identique à trouver pour valider le trio.';
+}
 
   const winnerBanner = finished
     ? `<p class="flip7-banner flip7-banner--winner">🃏 ${
@@ -104,13 +137,14 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
   // pouvoir revoir la répartition finale.
   const centerHtml = state.center
     .map((c) => {
-      if (c.taken) return `<div class="trio-cell trio-cell--gone"></div>`;
-      if (revealedIds.has(c.id) || finished) return trioCardHtml(c.value, { faceUp: true });
+      const jitter = trioJitter(c.id);
+      if (c.taken) return `<div class="trio-cell trio-cell--gone" style="transform: rotate(${jitter.angle}deg) translateY(${jitter.offsetY}px);"></div>`;
+      if (revealedIds.has(c.id) || finished) return trioCardHtml(c.value, { faceUp: true, jitter });
       const clickable = canReveal;
       if (clickable) {
-        return `<button type="button" class="trio-cell-btn" data-center-id="${c.id}">${trioCardHtml(0, { faceUp: false })}</button>`;
+        return `<button type="button" class="trio-cell-btn" data-center-id="${c.id}">${trioCardHtml(0, { faceUp: false, jitter })}</button>`;
       }
-      return trioCardHtml(0, { faceUp: false });
+      return trioCardHtml(0, { faceUp: false, jitter });
     })
     .join('');
 
@@ -132,7 +166,7 @@ function renderTrioTable(container, { room, player, state, onLeave }) {
 
       <div class="table-felt trio-felt">
         ${winnerBanner}
-        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">${actionHint}</div>
+        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}"${actionHintDetail ? ` title="${actionHintDetail}"` : ''}>${actionHint}</div>
 
         <div class="trio-center">
           <p class="trio-center__label">Centre</p>

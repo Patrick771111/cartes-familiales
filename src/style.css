@@ -2063,6 +2063,26 @@ body.is-card-dragging * {
   .cinqrois-screen .cinqrois-center {
     justify-content: center;
   }
+
+  /* Trio : .trio-screen porte sa propre règle flex-direction:column (mode
+     portrait, définie plus loin dans ce fichier) — à spécificité égale avec
+     .screen--table ci-dessus, c'est elle qui l'emporte par ordre de
+     cascade, et le mode paysage ne s'applique jamais. Sélecteur à deux
+     classes ci-dessous pour gagner en spécificité, peu importe l'ordre. */
+  .screen--table.trio-screen {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  /* 3 sections (adversaires / feutre / ma main) au lieu des 2 habituelles
+     (feutre / main) — sans flex-basis explicite, la zone adversaires ne
+     suit pas les proportions 52%/38% des deux autres et le tout se
+     retrouve décentré. Elle prend toute la largeur de la rangée (passe
+     donc au-dessus, feutre+main restant côte à côte en dessous), centrée
+     comme le reste par le `justify-content: center` du parent. */
+  .trio-screen .trio-opponents {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
 }
 
 /* Cinq Rois paysage (y compris tablettes / laptop large) : centrer le plateau */
@@ -2688,8 +2708,9 @@ body.is-card-dragging * {
 }
 .trio-felt { padding: 16px 12px; text-align: center; }
 .trio-cell {
-  width: 34px;
-  height: 46px;
+  position: relative;
+  width: 36px;
+  height: 54px;
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -2699,17 +2720,54 @@ body.is-card-dragging * {
   font-size: 16px;
   box-sizing: border-box;
   flex: 0 0 auto;
+  overflow: hidden;
+  container-type: inline-size;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
+/* Dos de carte : même médaillon laiton que le reste de l'appli (voir
+   .card--back dans "Carte à jouer") plutôt que le dégradé vert générique
+   d'origine — cohérent visuellement avec les autres jeux. */
 .trio-cell--facedown {
-  background: linear-gradient(145deg, #2f6b3a, #1e4a28);
-  border: 2px solid #8fd49a;
+  background: repeating-linear-gradient(45deg, var(--felt-600) 0 4px, var(--felt-700) 4px 8px);
+  border: 1.5px solid var(--brass);
+}
+.trio-cell--facedown::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 46%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1.5px solid var(--brass-soft);
+  background: var(--felt-900);
+}
+.trio-cell--facedown::after {
+  content: 'CF';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 24cqw;
+  color: var(--brass-soft);
 }
 .trio-cell--faceup {
   background: radial-gradient(circle at 30% 30%, #fdf6e3, #e4c765);
   border: 2px solid var(--brass);
   color: #3a2e0a;
   box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+}
+/* Illustration (voir gameCardImage dans cards.js/trio.js) : remplace le
+   fond doré générique + le chiffre texte, l'image contient déjà sa propre
+   mise en page (chiffre + motif décoratif par valeur). */
+.trio-cell--illustrated {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-color: rgba(0,0,0,0.15);
 }
 /* Carte de sa PROPRE main choisie ce tour-ci : déjà face visible pour son
    propriétaire (voir alwaysFaceUp), donc un retournement ne dirait rien —
@@ -2776,7 +2834,7 @@ body.is-card-dragging * {
   filter: none;
   text-shadow: 0 0 6px rgba(201, 162, 39, 0.8);
 }
-.trio-player .trio-cell { width: 22px; height: 30px; font-size: 11px; }
+.trio-player .trio-cell { width: 22px; height: 33px; font-size: 11px; }
 
 .trio-my-hand {
   background: rgba(0,0,0,0.22);
