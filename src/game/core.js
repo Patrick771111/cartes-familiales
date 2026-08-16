@@ -276,6 +276,38 @@ export async function ensureMembership(room, profile) {
   throw new Error('Impossible de rejoindre la table, réessaie.');
 }
 
+/**
+ * Un spectateur (partie déjà lancée, profil absent de `state.players`) prend
+ * la place d'un bot précis plutôt que de rester simple observateur — offert
+ * par la vue spectateur dès qu'au moins un bot est présent (voir
+ * renderSpectatorGame). Renomme l'entrée avec le vrai prénom du joueur : à la
+ * différence de la reprise de contrôle de `ensureMembership` (même nom déjà),
+ * ici l'identité change vraiment.
+ */
+export async function replaceBotWithPlayer(room, botId, profile) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const fresh = await fetchRoomById(room.id);
+    const bot = fresh.state.players.find((p) => p.id === botId);
+    if (!bot || !bot.isBot) throw new Error("Ce bot n'est plus disponible — réessaie.");
+
+    const reassigned = reassignPlayerId(fresh.state, botId, profile.id);
+    const newState = {
+      ...reassigned,
+      players: reassigned.players.map((p) =>
+        p.id === profile.id ? { ...p, name: profile.name, isBot: false, replacedHuman: false, lastSeen: Date.now() } : p
+      ),
+      log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} prend la place de ${bot.name}.` }]
+    };
+
+    try {
+      return await updateRoomState(fresh.id, fresh.version, newState);
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+    }
+  }
+  throw new Error('Impossible de remplacer ce bot, réessaie.');
+}
+
 /** Choisit le nouvel hôte parmi les joueurs restants : toujours un humain en priorité (un bot ne peut pas cliquer sur "Lancer la partie"). */
 function pickNewHost(remainingPlayers) {
   const human = remainingPlayers.find((p) => !p.isBot);

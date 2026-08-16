@@ -8,6 +8,6 @@ export const html = `
     <li>Cartes spéciales : <strong>+2/+4/+6/+8/+10</strong> et <strong>×2</strong> ajoutent des points sans compter comme numéro (le ×2 double le total de tes numéros). <strong>Freeze</strong> t'arrête net. <strong>Flip Three</strong> te force à révéler 3 cartes de plus d'affilée (peut en déclencher d'autres à la chaîne). <strong>Seconde Chance</strong> te sauve une fois d'un numéro en double.</li>
     <li>Score de la manche : perdu (passé) = 0 ; sinon, somme des numéros (×2 si applicable) + bonus fixes + bonus Flip 7 — ajouté à ton score total.</li>
     <li>Premier à atteindre 200 points cumulés : gagne la partie (le jeu continue quand même si vous voulez enchaîner d'autres manches).</li>
-    <li>"Continuer" garde les scores cumulés d'une manche à l'autre ; "Retour au lobby" remet tout le monde à 0.</li>
+    <li>"Continuer" garde les scores cumulés d'une manche à l'autre ; "Retour au salon" remet tout le monde à 0.</li>
   </ul>
 `;

@@ -1,8 +1,8 @@
 import { cardFaceHtml, cardBackHtml } from './cards.js';
-import { AVAILABLE_GAMES, startGame, claimHost, addBot, HOST_STALE_MS, playerCountAllowed } from '../game/engine.js';
+import { AVAILABLE_GAMES, startGame, claimHost, addBot, HOST_STALE_MS, playerCountAllowed, replaceBotWithPlayer } from '../game/engine.js';
 import { rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { SEQUENCE_TARGET as SUITE_INFERNALE_TARGET } from '../game/suiteinfernale.js';
-import { connectionBadge, getRevealHands, toggleRevealHands, resetRevealHands } from './gameShared.js';
+import { connectionBadge, resetRevealHands } from './gameShared.js';
 import { trioCardHtml, trioRowHtml, trioTrophiesHtml, trioJitter } from './games/trio.js';
 import { suiteInfernaleSequenceHtml } from './games/suiteinfernale.js';
 import { flip7CardHtml } from './games/flip7.js';
@@ -272,16 +272,18 @@ function spectatorHandHtml(game, state, p, reveal) {
   return '';
 }
 
-export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms }) {
+export function renderSpectatorGame(container, { room, player, gameLabel, onBackToRooms }) {
   const state = room.state;
   const isTrouduc = room.game === 'trouduc';
   const currentName = state.players.find((p) => p.id === state.currentPlayerId)?.name;
   // Jeux de plateau / info ouverte : déjà entièrement visible d'un vrai
   // joueur en partie (mains adverses publiques, ou plateau qui gère lui-même
-  // la visibilité carte par carte comme Skyjo/Trio) — pas de bouton masquer.
+  // la visibilité carte par carte comme Skyjo/Trio). Pour les autres (main
+  // privée en vrai jeu), le spectateur ne voit que le public — plus de bouton
+  // pour tricher et regarder les mains cachées, surtout maintenant qu'il peut
+  // rejoindre la partie en prenant la place d'un bot (voir plus bas).
   const openInfoGame = ['luckynumbers', 'flip7', 'blackjack', 'skyjo', 'suiteinfernale', 'trio'].includes(room.game);
-  const revealHands = getRevealHands();
-  const showBoards = openInfoGame || revealHands;
+  const showBoards = openInfoGame;
 
   const pileHtml = isTrouduc
     ? state.pileCount > 0
@@ -385,17 +387,16 @@ export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms 
                     <span class="spectator-player__name">${p.name}${connectionBadge(state, p.id)}${p.isBot ? ' 🤖' : ''}</span>
                     <span class="spectator-player__status">${roleLabel}${status}</span>
                   </div>
+                  ${
+                    p.isBot
+                      ? `<button class="btn btn--ghost btn--small" data-replace-bot-id="${p.id}">Prendre la place de ${p.name}</button>`
+                      : ''
+                  }
                   ${handHtml}
                 </li>`;
             })
             .join('')}
         </ul>
-
-        ${
-          openInfoGame
-            ? ''
-            : `<button id="btn-toggle-reveal" class="btn btn--ghost btn--small">${revealHands ? 'Masquer les mains' : 'Afficher les mains'}</button>`
-        }
 
         ${pileHtml}
         ${discardTopHtml}
@@ -410,12 +411,24 @@ export function renderSpectatorGame(container, { room, gameLabel, onBackToRooms 
     </div>
   `;
 
-  container.querySelector('#btn-toggle-reveal')?.addEventListener('click', () => {
-    toggleRevealHands();
-    renderSpectatorGame(container, { room, gameLabel, onBackToRooms });
-  });
-
   container.querySelector('#btn-back-to-rooms')?.addEventListener('click', () => {
     onBackToRooms?.();
+  });
+
+  container.querySelectorAll('[data-replace-bot-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = '…';
+      try {
+        await replaceBotWithPlayer(room, btn.dataset.replaceBotId, player);
+        // La suite (passage à la vue joueur normale) se fait toute seule au
+        // prochain rendu réactif — voir draw() dans main.js, qui bascule dès
+        // que le profil local apparaît dans state.players.
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = `Prendre la place de ce bot`;
+        alert(err.message || 'Impossible de remplacer ce bot.');
+      }
+    });
   });
 }

@@ -9,6 +9,6 @@ export const html = `
     <li>Si les 3 cartes d'une même colonne sont face visible avec la <strong>même valeur</strong>, la colonne entière est effacée (elle ne compte plus dans ton score).</li>
     <li>Dès que ta grille est entièrement retournée (ou effacée), chacun des autres joue encore un dernier tour, puis toutes les grilles sont révélées et comptées.</li>
     <li>Score de la manche : somme des cartes encore en jeu (de -2 à 12). Si tu es celui qui a terminé sa grille en premier <strong>sans avoir le score le plus bas</strong> de la manche, ton score est doublé !</li>
-    <li>"Continuer" garde les scores cumulés d'une manche à l'autre ; "Retour au lobby" remet tout le monde à 0. Premier à atteindre 100 points cumulés : la partie s'arrête, et c'est celui qui a le score cumulé <strong>le plus bas</strong> qui gagne.</li>
+    <li>"Continuer" garde les scores cumulés d'une manche à l'autre ; "Retour au salon" remet tout le monde à 0. Premier à atteindre 100 points cumulés : la partie s'arrête, et c'est celui qui a le score cumulé <strong>le plus bas</strong> qui gagne.</li>
   </ul>
 `;

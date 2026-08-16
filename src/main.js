@@ -146,6 +146,7 @@ function draw(room) {
   if (!stillMember && room.state.status !== 'lobby') {
     renderSpectatorGame(app, {
       room,
+      player: currentPlayer,
       gameLabel: GAME_TITLES[room.game],
       onBackToRooms: () => backToRoomList({ leaveFirst: false })
     });

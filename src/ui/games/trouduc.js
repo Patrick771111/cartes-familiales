@@ -139,8 +139,8 @@ function renderTrouducExchange(container, { room, player, state, onLeave }) {
             .join('')}
         </div>
 
-        <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
-        <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
+        <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
+        <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
       </div>
     </div>
   `;
@@ -420,8 +420,8 @@ function renderTrouducTable(container, { room, player, state, onLeave }) {
         <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
       </details>
 
-      <button class="btn btn--link" id="btn-rules">❓ Règles du jeu</button>
-      <button class="btn btn--link" id="btn-abandon">${abandonButtonLabel(state, player)}</button>
+      <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
+      <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
     </div>
   `;
 

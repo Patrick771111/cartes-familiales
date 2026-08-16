@@ -17,6 +17,7 @@ export {
   renameLocalPlayer,
   listActiveRooms,
   ensureMembership,
+  replaceBotWithPlayer,
   leaveTable,
   kickPlayer,
   addBot,

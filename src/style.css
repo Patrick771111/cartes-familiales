@@ -1142,6 +1142,35 @@ h1 {
 }
 .settings-fab:hover, .settings-fab:focus-visible { border-color: var(--brass); outline: none; }
 
+/* Table de jeu : la roue dentée descend en bas à gauche, à côté de la bulle
+   "?" (règles) — voir .game-hud__bubble juste en dessous, même famille
+   visuelle. Inchangé partout ailleurs (salons, salle d'attente…). */
+body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; left: 12px; }
+
+/* 3 bulles rondes communes à la table de jeu : réglages (bas gauche, voir
+   ci-dessus), règles "?" juste à côté, quitter "✕" en bas à droite — même
+   gabarit que .settings-fab pour former un jeu cohérent. Position fixe
+   (comme la roue dentée) : ces boutons vivent dans le flux HTML de chaque
+   jeu mais doivent rester ancrés à l'écran, pas au flux de la page. */
+.game-hud__bubble {
+  position: fixed;
+  bottom: 12px;
+  z-index: 50;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--felt-700);
+  color: var(--cream);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+}
+.game-hud__bubble:hover, .game-hud__bubble:focus-visible { border-color: var(--brass); outline: none; }
+.game-hud__bubble--help { left: 60px; }
+.game-hud__bubble--quit { right: 12px; }
+
 .settings-overlay {
   position: fixed;
   inset: 0;

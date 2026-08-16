@@ -57,7 +57,7 @@ export function endGameActionsHtml(opts = {}) {
   return `
     <div class="end-actions">
       ${showContinue ? '<button class="btn btn--primary" id="btn-continue">Continuer</button>' : ''}
-      ${showLobby ? '<button class="btn btn--ghost" id="btn-lobby">Retour au lobby</button>' : ''}
+      ${showLobby ? '<button class="btn btn--ghost" id="btn-lobby">Retour au salon</button>' : ''}
     </div>
   `;
 }
@@ -105,7 +105,7 @@ export function wireEndGameActions(container, room) {
       await playAgain(room);
     } catch (err) {
       e.target.disabled = false;
-      alert(err.message || 'Impossible de revenir au lobby.');
+      alert(err.message || 'Impossible de revenir au salon.');
     }
   });
 }
