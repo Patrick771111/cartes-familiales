@@ -384,6 +384,26 @@ function computeLeaveOutcome(state, leavingId, leavingName, reasonSuffix = '') {
   };
 }
 
+/**
+ * Un joueur ne peut être membre que d'un seul salon à la fois. Avant de
+ * rejoindre/créer un salon, on le retire de tout autre salon où il
+ * apparaîtrait encore dans `state.players` (ex: onglet resté ouvert sur une
+ * ancienne table). Recherche par id de profil sur les salons actifs, pas
+ * seulement sur la référence locale de l'onglet courant — couvre aussi le
+ * cas multi-onglets/multi-appareils avec le même profil.
+ */
+export async function leaveOtherRooms(profile, exceptRoomId) {
+  const rows = await listRooms(100);
+  const others = rows.filter((row) => row.id !== exceptRoomId && row.state.players.some((p) => p.id === profile.id));
+  for (const row of others) {
+    try {
+      await leaveTable({ id: row.id }, profile);
+    } catch (e) {
+      // Pas grave si ça échoue (ex: salon déjà fermé entre-temps) — on continue.
+    }
+  }
+}
+
 export async function leaveTable(room, profile) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const fresh = await fetchRoomById(room.id);

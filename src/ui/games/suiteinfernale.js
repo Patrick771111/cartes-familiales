@@ -19,7 +19,8 @@ import {
   wireAbandonButton,
   abandonButtonLabel,
   wireEndGameActions,
-  orderedOpponents
+  orderedOpponents,
+  openLogModal
 } from '../gameShared.js';
 
 const SUITE_INFERNALE_SLOT_TARGETED_TYPES = ['retirerUne', 'volerUne'];
@@ -285,12 +286,8 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
 
         ${finished ? endGameActionsHtml() : ''}
 
-        <details class="log">
-          <summary>Journal de la partie</summary>
-          <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
-        </details>
-
         <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
+        <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
         <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
       </div>
     </div>
@@ -469,5 +466,6 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
   wireEndGameActions(container, room);
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
+  container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
   wireAbandonButton(container, { room, player, state, onLeave });
 }

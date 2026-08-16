@@ -10,6 +10,7 @@ import {
   ensureMembership,
   renameLocalPlayer,
   leaveTable,
+  leaveOtherRooms,
   kickPlayer,
   reclaimStaleHost,
   pingHostPresence,
@@ -245,6 +246,7 @@ async function showRoomList(profile) {
       onJoinRoom: async (roomId) => {
         const room = await fetchRoomById(roomId);
         if (!room) throw new Error('Ce salon n\'existe plus — réessaie.');
+        await leaveOtherRooms(profile, room.id);
         const joined = await ensureMembership(room, profile);
         const reclaimed = await reclaimStaleHost(joined, profile);
         stopRoomListPolling();
@@ -252,6 +254,7 @@ async function showRoomList(profile) {
       },
       onCreateRoom: async () => {
         const created = await createNewRoom();
+        await leaveOtherRooms(profile, created.id);
         const joined = await ensureMembership(created, profile);
         stopRoomListPolling();
         enterRoom(joined, profile);

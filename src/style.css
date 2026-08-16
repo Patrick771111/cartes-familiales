@@ -356,6 +356,12 @@ h1 {
 
 .game-picker__art { position: absolute; inset: 0; background-size: cover; background-position: center; }
 
+/* La jaquette officielle de Flip 7 a un cadre doré dessiné jusqu'au bord de
+   l'image — sans ce zoom, il se confond en permanence avec le contour doré
+   de sélection (:has(input:checked) ci-dessous), même quand la carte n'est
+   pas choisie. Zoom recentré pour rogner ce cadre hors du cadre visible. */
+.game-picker__option:has(input[value="flip7"]) .game-picker__art { background-size: 150%; }
+
 /* Effectif actuel incompatible avec ce jeu (min/max ou règle spéciale — voir
    playerCountAllowed dans engine.js) : jaquette grisée plutôt qu'un texte
    d'effectif en incrustation ; le détail reste accessible via le `title`. */
@@ -499,6 +505,33 @@ h1 {
 .opponent--finished .opponent__name { color: var(--brass-soft); }
 
 /* ---------- Trou du Cul : table réagencée (adversaires en arc, pli central, main en éventail) ---------- */
+
+/* Verrouillage de hauteur — .trouduc-screen est la classe stable commune aux
+   2 écrans (échange et table ; voir trouducRoleBgClass), pas de
+   restructuration du DOM (adversaires en arc restent imbriqués dans le
+   feutre). Fonctionne aussi pour l'écran d'échange (2 zones seulement, pas
+   d'adversaires ni de journal). */
+.trouduc-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  gap: 8px;
+}
+@media (orientation: portrait), (min-height: 621px) {
+  .trouduc-screen { padding-bottom: 64px; }
+  .trouduc-screen .trouduc-felt {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .trouduc-screen .my-hand {
+    flex: 0 0 auto;
+    max-height: 34vh;
+    overflow-y: auto;
+    margin-top: 0;
+  }
+}
 
 .trouduc-felt { padding: 16px 8px 20px; }
 
@@ -1310,6 +1343,37 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 
 /* ---------- 8 américain ---------- */
 
+/* Zones à hauteur fixe (adversaires / centre / main), même traitement que
+   Trio (voir plus bas dans ce fichier pour le détail du raisonnement) —
+   la pile de défausse étant plus haute ici (.trio-pile__stack, min-height
+   180px), le centre garde un plafond un peu plus généreux. */
+.americain-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  gap: 8px;
+}
+@media (orientation: portrait), (min-height: 621px) {
+  .americain-screen { padding-bottom: 64px; }
+  .americain-screen .pouilleux-zone--others {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .americain-screen .americain-felt {
+    flex: 0 0 auto;
+    max-height: 50vh;
+    overflow-y: auto;
+  }
+  .americain-screen .my-hand {
+    flex: 0 0 auto;
+    max-height: 34vh;
+    overflow-y: auto;
+    margin-top: 0;
+  }
+}
+
 .americain-felt { padding: 20px 14px 24px; }
 
 .americain-center {
@@ -1438,6 +1502,37 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
    (mécanique quasi identique : pioche, défausse empilée, sens de jeu,
    sélecteur pour une carte "joker") — seules les cartes elles-mêmes et le
    sélecteur de couleur ont besoin de styles propres. */
+
+/* Zones à hauteur fixe (adversaires / centre / main), même traitement que
+   Trio — voir le commentaire détaillé sur .trio-screen plus bas. Même pile
+   de défausse haute qu'à l'Américain (.trouduc-pile__stack réutilisé) :
+   plafond du centre aligné sur le même 50vh. */
+.uno-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  gap: 8px;
+}
+@media (orientation: portrait), (min-height: 621px) {
+  .uno-screen { padding-bottom: 64px; }
+  .uno-screen .pouilleux-zone--others {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .uno-screen .uno-felt {
+    flex: 0 0 auto;
+    max-height: 50vh;
+    overflow-y: auto;
+  }
+  .uno-screen .my-hand {
+    flex: 0 0 auto;
+    max-height: 34vh;
+    overflow-y: auto;
+    margin-top: 0;
+  }
+}
 
 .uno-felt { padding: 20px 14px 24px; }
 
@@ -1609,6 +1704,32 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 
 /* ---------- Blackjack ---------- */
 
+/* Verrouillage de hauteur, sans séparer banque/adversaires en zones
+   indépendantes (elles restent imbriquées dans le feutre, comportement
+   inchangé) — le feutre entier et la main sont plafonnés et défilent en
+   interne, pas de restructuration du DOM pour ce jeu. */
+.blackjack-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  gap: 8px;
+}
+@media (orientation: portrait), (min-height: 621px) {
+  .blackjack-screen { padding-bottom: 64px; }
+  .blackjack-screen .blackjack-felt {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .blackjack-screen .my-hand {
+    flex: 0 0 auto;
+    max-height: 34vh;
+    overflow-y: auto;
+    margin-top: 0;
+  }
+}
+
 .blackjack-felt { padding: 20px 14px 16px; }
 
 .blackjack-dealer { text-align: center; margin-bottom: 16px; }
@@ -1642,6 +1763,37 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 .rules-modal__content strong { color: var(--brass-soft); }
 
 /* ---------- Flip 7 ---------- */
+
+/* Zones à hauteur fixe (adversaires / centre / main), même traitement que
+   Trio — voir le commentaire détaillé sur .trio-screen plus bas. Le centre
+   (zone de flip) affiche 0 à 7 cartes selon le tour : plafond un peu plus
+   généreux que Trio pour cette variation. */
+.flip7-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  gap: 8px;
+}
+@media (orientation: portrait), (min-height: 621px) {
+  .flip7-screen { padding-bottom: 64px; }
+  .flip7-screen .pouilleux-zone--others {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .flip7-screen .flip7-felt {
+    flex: 0 0 auto;
+    max-height: 46vh;
+    overflow-y: auto;
+  }
+  .flip7-screen .my-hand {
+    flex: 0 0 auto;
+    max-height: 34vh;
+    overflow-y: auto;
+    margin-top: 0;
+  }
+}
 
 .flip7-felt { padding: 18px 14px; text-align: center; }
 
@@ -1725,7 +1877,28 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 /* ---------- Skyjo ---------- */
 
 .skyjo-felt { padding: 18px 14px; text-align: center; }
-.skyjo-screen { padding-bottom: 210px; }
+/* padding-bottom réserve la grille perso, en dock fixe tout en bas (voir
+   .skyjo-my-grid-dock) — les bulles se logent juste au-dessus de ce dock
+   plutôt qu'au ras de l'écran, voir la règle dédiée à la toute fin de ce
+   fichier (doit rester après toutes les règles paysage génériques pour
+   l'emporter par ordre de cascade, à spécificité égale). Verrouillage de
+   hauteur : adversaires + feutre plafonnés/défilables, la grille perso
+   (dock) n'est pas concernée puisqu'elle est hors du flux flex normal. */
+.skyjo-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  padding-bottom: 300px; /* dock (~237px réel) + rangée de bulles (~60px) posée juste au-dessus */
+  gap: 8px;
+}
+.skyjo-screen .pouilleux-zone--others,
+.skyjo-screen .skyjo-felt {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+}
 
 /* Grille du joueur épinglée en bas de l'écran (position fixe, indépendante
    du défilement) : le glisser-déposer (carte piochée ou défausse) vise des
@@ -1734,7 +1907,7 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: 60px; /* laisse la place à la rangée de bulles posée tout en bas de l'écran */
   z-index: 40;
   background: var(--felt-700);
   border-top: 1px solid var(--brass);
@@ -1889,6 +2062,37 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 }
 
 /* ---------- La Suite Infernale ---------- */
+
+/* Zones à hauteur fixe (adversaires / centre / main), même traitement que
+   Trio — voir le commentaire détaillé sur .trio-screen plus bas. La main
+   ici porte en plus sa propre suite (9 cases) au-dessus des cartes : plafond
+   plus généreux que Trio pour cette zone. */
+.suiteinfernale-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  gap: 8px;
+}
+@media (orientation: portrait), (min-height: 621px) {
+  .suiteinfernale-screen { padding-bottom: 64px; }
+  .suiteinfernale-screen .pouilleux-zone--others {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .suiteinfernale-screen .suiteinfernale-felt {
+    flex: 0 0 auto;
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+  .suiteinfernale-screen .my-hand {
+    flex: 0 0 auto;
+    max-height: 40vh;
+    overflow-y: auto;
+    margin-top: 0;
+  }
+}
 
 .suiteinfernale-felt { padding: 18px 14px; text-align: center; }
 
@@ -2172,6 +2376,7 @@ body.is-card-dragging * {
     width: 100%;
     gap: 8px;
     padding: 8px 16px;
+    padding-right: 64px; /* réserve la colonne de bulles fixes, à droite en paysage */
   }
   .cinqrois-screen > .eyebrow,
   .cinqrois-screen .cinqrois-opponents,
@@ -2226,6 +2431,86 @@ body.is-card-dragging * {
   .trio-screen .trio-felt,
   .trio-screen .my-hand {
     max-height: 46vh;
+    overflow-y: auto;
+  }
+
+  /* 8 américain : même verrouillage de hauteur qu'en portrait, colonne de
+     bulles à droite plutôt qu'en bas — la largeur relative des 3 zones
+     (adversaires/feutre/main) reste celle du layout paysage générique
+     ci-dessus (.screen--table en rangée), seul un plafond + défilement
+     interne est ajouté pour éviter tout redimensionnement dynamique. */
+  .screen--table.americain-screen {
+    padding-right: 64px;
+    overflow-y: auto;
+  }
+  .americain-screen .pouilleux-zone--others,
+  .americain-screen .americain-felt,
+  .americain-screen .my-hand {
+    max-height: 46vh;
+    overflow-y: auto;
+  }
+
+  /* Flip 7, La Suite Infernale, Uno : même traitement qu'à l'Américain
+     ci-dessus (verrouillage de hauteur + colonne de bulles à droite, largeur
+     des zones inchangée). */
+  .screen--table.flip7-screen,
+  .screen--table.suiteinfernale-screen,
+  .screen--table.uno-screen {
+    padding-right: 64px;
+    overflow-y: auto;
+  }
+  .flip7-screen .pouilleux-zone--others,
+  .flip7-screen .flip7-felt,
+  .flip7-screen .my-hand,
+  .suiteinfernale-screen .pouilleux-zone--others,
+  .suiteinfernale-screen .suiteinfernale-felt,
+  .suiteinfernale-screen .my-hand,
+  .uno-screen .pouilleux-zone--others,
+  .uno-screen .uno-felt,
+  .uno-screen .my-hand {
+    max-height: 46vh;
+    overflow-y: auto;
+  }
+
+  /* Blackjack : feutre (banque+adversaires imbriqués) et main plafonnés,
+     colonne de bulles à droite — pas de restructuration du DOM. */
+  .screen--table.blackjack-screen {
+    padding-right: 64px;
+    overflow-y: auto;
+  }
+  .blackjack-screen .blackjack-felt,
+  .blackjack-screen .my-hand {
+    max-height: 46vh;
+    overflow-y: auto;
+  }
+
+  /* Trou du Cul : feutre (adversaires en arc + pli central imbriqués) et
+     main plafonnés, colonne de bulles à droite — pas de restructuration. */
+  .screen--table.trouduc-screen {
+    padding-right: 64px;
+    overflow-y: auto;
+  }
+  .trouduc-screen .trouduc-felt,
+  .trouduc-screen .my-hand {
+    max-height: 46vh;
+    overflow-y: auto;
+  }
+
+  /* Skyjo : la grille perso reste dans son dock fixe tout en bas (~240px,
+     ne suit pas le paysage — voir la règle dédiée en toute fin de feuille de
+     style) même ici, il faut donc plafonner adversaires+feutre bien plus
+     bas que les autres jeux pour qu'ils tiennent dans l'espace restant
+     au-dessus, sans quoi ils se retrouvent visuellement cachés sous le dock
+     (opaque, z-index élevé). Le passage en row+wrap étire aussi les lignes
+     wrappées (align-content:normal ~= stretch) et créait un grand vide
+     entre adversaires/feutre : align-content:flex-start les recolle. */
+  .screen--table.skyjo-screen {
+    align-content: flex-start;
+  }
+  .skyjo-screen .pouilleux-zone--others,
+  .skyjo-screen .skyjo-felt {
+    flex: 0 1 auto;
+    max-height: 6vh;
     overflow-y: auto;
   }
 }
@@ -2332,13 +2617,25 @@ body.is-card-dragging * {
 .pouilleux-screen {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
   padding: 12px 12px 24px;
   gap: 10px;
   width: 100%;
   max-width: 480px;
   position: relative;
 }
+/* Verrouillage déjà largement en place ici (zones flex + .pouilleux-target__hand
+   a déjà son propre plafond+défilement, voir plus bas) — il ne manque que la
+   réserve pour la rangée de bulles fixes (bas en portrait, droite en
+   paysage) et un filet de sécurité sur la zone adversaires. */
+@media (orientation: portrait), (min-height: 621px) {
+  .pouilleux-screen { padding-bottom: 64px; }
+}
+@media (orientation: landscape) and (max-height: 620px) {
+  .pouilleux-screen { padding-right: 64px; overflow-y: auto; }
+}
+.pouilleux-screen .pouilleux-zone--others { overflow-y: auto; }
 
 .pouilleux-zone--others {
   flex: 0 1 auto;
@@ -2429,14 +2726,22 @@ body.is-card-dragging * {
 .opponent--compact .opponent__name { font-size: 11px; margin: 4px 0 0; }
 
 /* ── Les Cinq Rois ──────────────────────────────────────── */
+/* Verrouillage de hauteur minimal — structure interne (opponents/center/me,
+   déjà gérée par 2 media queries paysage dédiées plus bas) volontairement
+   non touchée ici, `.cinqrois-me { margin-top:auto }` pousse déjà la main
+   vers le bas. Juste la réserve pour la rangée de bulles fixes en plus. */
 .cinqrois-screen {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 12px;
-  min-height: 100%;
+  height: 100dvh;
+  overflow-y: auto;
   align-items: center;
   box-sizing: border-box;
+}
+@media (orientation: portrait), (min-height: 621px) {
+  .cinqrois-screen { padding-bottom: 64px; }
 }
 .cinqrois-screen > .eyebrow {
   text-align: center;
@@ -2627,19 +2932,31 @@ body.is-card-dragging * {
 
 /* ——— Lucky Numbers ——— */
 .lucky-screen {
-  padding-bottom: 16px;
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
   gap: 8px;
+}
+/* Déjà proche du verrouillage recherché (les adversaires, .lucky-top, ne
+   captent jamais plus que leur contenu réel — pas besoin d'inverser les
+   priorités flex comme pour Trio) : il ne manquait que la réserve pour la
+   rangée de bulles fixes et un filet de sécurité si le contenu dépasse. */
+@media (orientation: portrait), (min-height: 621px) {
+  .lucky-screen { padding-bottom: 64px; }
+}
+@media (orientation: landscape) and (max-height: 620px) {
+  .lucky-screen { padding-right: 64px; overflow-y: auto; }
 }
 .lucky-top {
   flex: 0 0 auto;
   text-align: center;
   padding: 8px 8px 0;
+  overflow-y: auto;
 }
 .lucky-bottom {
   flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -2647,6 +2964,7 @@ body.is-card-dragging * {
   gap: 10px;
   padding: 0 8px 8px;
   text-align: center;
+  overflow-y: auto;
 }
 .lucky-felt { padding: 16px 12px; text-align: center; }
 .lucky-draw-area {
@@ -3321,3 +3639,21 @@ body.is-card-dragging * {
   background-repeat: no-repeat;
   min-height: 100dvh;
 }
+
+/* Skyjo : la grille perso reste épinglée en bas (dock position:fixed, voir
+   .skyjo-my-grid-dock) dans TOUTE orientation — le glisser-déposer vise des
+   coordonnées écran stables, contrairement aux autres jeux le paysage ne
+   fait pas passer cette zone à droite. Les bulles suivent donc : elles
+   restent tout en bas de l'écran (comme les autres jeux), le dock remonte
+   juste au-dessus d'elles plutôt que l'inverse. Placé en toute fin de
+   feuille de style pour l'emporter par ordre de cascade sur les règles
+   paysage génériques (même spécificité). */
+body:has(.skyjo-screen) .settings-fab,
+body:has(.skyjo-screen) .game-hud__bubble {
+  top: auto;
+  bottom: 12px;
+}
+body:has(.skyjo-screen) .settings-fab { left: 12px; right: auto; }
+body:has(.skyjo-screen) .game-hud__bubble--help { left: 60px; right: auto; }
+body:has(.skyjo-screen) .game-hud__bubble--log { left: 108px; right: auto; }
+body:has(.skyjo-screen) .game-hud__bubble--quit { right: 12px; left: auto; }

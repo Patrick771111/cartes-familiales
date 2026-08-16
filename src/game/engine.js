@@ -19,6 +19,7 @@ export {
   ensureMembership,
   replaceBotWithPlayer,
   leaveTable,
+  leaveOtherRooms,
   kickPlayer,
   addBot,
   claimHost,

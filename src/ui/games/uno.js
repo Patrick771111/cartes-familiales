@@ -9,7 +9,8 @@ import {
   wireAbandonButton,
   abandonButtonLabel,
   wireEndGameActions,
-  orderedOpponents
+  orderedOpponents,
+  openLogModal
 } from '../gameShared.js';
 
 // Carte Joker/Joker +4 en attente du choix de couleur (clic sur la pastille
@@ -198,18 +199,15 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
             .join('') || '<p class="my-hand__empty">Tu as fini, bravo ! Suis la suite de la partie ci-dessus.</p>'}
         </div>
 
-        <details class="log">
-          <summary>Journal de la partie</summary>
-          <ul>${state.log.slice().reverse().map((l) => `<li>${l.message}</li>`).join('')}</ul>
-        </details>
-
         <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
+        <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
         <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
       </div>
     </div>
   `;
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
+  container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
   wireAbandonButton(container, { room, player, state, onLeave });
 
   container.querySelector('#btn-draw')?.addEventListener('click', async (e) => {
