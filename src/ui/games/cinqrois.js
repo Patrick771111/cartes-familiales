@@ -9,14 +9,21 @@ import { cardFaceHtml, cardBackHtml } from '../cards.js';
 import { enableDragToZone } from '../dragToZone.js';
 import { isCardDragEnabled } from '../settings.js';
 import { openRulesModal } from '../rules.js';
+import { continueGame } from '../../game/engine.js';
 import { connectionBadge, endGameActionsHtml, wireAbandonButton, abandonButtonLabel, wireEndGameActions, orderedOpponents, openLogModal } from '../gameShared.js';
 
 // Id de la dernière pose de main affichée en overlay (voir bas de fichier) —
 // évite de rejouer l'animation à chaque re-rendu tant que le coup n'a pas changé.
 let cinqRoisShownLayId = null;
 
+// Fin de manche (pas de la partie) : enchaîne automatiquement après 1s, sans
+// attendre qu'un joueur clique "Continuer" — mémorise la manche déjà
+// programmée (room.id + version) pour ne pas reprogrammer à chaque re-rendu.
+let cinqRoisAutoContinueFor = null;
+
 export function resetSelection() {
   cinqRoisShownLayId = null;
+  cinqRoisAutoContinueFor = null;
 }
 
 export function renderTable(container, { room, player, state, onLeave }) {
@@ -90,10 +97,20 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
         ${
           winner
             ? `<p class="cinqrois-winner">🏆 ${winner.name} gagne avec ${winner.score} points !</p>`
-            : `<p class="cinqrois-winner">Manche terminée — enchaîne ou retourne au salon.</p>`
+            : `<p class="cinqrois-winner">Manche terminée — la suivante démarre dans un instant…</p>`
         }
-        ${endGameActionsHtml()}
+        ${endGameActionsHtml(winner ? {} : { continueBtn: false })}
       </div>`;
+
+    if (!winner) {
+      const roundKey = `${room.id}:${room.version}`;
+      if (cinqRoisAutoContinueFor !== roundKey) {
+        cinqRoisAutoContinueFor = roundKey;
+        window.setTimeout(() => {
+          continueGame(room).catch(() => {});
+        }, 1000);
+      }
+    }
   } else if (isMyTurn && state.phase === 'draw') {
     actionsHtml = `<p class="cinqrois-hint">Touche ou glisse depuis la <strong>pioche</strong> ou la <strong>défausse</strong>.</p>`;
   } else if (isMyTurn && state.phase === 'discard') {

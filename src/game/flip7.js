@@ -44,6 +44,15 @@ export function computeRoundScore(player) {
   return numberSum * (hasX2 ? 2 : 1) + flatBonus + (player.flip7 ? FLIP7_BONUS : 0);
 }
 
+/** Règle le score de manche d'un joueur dès qu'il a fini son tour (passé,
+ * planté, ou Flip 7) — sans attendre que toute la table ait terminé, son
+ * `display` ne bougera plus. Sans effet si déjà réglé (`roundScore` non nul). */
+function settlePlayerScore(player) {
+  if (player.roundScore !== null) return player;
+  const roundScore = computeRoundScore(player);
+  return { ...player, roundScore, score: player.score + roundScore };
+}
+
 function nextActivePlayerId(turnOrder, players, fromId) {
   const idx = turnOrder.indexOf(fromId);
   for (let step = 1; step <= turnOrder.length; step++) {
@@ -56,10 +65,11 @@ function nextActivePlayerId(turnOrder, players, fromId) {
 
 /** Résout la manche : score de chacun ajouté au score cumulé, victoire de partie si quelqu'un atteint TARGET_SCORE. */
 function finishRound(state, players, flip7PlayerId, logMessages) {
-  const resolvedPlayers = players.map((p) => {
-    const roundScore = computeRoundScore(p);
-    return { ...p, roundScore, score: p.score + roundScore };
-  });
+  // La plupart des joueurs sont déjà réglés au fil de la manche (voir
+  // settlePlayerScore, appelé dès que chacun termine son tour) — il ne reste
+  // ici qu'à régler ceux encore actifs quand un Flip 7 a clos la manche pour
+  // tout le monde d'un coup.
+  const resolvedPlayers = players.map(settlePlayerScore);
 
   const winners = resolvedPlayers.filter((p) => p.score >= TARGET_SCORE);
   const gameWinnerId = winners.length
@@ -174,6 +184,7 @@ export function applyHit(state, playerId) {
     if (card.kind === 'freeze') {
       current.display.push(card);
       current.status = 'stayed';
+      Object.assign(current, settlePlayerScore(current));
       logMessages.push(`${current.name} pioche Freeze et s'arrête aussitôt.`);
       break;
     }
@@ -203,6 +214,7 @@ export function applyHit(state, playerId) {
       } else {
         current.display.push(card);
         current.status = 'busted';
+        Object.assign(current, settlePlayerScore(current));
         logMessages.push(`${current.name} pioche un ${card.value} en double — perdu pour cette manche !`);
         break;
       }
@@ -213,6 +225,7 @@ export function applyHit(state, playerId) {
         current.status = 'stayed';
         current.flip7 = true;
         flip7PlayerId = current.id;
+        Object.assign(current, settlePlayerScore(current));
         logMessages.push(`${current.name} réalise un FLIP 7 !!`);
         break;
       }
@@ -247,7 +260,7 @@ export function applyStay(state, playerId) {
   if (state.status !== 'playing') throw new Error('La partie est terminée.');
   if (state.currentPlayerId !== playerId) throw new Error("Ce n'est pas ton tour.");
 
-  const players = state.players.map((p) => (p.id === playerId ? { ...p, status: 'stayed' } : p));
+  const players = state.players.map((p) => (p.id === playerId ? settlePlayerScore({ ...p, status: 'stayed' }) : p));
   const current = players.find((p) => p.id === playerId);
 
   const logMessage = { ts: Date.now(), message: `${current.name} reste sur ${current.display.filter((c) => c.kind === 'number').length} numéro(s).` };

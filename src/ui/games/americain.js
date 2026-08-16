@@ -1,8 +1,8 @@
 import { cardFaceHtml, cardBackHtml } from '../cards.js';
-import { playAmericainCard, drawAmericainCard, isLegalCard, hasLegalMove } from '../../game/americain.js';
+import { playAmericainCard, drawAmericainCard, isLegalCard } from '../../game/americain.js';
 import { suitInfo } from '../../game/deck.js';
 import { getOrderedHand, moveCard, resetHandOrder } from '../handOrder.js';
-import { enableHandDrag } from '../dragReorder.js';
+import { enableHandDrag, applyDynamicHandOverlap } from '../dragReorder.js';
 import { openRulesModal } from '../rules.js';
 import {
   connectionBadge,
@@ -44,8 +44,9 @@ function renderAmericainTable(container, { room, player, state, onLeave }) {
 
   const topCard = state.discard[state.discard.length - 1];
   const activeSuitChanged = topCard.rank === '8' && state.activeSuit !== topCard.suit;
-  const myLegalMove = isMyTurn && hasLegalMove(state, me.hand);
-  const mustDraw = isMyTurn && !myLegalMove;
+  // Piocher reste le choix du joueur, même avec un coup jouable en main — pas
+  // seulement un dernier recours quand aucune carte ne convient.
+  const canDraw = isMyTurn && !pendingEightCardId;
 
   // Empile les dernières poses (fenêtre glissante côté state — voir americain.js)
   // les unes sur les autres, décalées vers qui les a posées, comme au Trou du
@@ -103,21 +104,17 @@ function renderAmericainTable(container, { room, player, state, onLeave }) {
                 .join('')}
             </div>
           </div>
-          <button type="button" class="americain-stock ${mustDraw ? 'americain-stock--pickable' : ''}" id="btn-draw" ${mustDraw ? '' : 'disabled'}>
+          <button type="button" class="americain-stock ${canDraw ? 'americain-stock--pickable' : ''}" id="btn-draw" ${canDraw ? '' : 'disabled'}>
             ${cardBackHtml()}
             <span class="americain-stock__count">${state.stock.length}</span>
           </button>
         </div>
 
-        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
-          ${
-            isMyTurn
-              ? mustDraw
-                ? 'Aucun coup possible — pioche'
-                : 'Touche une carte jouable'
-              : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`
-          }
-        </div>
+        ${
+          !isMyTurn
+            ? `<div class="turn-banner">Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}</div>`
+            : ''
+        }
         <p class="americain-direction">${state.direction === -1 ? '↺ Sens inversé' : '↻ Sens normal'}</p>
 
         ${
@@ -209,6 +206,7 @@ function renderAmericainTable(container, { room, player, state, onLeave }) {
 
   const myHandEl = container.querySelector('.my-hand__cards');
   if (myHandEl) {
+    applyDynamicHandOverlap(myHandEl);
     enableHandDrag(myHandEl, {
       onDrop: (cardId, index) => {
         moveCard('americain', cardId, index);

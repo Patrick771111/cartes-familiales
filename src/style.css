@@ -1411,12 +1411,13 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 
 .americain-felt { padding: 20px 14px 24px; }
 
-/* Pas d'estompage des cartes non jouables en main : contrairement à d'autres
-   jeux, l'intégralité de la main paraît en permanence "grisée" dès que ce
-   n'est pas mon tour (isMyTurn=false rend toutes les cartes non jouables) —
-   trop agressif ici, les cartes restent donc pleinement visibles. */
+/* Cartes non jouables grisées (filter grayscale hérité de la règle générique
+   .hand-card--unplayable .card) mais jamais transparentes : contrairement à
+   d'autres jeux, l'intégralité de la main paraît grisée dès que ce n'est pas
+   mon tour (isMyTurn=false rend toutes les cartes non jouables) —
+   l'estompage (opacity) rendait ça trop illisible ici. Même traitement à
+   l'Uno, voir style.css section Uno. */
 .americain-screen .hand-card--unplayable { opacity: 1; }
-.americain-screen .hand-card--unplayable .card { filter: none; }
 
 .americain-center {
   display: flex;
@@ -1651,6 +1652,14 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
    centré, pas des index en coin — un fort recouvrement les rend illisibles. */
 .uno-hand .hand-card { margin-left: -8px; }
 .uno-hand .hand-card:first-child { margin-left: 0; }
+
+/* Grisées mais jamais transparentes — voir le commentaire équivalent côté
+   8 américain (même raisonnement : toute la main paraît non jouable dès que
+   ce n'est pas mon tour). Les cartes Uno (.uno-card) n'héritent pas du
+   filter grayscale générique de `.hand-card--unplayable .card` (classe
+   différente) : il faut le poser explicitement ici. */
+.uno-screen .hand-card--unplayable { opacity: 1; }
+.uno-screen .hand-card--unplayable .uno-card { filter: grayscale(0.6); }
 
 .uno-pending-draw {
   text-align: center;
@@ -2257,11 +2266,12 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   color: var(--brass-soft);
   font-size: 11px;
 }
-.opponent--compact .suiteinfernale-slot--joker { font-size: 9px; }
+.opponent--compact .suiteinfernale-slot--joker { font-size: 10px; }
 /* Cases un peu plus grandes que la moyenne "compacte" du reste de l'appli :
    ce sont ici des cibles à toucher précisément (attaque au clic ou au
-   glisser-déposer), pas seulement de l'affichage. */
-.opponent--compact .suiteinfernale-slot { width: 22px; height: 22px; font-size: 10px; }
+   glisser-déposer), pas seulement de l'affichage — encore agrandies pour
+   rester faciles à viser précisément pendant une attaque. */
+.opponent--compact .suiteinfernale-slot { width: 28px; height: 28px; font-size: 12px; }
 .suiteinfernale-slot--pickable {
   cursor: pointer;
   box-shadow: 0 0 0 2px var(--red-suit), 0 2px 6px rgba(0,0,0,0.3);
@@ -2279,7 +2289,7 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   background-size: cover;
   background-position: center;
 }
-.opponent--compact .suiteinfernale-slot--illustrated { width: 18px; height: 24px; border-radius: 4px; }
+.opponent--compact .suiteinfernale-slot--illustrated { width: 24px; height: 32px; border-radius: 5px; }
 
 .suiteinfernale-card {
   width: 44px;
@@ -2360,22 +2370,6 @@ body.is-card-dragging * {
 [data-dropzone].dropzone--hover {
   box-shadow: 0 0 0 3px var(--brass-soft);
   background: rgba(228, 199, 101, 0.12);
-}
-
-.suiteinfernale-discard {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  width: 60px;
-  height: 60px;
-  margin: 8px auto 0;
-  border: 1.5px dashed var(--line);
-  border-radius: 12px;
-  font-size: 11px;
-  color: rgba(247, 241, 225, 0.55);
-  text-align: center;
 }
 
 .suiteinfernale-actions { display: flex; gap: 10px; justify-content: center; margin: 10px 0; }

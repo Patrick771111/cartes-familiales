@@ -1,7 +1,7 @@
 import { cardBackHtml } from '../cards.js';
 import { playUnoCard, drawUnoCard, callUno, catchUno, isLegalCard, isJumpInCard, hasLegalMove, colorInfo, COLORS } from '../../game/uno.js';
 import { getOrderedHand, moveCard, resetHandOrder } from '../handOrder.js';
-import { enableHandDrag } from '../dragReorder.js';
+import { enableHandDrag, applyDynamicHandOverlap } from '../dragReorder.js';
 import { openRulesModal } from '../rules.js';
 import {
   connectionBadge,
@@ -71,11 +71,8 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
   const isWildTop = topCard.kind === 'wild' || topCard.kind === 'wildDrawFour';
   const underAttack = state.pendingDraw > 0;
   const myLegalMove = isMyTurn && hasLegalMove(state, me.hand);
-  // Sous une pile de pioche en attente, piocher reste toujours un choix
-  // valable même si j'ai une carte pour empiler (voir uno.js) — sinon,
-  // seulement si aucune carte jouable.
-  const canDraw = isMyTurn && (underAttack || !myLegalMove);
-  const mustDraw = isMyTurn && !underAttack && !myLegalMove;
+  // Piocher reste le choix du joueur, même avec un coup jouable en main.
+  const canDraw = isMyTurn && !pendingWildCardId;
 
   // Annonce "UNO !" voyante pour tout le monde, une seule fois par version
   // (une nouvelle pose/pioche s'affiche autrement en silence) — l'annonce à
@@ -152,19 +149,13 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
 
         ${underAttack ? `<p class="uno-pending-draw">⚡ Pile de pioche : +${state.pendingDraw}</p>` : ''}
 
-        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
-          ${
-            isMyTurn
-              ? underAttack
-                ? myLegalMove
-                  ? 'Empile une carte +2/+4, ou pioche la pile'
-                  : `Pioche la pile (+${state.pendingDraw})`
-                : mustDraw
-                  ? 'Aucun coup possible — pioche'
-                  : 'Touche une carte jouable'
-              : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`
-          }
-        </div>
+        ${
+          isMyTurn && underAttack
+            ? `<div class="turn-banner turn-banner--you">${myLegalMove ? 'Empile une carte +2/+4, ou pioche la pile' : `Pioche la pile (+${state.pendingDraw})`}</div>`
+            : !isMyTurn
+              ? `<div class="turn-banner">Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}</div>`
+              : ''
+        }
         <p class="americain-direction">${state.direction === -1 ? '↺ Sens inversé' : '↻ Sens normal'}</p>
 
         ${
@@ -285,6 +276,7 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
 
   const myHandEl = container.querySelector('.my-hand__cards');
   if (myHandEl) {
+    applyDynamicHandOverlap(myHandEl);
     enableHandDrag(myHandEl, {
       onDrop: (cardId, index) => {
         moveCard('uno', cardId, index);

@@ -203,10 +203,6 @@ export function applyDraw(state, playerId) {
   const players = state.players.map((p) => ({ ...p, hand: p.hand.slice() }));
   const current = players.find((p) => p.id === playerId);
 
-  if (hasLegalMove(state, current.hand)) {
-    throw new Error('Tu as un coup possible : impossible de piocher.');
-  }
-
   const drawn = drawFromStock(state.stock, state.discard, 1);
   if (!drawn.cards.length) throw new Error('Plus aucune carte à piocher.');
   current.hand.push(...drawn.cards);

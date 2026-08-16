@@ -101,8 +101,11 @@ function renderFlip7Table(container, { room, player, state, onLeave }) {
   const canAct = isMyTurn && me.status === 'active' && !finished;
 
   const uniqueCountFor = (p) => p.display.filter((c) => c.kind === 'number').length;
+  // `roundScore` est réglé dès qu'un joueur termine son tour (voir
+  // settlePlayerScore côté moteur), pas seulement à la toute fin de la
+  // manche — l'affichage suit donc la même logique, sans attendre `finished`.
   const statusLabelFor = (p) =>
-    finished ? `${FLIP7_STATUS_LABEL[p.status]} · ${p.roundScore ?? 0} pt${(p.roundScore ?? 0) > 1 ? 's' : ''} cette manche` : FLIP7_STATUS_LABEL[p.status];
+    p.roundScore != null ? `${FLIP7_STATUS_LABEL[p.status]} · ${p.roundScore} pt${p.roundScore > 1 ? 's' : ''} cette manche` : FLIP7_STATUS_LABEL[p.status];
 
   // Les cartes d'un adversaire ne s'affichent plus dans cette liste du tout
   // — juste nom + score, toujours à jour. La main du joueur en train de

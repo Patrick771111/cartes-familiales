@@ -215,7 +215,7 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
             ${cardBackHtml()}
             <span class="suiteinfernale-stock__count">Pioche (${state.deck.length})</span>
           </button>
-          <div class="suiteinfernale-discard-pile">
+          <div class="suiteinfernale-discard-pile" data-dropzone="discard" title="Dépose une carte ici pour la défausser.">
             ${state.lastDiscarded ? suiteInfernaleCardHtml(state.lastDiscarded) : '<div class="suiteinfernale-discard-pile__empty"></div>'}
             <span class="suiteinfernale-discard-pile__label">Défausse</span>
           </div>
@@ -285,7 +285,6 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
         ${
           canAct && !pendingCard
             ? `<div class="suiteinfernale-actions">
-                 ${dragMode ? `<div class="suiteinfernale-discard" data-dropzone="discard" title="Dépose une carte ici pour la défausser.">🗑️<span>Défausse</span></div>` : ''}
                  ${!dragMode ? `<button id="btn-discard-mode" class="btn ${suiteInfernaleDiscardMode ? 'btn--primary' : 'btn--ghost'}">${suiteInfernaleDiscardMode ? 'Touche une carte à défausser' : 'Défausser une carte'}</button>` : ''}
                </div>`
             : ''
