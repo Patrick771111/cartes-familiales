@@ -45,6 +45,42 @@ export function orderedOpponents(state, playerId) {
 }
 
 /**
+ * Construit le lien d'invitation vers ce salon précis (?room=<code>, lu au
+ * démarrage par main.js/tryJoinRoomByCode) et le propose via le partage natif
+ * du téléphone (Telegram, WhatsApp, SMS… l'ami choisit) — repli sur la copie
+ * dans le presse-papier si l'appareil ne propose pas de partage natif
+ * (desktop, essentiellement). Utilisée depuis la salle d'attente (rejoint
+ * comme joueur) et depuis la bulle HUD en pleine partie (rejoint alors en
+ * spectateur — voir ensureMembership dans game/core.js — avec la possibilité
+ * de prendre la place d'un bot depuis l'écran spectateur).
+ */
+export async function shareInviteLink(room) {
+  const url = `${window.location.origin}${window.location.pathname}?room=${room.code}`;
+  const shareData = { title: 'Cartes en famille', text: 'Rejoins la partie sur Cartes en famille !', url };
+
+  if (navigator.share) {
+    try {
+      await navigator.share(shareData);
+    } catch (err) {
+      // AbortError si l'utilisateur ferme le sélecteur sans choisir — rien à faire.
+    }
+    return;
+  }
+
+  if (navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(url);
+      alert('Lien copié ! Colle-le dans Telegram (ou ailleurs) pour inviter.');
+      return;
+    } catch (err) {
+      // repli sur le prompt ci-dessous
+    }
+  }
+
+  window.prompt('Copie ce lien pour inviter :', url);
+}
+
+/**
  * Boutons de fin de partie, communs à la plupart des jeux : soit on enchaîne
  * directement une nouvelle manche (mêmes joueurs, sans repasser par le
  * lobby — le contexte propre à chaque jeu comme les rôles du Trou du Cul ou

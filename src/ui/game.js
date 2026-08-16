@@ -2,7 +2,7 @@ import { cardFaceHtml, cardBackHtml } from './cards.js';
 import { AVAILABLE_GAMES, startGame, claimHost, addBot, HOST_STALE_MS, playerCountAllowed, replaceBotWithPlayer } from '../game/engine.js';
 import { rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { SEQUENCE_TARGET as SUITE_INFERNALE_TARGET } from '../game/suiteinfernale.js';
-import { connectionBadge, resetRevealHands } from './gameShared.js';
+import { connectionBadge, resetRevealHands, shareInviteLink } from './gameShared.js';
 import { trioCardHtml, trioRowHtml, trioTrophiesHtml, trioJitter } from './games/trio.js';
 import { suiteInfernaleSequenceHtml } from './games/suiteinfernale.js';
 import { flip7CardHtml } from './games/flip7.js';
@@ -46,39 +46,6 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
 // (ex : ajout d'un bot via Realtime), ce qui réinitialiserait la sélection du jeu
 // si elle n'était pas mémorisée en dehors de la fonction de rendu.
 let selectedGameIdByRoom = null;
-
-/**
- * Construit le lien d'invitation vers ce salon précis (?room=<code>, lu au
- * démarrage par main.js/tryJoinRoomByCode) et le propose via le partage natif
- * du téléphone (Telegram, WhatsApp, SMS… l'ami choisit) — repli sur la copie
- * dans le presse-papier si l'appareil ne propose pas de partage natif
- * (desktop, essentiellement).
- */
-async function shareInviteLink(room) {
-  const url = `${window.location.origin}${window.location.pathname}?room=${room.code}`;
-  const shareData = { title: 'Cartes en famille', text: 'Rejoins la partie sur Cartes en famille !', url };
-
-  if (navigator.share) {
-    try {
-      await navigator.share(shareData);
-    } catch (err) {
-      // AbortError si l'utilisateur ferme le sélecteur sans choisir — rien à faire.
-    }
-    return;
-  }
-
-  if (navigator.clipboard) {
-    try {
-      await navigator.clipboard.writeText(url);
-      alert('Lien copié ! Colle-le dans Telegram (ou ailleurs) pour inviter.');
-      return;
-    } catch (err) {
-      // repli sur le prompt ci-dessous
-    }
-  }
-
-  window.prompt('Copie ce lien pour inviter :', url);
-}
 
 function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   const state = room.state;

@@ -10,7 +10,7 @@ import { enableDragToZone } from '../dragToZone.js';
 import { isCardDragEnabled } from '../settings.js';
 import { openRulesModal } from '../rules.js';
 import { continueGame } from '../../game/engine.js';
-import { connectionBadge, endGameActionsHtml, wireAbandonButton, abandonButtonLabel, wireEndGameActions, orderedOpponents, openLogModal } from '../gameShared.js';
+import { connectionBadge, endGameActionsHtml, wireAbandonButton, abandonButtonLabel, wireEndGameActions, orderedOpponents, openLogModal, shareInviteLink } from '../gameShared.js';
 
 // Id de la dernière pose de main affichée en overlay (voir bas de fichier) —
 // évite de rejouer l'animation à chaque re-rendu tant que le coup n'a pas changé.
@@ -173,6 +173,7 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
 
       <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
       <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
+      <button class="game-hud__bubble game-hud__bubble--invite" id="btn-invite-game" title="Inviter un ami" aria-label="Inviter un ami">📤</button>
       <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
     </div>`;
 
@@ -180,6 +181,7 @@ function renderCinqRoisTable(container, { room, player, state, onLeave }) {
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal('cinqrois'));
   container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
+  container.querySelector('#btn-invite-game')?.addEventListener('click', () => shareInviteLink(room));
   wireAbandonButton(container, { room, player, state, onLeave });
 
   let selectedCardId = null;

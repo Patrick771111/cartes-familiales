@@ -16,7 +16,8 @@ import {
   abandonButtonLabel,
   wireEndGameActions,
   orderedOpponents,
-  openLogModal
+  openLogModal,
+  shareInviteLink
 } from '../gameShared.js';
 
 // Une carte piochée du sabot peut être posée (1 touche/glisser) ou défaussée
@@ -173,6 +174,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
 
         <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
         <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
+        <button class="game-hud__bubble game-hud__bubble--invite" id="btn-invite-game" title="Inviter un ami" aria-label="Inviter un ami">📤</button>
         <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
       </div>
 
@@ -285,5 +287,6 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
   container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
+  container.querySelector('#btn-invite-game')?.addEventListener('click', () => shareInviteLink(room));
   wireAbandonButton(container, { room, player, state, onLeave });
 }
