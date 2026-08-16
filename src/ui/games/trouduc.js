@@ -37,6 +37,77 @@ let lastCelebratedMoveId = null;
 let expiredPileClearedId = null;
 let pileClearTimerFor = null;
 
+// Regroupe les cartes consécutives de même rang (la main est déjà triée par
+// rang par le serveur), puis répartit les groupes sur deux rangées sans
+// jamais couper un groupe en deux. L'espacement entre groupes est calculé
+// pour que chaque rangée tienne toujours dans la largeur de l'écran, même
+// dans le pire des cas (aucune paire en main). Partagé entre l'écran
+// d'échange et la table de jeu — seule la classe posée sur chaque carte
+// (jouable/sélectionnée/reçue en échange...) diffère selon l'écran.
+const TROUDUC_CARD_W = 64;
+const TROUDUC_TIGHT_STEP = 26; // largeur visible d'une carte "empilée" dans le même groupe
+
+function groupHandByRank(hand) {
+  const groups = [];
+  for (const card of hand) {
+    const last = groups[groups.length - 1];
+    if (last && last[0].rank === card.rank) last.push(card);
+    else groups.push([card]);
+  }
+  return groups;
+}
+
+function splitGroupsIntoRows(groups, total) {
+  const targetRow1 = Math.ceil(total / 2);
+  const rows = [[], []];
+  let count = 0;
+  let rowIndex = 0;
+  for (const group of groups) {
+    if (rowIndex === 0 && count >= targetRow1 && count > 0) rowIndex = 1;
+    rows[rowIndex].push(group);
+    count += group.length;
+  }
+  return rows;
+}
+
+function renderTrouducHandRow(rowGroups, cardClassFor) {
+  if (!rowGroups.length) return '';
+  // Largeur dispo estimée pour une rangée : s'adapte à l'écran réel (mobile
+  // étroit comme desktop plus large), avec une marge de sécurité pour le cadre.
+  const rowWidthBudget = Math.min(window.innerWidth - 40, 620);
+  const n = rowGroups.reduce((s, g) => s + g.length, 0);
+  const nGroupStarts = rowGroups.length - 1; // hors tout premier groupe de la rangée
+  const nContinuations = n - rowGroups.length; // cartes qui prolongent un groupe existant
+  const remaining = rowWidthBudget - TROUDUC_CARD_W - nContinuations * TROUDUC_TIGHT_STEP;
+  const lightStep = nGroupStarts > 0 ? Math.max(TROUDUC_TIGHT_STEP, Math.min(TROUDUC_CARD_W - 4, remaining / nGroupStarts)) : 0;
+
+  let html = '';
+  let cardPos = 0;
+  rowGroups.forEach((group) => {
+    group.forEach((c, iInGroup) => {
+      const isFirstInRow = cardPos === 0;
+      const isFirstInGroup = iInGroup === 0;
+      let marginLeft;
+      if (isFirstInRow) marginLeft = 0;
+      else if (isFirstInGroup) marginLeft = -(TROUDUC_CARD_W - lightStep);
+      else marginLeft = -(TROUDUC_CARD_W - TROUDUC_TIGHT_STEP);
+      html += `<div class="hand-card ${cardClassFor(c)}" data-card-id="${c.id}" style="margin-left:${marginLeft}px">${cardFaceHtml(c)}</div>`;
+      cardPos++;
+    });
+  });
+  return html;
+}
+
+/** Main répartie sur 2 rangées superposées (voir .trouduc-hand-rows en CSS) — jamais de défilement horizontal. */
+function renderTrouducHandRows(hand, cardClassFor) {
+  const groups = groupHandByRank(hand);
+  const rows = splitGroupsIntoRows(groups, hand.length);
+  return `<div class="trouduc-hand-rows">
+    <div class="trouduc-hand-row">${renderTrouducHandRow(rows[0], cardClassFor)}</div>
+    <div class="trouduc-hand-row trouduc-hand-row--2">${renderTrouducHandRow(rows[1], cardClassFor)}</div>
+  </div>`;
+}
+
 /** Réinitialise l'état local propre à ce jeu — appelé au retour en salle d'attente. */
 export function resetSelection() {
   selectedCardIds = new Set();
@@ -131,14 +202,10 @@ function renderTrouducExchange(container, { room, player, state, onLeave }) {
 
       <div class="my-hand">
         <p class="my-hand__label">${me.role ? `${me.role} · ` : ''}Ta main (${me.hand.length})</p>
-        <div class="my-hand__cards">
-          ${me.hand
-            .map(
-              (c) =>
-                `<div class="hand-card ${exchangeSelectedCardIds.has(c.id) ? 'hand-card--selected' : ''} ${receivedIds.includes(c.id) ? 'hand-card--gifted' : ''}" data-card-id="${c.id}">${cardFaceHtml(c)}</div>`
-            )
-            .join('')}
-        </div>
+        ${renderTrouducHandRows(
+          me.hand,
+          (c) => `${exchangeSelectedCardIds.has(c.id) ? 'hand-card--selected' : ''} ${receivedIds.includes(c.id) ? 'hand-card--gifted' : ''}`
+        )}
 
         <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
         <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
@@ -261,69 +328,6 @@ function renderTrouducTable(container, { room, player, state, onLeave }) {
     return state.rankLocked ? rv === pileRv : rv >= pileRv;
   };
 
-  // Regroupe les cartes consécutives de même rang (la main est déjà triée par rang
-  // par le serveur), puis répartit les groupes sur deux rangées sans jamais couper
-  // un groupe en deux. L'espacement entre groupes est calculé pour que chaque
-  // rangée tienne toujours dans la largeur de l'écran, même dans le pire des cas
-  // (aucune paire en main : autant de groupes que de cartes).
-  const CARD_W = 64;
-  const TIGHT_STEP = 26; // largeur visible d'une carte "empilée" dans le même groupe
-  // Largeur dispo estimée pour une rangée : s'adapte à l'écran réel (mobile étroit
-  // comme desktop plus large), avec une marge de sécurité pour le cadre autour.
-  const ROW_WIDTH_BUDGET = Math.min(window.innerWidth - 40, 620);
-
-  const groupHand = (hand) => {
-    const groups = [];
-    for (const card of hand) {
-      const last = groups[groups.length - 1];
-      if (last && last[0].rank === card.rank) last.push(card);
-      else groups.push([card]);
-    }
-    return groups;
-  };
-
-  const splitIntoRows = (groups, total) => {
-    const targetRow1 = Math.ceil(total / 2);
-    const rows = [[], []];
-    let count = 0;
-    let rowIndex = 0;
-    for (const group of groups) {
-      if (rowIndex === 0 && count >= targetRow1 && count > 0) rowIndex = 1;
-      rows[rowIndex].push(group);
-      count += group.length;
-    }
-    return rows;
-  };
-
-  const renderRow = (rowGroups) => {
-    if (!rowGroups.length) return '';
-    const n = rowGroups.reduce((s, g) => s + g.length, 0);
-    const nGroupStarts = rowGroups.length - 1; // hors tout premier groupe de la rangée
-    const nContinuations = n - rowGroups.length; // cartes qui prolongent un groupe existant
-    const remaining = ROW_WIDTH_BUDGET - CARD_W - nContinuations * TIGHT_STEP;
-    const lightStep = nGroupStarts > 0 ? Math.max(TIGHT_STEP, Math.min(CARD_W - 4, remaining / nGroupStarts)) : 0;
-
-    let html = '';
-    let cardPos = 0;
-    rowGroups.forEach((group) => {
-      group.forEach((c, iInGroup) => {
-        const isFirstInRow = cardPos === 0;
-        const isFirstInGroup = iInGroup === 0;
-        let marginLeft;
-        if (isFirstInRow) marginLeft = 0;
-        else if (isFirstInGroup) marginLeft = -(CARD_W - lightStep);
-        else marginLeft = -(CARD_W - TIGHT_STEP);
-        const playable = !isMyTurn || isRankPlayable(c.rank);
-        const gifted = giftedCardIds.includes(c.id);
-        html += `<div class="hand-card ${selectedCardIds.has(c.id) ? 'hand-card--selected' : ''} ${playable ? '' : 'hand-card--unplayable'} ${gifted ? 'hand-card--gifted' : ''}" data-card-id="${c.id}" style="margin-left:${marginLeft}px">${cardFaceHtml(c)}</div>`;
-        cardPos++;
-      });
-    });
-    return html;
-  };
-
-  const handGroups = groupHand(me.hand);
-  const handRows = splitIntoRows(handGroups, me.hand.length);
   const isSafe = me.finished;
   const revealHands = getRevealHands();
   const showFaces = isSafe && revealHands;
@@ -359,45 +363,50 @@ function renderTrouducTable(container, { room, player, state, onLeave }) {
         </div>
 
         <div class="trouduc-center">
-          <div class="trouduc-pile ${pileHistoryForDisplay.length ? 'trouduc-pile--active' : ''}">
-            ${
-              pileHistoryForDisplay.length
-                ? `<div class="trouduc-pile__stack">
-                     ${pileHistoryForDisplay
-                       .map((entry, i) => {
-                         const shift = seatShiftFor(entry.by);
-                         const stackOffset = i * 4;
-                         return `<div class="trouduc-pile__shift" style="transform: translate(${shift.x + stackOffset}px, ${shift.y + stackOffset}px); z-index: ${i}">
-                                    <div class="trouduc-pile__cards">${entry.cards.map(cardFaceHtml).join('')}</div>
-                                  </div>`;
-                       })
-                       .join('')}
-                   </div>
-                   <p class="trouduc-pile__label">
-                     ${
-                       state.pileCount > 0
-                         ? `${state.pileCount} × ${state.pileRank}${state.rankLocked ? ' <span class="pile__locked">🔒</span>' : ''}`
-                         : 'Pli terminé'
-                     }
-                   </p>`
-                : `<p class="trouduc-pile__empty">Pli libre — pose ce que tu veux</p>`
-            }
-          </div>
-
           <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
             ${isMyTurn ? "C'est ton tour" : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`}
           </div>
 
-          ${
-            isMyTurn
-              ? `<div class="trouduc-actions">
-                   <button id="btn-play" class="btn btn--primary" ${selectionValid ? '' : 'disabled'}>
-                     Jouer${selectedCards.length ? ` (${selectedCards.length})` : ''}
-                   </button>
-                   <button id="btn-pass" class="btn btn--ghost" ${canPass ? '' : 'disabled'}>Passer</button>
-                 </div>`
-              : ''
-          }
+          <div class="trouduc-center__row">
+            <div class="trouduc-center__side">
+              ${
+                isMyTurn
+                  ? `<button id="btn-play" class="btn btn--primary btn--small" ${selectionValid ? '' : 'disabled'}>
+                       Jouer${selectedCards.length ? ` (${selectedCards.length})` : ''}
+                     </button>`
+                  : ''
+              }
+            </div>
+
+            <div class="trouduc-pile ${pileHistoryForDisplay.length ? 'trouduc-pile--active' : ''}">
+              ${
+                pileHistoryForDisplay.length
+                  ? `<div class="trouduc-pile__stack">
+                       ${pileHistoryForDisplay
+                         .map((entry, i) => {
+                           const shift = seatShiftFor(entry.by);
+                           const stackOffset = i * 4;
+                           return `<div class="trouduc-pile__shift" style="transform: translate(${shift.x + stackOffset}px, ${shift.y + stackOffset}px); z-index: ${i}">
+                                      <div class="trouduc-pile__cards">${entry.cards.map(cardFaceHtml).join('')}</div>
+                                    </div>`;
+                         })
+                         .join('')}
+                     </div>
+                     <p class="trouduc-pile__label">
+                       ${
+                         state.pileCount > 0
+                           ? `${state.pileCount} × ${state.pileRank}${state.rankLocked ? ' <span class="pile__locked">🔒</span>' : ''}`
+                           : 'Pli terminé'
+                       }
+                     </p>`
+                  : `<p class="trouduc-pile__empty">Pli libre — pose ce que tu veux</p>`
+              }
+            </div>
+
+            <div class="trouduc-center__side">
+              ${isMyTurn ? `<button id="btn-pass" class="btn btn--ghost btn--small" ${canPass ? '' : 'disabled'}>Passer</button>` : ''}
+            </div>
+          </div>
 
           ${isSafe ? `<button id="btn-toggle-reveal" class="btn btn--ghost btn--small">${revealHands ? 'Masquer les mains' : 'Afficher les mains'}</button>` : ''}
         </div>
@@ -408,10 +417,11 @@ function renderTrouducTable(container, { room, player, state, onLeave }) {
         ${giftedCardIds.length ? `<p class="exchange-hint">✨ Entourées de doré : les cartes reçues en retour d'échange.</p>` : ''}
         ${
           me.hand.length
-            ? `<div class="trouduc-hand-rows">
-                 <div class="trouduc-hand-row">${renderRow(handRows[0])}</div>
-                 <div class="trouduc-hand-row trouduc-hand-row--2">${renderRow(handRows[1])}</div>
-               </div>`
+            ? renderTrouducHandRows(me.hand, (c) => {
+                const playable = !isMyTurn || isRankPlayable(c.rank);
+                const gifted = giftedCardIds.includes(c.id);
+                return `${selectedCardIds.has(c.id) ? 'hand-card--selected' : ''} ${playable ? '' : 'hand-card--unplayable'} ${gifted ? 'hand-card--gifted' : ''}`;
+              })
             : '<p class="my-hand__empty">Tu as fini, bravo ! Suis la suite de la partie ci-dessus.</p>'
         }
       </div>

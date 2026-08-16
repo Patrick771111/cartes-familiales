@@ -595,6 +595,33 @@ h1 {
   flex-direction: column;
   align-items: center;
   padding: 6px 0 4px;
+  width: 100%;
+}
+
+/* Jouer/Passer encadrent la pile plutôt que de s'empiler dessous : gagne de
+   la hauteur (utile pour que tout tienne à l'écran) et rapproche l'action de
+   sa cible. Les côtés (flex:0 0 auto) gardent toujours la taille naturelle
+   du bouton — c'est la pile (flex:1, plafonnée) qui absorbe l'espace
+   restant, jamais l'inverse : sans ça, les deux flex:1 des côtés se
+   partageaient la largeur à égalité avec la pile et finissaient plus
+   étroits que le texte des boutons, qui débordait alors de l'écran. */
+.trouduc-center__row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+.trouduc-center__side {
+  flex: 0 0 auto;
+  display: flex;
+}
+.trouduc-center__side:first-child { justify-content: flex-end; }
+.trouduc-center__side:last-child { justify-content: flex-start; }
+.trouduc-center__row .trouduc-pile {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 220px;
 }
 
 @keyframes trouduc-pile-pop {
@@ -651,7 +678,18 @@ h1 {
    en main). column-reverse : la 2e rangée (.trouduc-hand-row--2, seconde dans le
    DOM) s'affiche au-dessus de la première — c'est donc la première
    (.trouduc-hand-row, plus proche des bulles) qui chevauche légèrement vers le
-   haut, en avant-plan, pour que chaque carte reste facile à toucher individuellement. */
+   haut, en avant-plan, pour que chaque carte reste facile à toucher individuellement.
+   `:not(.trouduc-hand-row--2)` est indispensable : un sélecteur de classe simple
+   matche un élément quelles que soient ses AUTRES classes, donc `.trouduc-hand-row`
+   seul visait aussi la rangée `--2` (qui porte les deux classes) — les deux
+   rangées se retrouvaient à z-index:1 ex æquo, départagées par l'ordre du DOM
+   (donc par la rangée du HAUT, pas celle du bas comme voulu).
+   Chaque rangée a SON PROPRE contexte d'empilement (position:relative + un
+   z-index non-auto, même juste 0) : sans ça, le JS qui pose un z-index en
+   ligne sur chaque carte jouable (dans l'ordre du DOM, donc plus haut pour
+   les cartes de la rangée du haut) s'échappe de la rangée `--2` — non
+   positionnée, elle ne l'isole pas — et l'emporte directement sur le
+   z-index:1 de la rangée du bas au niveau parent. */
 .trouduc-hand-rows {
   display: flex;
   flex-direction: column-reverse;
@@ -660,12 +698,15 @@ h1 {
 .trouduc-hand-row {
   display: flex;
   align-items: flex-end;
-  margin-top: -20px;
   position: relative;
+  z-index: 0;
+}
+.trouduc-hand-row:not(.trouduc-hand-row--2) {
+  margin-top: -20px;
   z-index: 1;
 }
 @media (min-width: 700px) {
-  .trouduc-hand-row {
+  .trouduc-hand-row:not(.trouduc-hand-row--2) {
     margin-top: 6px;
   }
 }
@@ -3784,9 +3825,12 @@ body.is-card-dragging * {
   background-repeat: no-repeat;
   background-attachment: scroll;
 }
+/* Pas de panneau translucide entre le fond (photo selon le rôle, voir
+   .trouduc-role-*) et la zone de jeu — le feutre laisse voir le fond
+   directement, contrairement au panneau generic de .table-felt. */
 .trouduc-screen .table-felt.trouduc-felt {
-  background:
-    radial-gradient(120% 100% at 50% 30%, rgba(40, 28, 30, 0.82), rgba(18, 12, 14, 0.9) 75%) !important;
+  background: none !important;
+  border: none;
 }
 
 .trouduc-role-president {
@@ -3814,22 +3858,6 @@ body.is-card-dragging * {
     linear-gradient(165deg, #2a1a1c 0%, #1a1012 50%, #100c0c 100%);
 }
 
-.trouduc-role-president .trouduc-felt {
-  background:
-    radial-gradient(120% 100% at 50% 30%, rgba(70, 35, 40, 0.85), rgba(28, 14, 18, 0.92) 75%) !important;
-}
-.trouduc-role-vice .trouduc-felt {
-  background:
-    radial-gradient(120% 100% at 50% 30%, rgba(40, 55, 85, 0.85), rgba(18, 24, 40, 0.92) 75%) !important;
-}
-.trouduc-role-secretaire .trouduc-felt {
-  background:
-    radial-gradient(120% 100% at 50% 30%, rgba(50, 55, 58, 0.85), rgba(22, 24, 26, 0.92) 75%) !important;
-}
-.trouduc-role-larbin .trouduc-felt {
-  background:
-    radial-gradient(120% 100% at 50% 30%, rgba(45, 60, 42, 0.85), rgba(18, 26, 18, 0.92) 75%) !important;
-}
 
 .screen--end.trouduc-screen {
   background-size: cover;
