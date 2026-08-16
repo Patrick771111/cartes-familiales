@@ -50,7 +50,18 @@ let selectedGameIdByRoom = null;
 function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   const state = room.state;
   if (selectedGameIdByRoom?.roomId !== room.id) selectedGameIdByRoom = null;
-  const selectedGameId = selectedGameIdByRoom?.gameId || AVAILABLE_GAMES[0].id;
+  let selectedGameId = selectedGameIdByRoom?.gameId || AVAILABLE_GAMES[0].id;
+  // Un retrait de joueur (ex. on vient de kicker un bot) peut rendre le jeu
+  // choisi injouable avec l'effectif restant (ex. Trio, minimum 3) — on
+  // retombe alors sur le premier jeu compatible plutôt que de laisser une
+  // sélection bloquée en silence.
+  if (!playerCountAllowed(selectedGameId, state.players.length)) {
+    const fallback = AVAILABLE_GAMES.find((g) => playerCountAllowed(g.id, state.players.length));
+    if (fallback) {
+      selectedGameId = fallback.id;
+      selectedGameIdByRoom = { roomId: room.id, gameId: fallback.id };
+    }
+  }
   const isHost = state.hostId === player.id;
   const currentHost = state.players.find((p) => p.id === state.hostId);
   const hostIsBot = currentHost?.isBot === true;
@@ -60,7 +71,6 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   container.innerHTML = `
     <div class="screen screen--waiting">
       <div class="lobby-card">
-        <p class="eyebrow">Cartes en famille</p>
         <div class="lobby-card__heading">
           <h1>${state.roomEmoji || '🎲'} Salon ${state.roomName || 'ouvert'}</h1>
           <button class="lobby-card__close" id="btn-leave" title="Quitter la table" aria-label="Quitter la table">✕</button>
@@ -180,7 +190,7 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
     if (window.confirm('Quitter la table ?')) onLeave?.();
   });
 
-  container.querySelectorAll('.player-list__kick').forEach((btn) => {
+  container.querySelectorAll('.player-chip__kick').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.kickId;
       const target = state.players.find((p) => p.id === id);
