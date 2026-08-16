@@ -2590,26 +2590,35 @@ body.is-card-dragging * {
   }
 
   /* Blackjack : feutre (banque+adversaires imbriqués) et main plafonnés,
-     colonne de bulles à droite — pas de restructuration du DOM. */
+     colonne de bulles à droite — pas de restructuration du DOM. Contenu
+     naturellement court (2-3 cartes + 2 boutons) : avec le align-items
+     générique (flex-start), les 2 colonnes restaient collées en haut, sans
+     jamais remplir la hauteur — vu comme un écran "coupé" à mi-hauteur, tout
+     le bas restant vide. align-items:stretch les étire sur toute la
+     hauteur disponible (leur propre défilement interne prend le relais si
+     jamais leur contenu dépassait). */
   .screen--table.blackjack-screen {
     padding-right: 64px;
     overflow-y: auto;
+    align-items: stretch;
   }
   .blackjack-screen .blackjack-felt,
   .blackjack-screen .my-hand {
-    max-height: 46vh;
+    max-height: none;
     overflow-y: auto;
   }
 
   /* Trou du Cul : feutre (adversaires en arc + pli central imbriqués) et
-     main plafonnés, colonne de bulles à droite — pas de restructuration. */
+     main plafonnés, colonne de bulles à droite — pas de restructuration.
+     Même correctif qu'au Blackjack ci-dessus (align-items:stretch). */
   .screen--table.trouduc-screen {
     padding-right: 64px;
     overflow-y: auto;
+    align-items: stretch;
   }
   .trouduc-screen .trouduc-felt,
   .trouduc-screen .my-hand {
-    max-height: 46vh;
+    max-height: none;
     overflow-y: auto;
   }
 
