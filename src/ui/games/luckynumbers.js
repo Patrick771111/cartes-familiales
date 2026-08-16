@@ -50,7 +50,6 @@ function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
   const hasDrawn = Boolean(state.drawnTile);
   const placeableIndexes =
     isMyTurn && hasDrawn ? luckyValidPlacements(me?.board || [], state.drawnTile.value) : [];
-  const currentName = state.players.find((p) => p.id === state.currentPlayerId)?.name;
 
   const opponentsHtml = orderedOpponents(state, player.id)
     .map((p) => {
@@ -81,23 +80,12 @@ function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
           .join(', ')} gagne${state.winnerIds.length > 1 ? 'nt' : ''} !</p>`
       : '';
 
-  const actionHint = !isMyTurn
-    ? `Tour de ${currentName || '…'}`
-    : hasDrawn
-      ? placeableIndexes.length
-        ? `Tuile ${state.drawnTile.value} — glisse ou touche une case, ou défausse-la.`
-        : `Tuile ${state.drawnTile.value} — aucune case valide, défausse-la.`
-      : state.discard.length
-        ? 'Pioche, ou glisse un trèfle de la défausse vers une case.'
-        : 'Pioche un trèfle caché.';
-
   const finished = state.status === 'finished';
 
   container.innerHTML = `
     <div class="screen screen--table lucky-screen">
       <div class="lucky-top">
         ${winnerBanner}
-        <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">${actionHint}</div>
         <div class="lucky-opponents">${opponentsHtml || '<p class="lucky-opponents__empty">—</p>'}</div>
       </div>
 

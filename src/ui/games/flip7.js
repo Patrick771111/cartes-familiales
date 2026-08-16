@@ -14,9 +14,46 @@ import {
 const FLIP7_STATUS_LABEL = { active: 'En jeu', stayed: 'Resté', busted: 'Passé !' };
 const FLIP7_ACTION_LABEL = { freeze: '❄️ Freeze', flipThree: '🔀 Flip Three', secondChance: '🛡️ 2e chance' };
 
-export function resetSelection() {}
+// Un doublon pioché (perdu pour la manche) fait immédiatement passer la main
+// au joueur suivant côté état — sans ce gel d'1s, la carte en double
+// disparaîtrait de la zone de flip avant même d'avoir pu la voir. On mémorise
+// qui flippait au dernier rendu pour détecter la transition, on fige alors
+// l'affichage sur sa main finale le temps du délai, puis on laisse la main
+// suivante s'afficher normalement.
+let flip7PrevCurrentPlayerId = null;
+let flip7BustFreeze = null; // { name, display } pendant le gel, sinon null
+let flip7BustFreezeTimer = null;
+
+export function resetSelection() {
+  flip7PrevCurrentPlayerId = null;
+  flip7BustFreeze = null;
+  if (flip7BustFreezeTimer) {
+    window.clearTimeout(flip7BustFreezeTimer);
+    flip7BustFreezeTimer = null;
+  }
+}
 
 export function renderTable(container, { room, player, state, onLeave }) {
+  if (flip7BustFreezeTimer) return; // le gel en cours affiche déjà la bonne vue, rien à refaire
+
+  const bustedPlayer =
+    flip7PrevCurrentPlayerId && flip7PrevCurrentPlayerId !== state.currentPlayerId
+      ? state.players.find((p) => p.id === flip7PrevCurrentPlayerId && p.status === 'busted')
+      : null;
+
+  if (bustedPlayer && state.status !== 'finished') {
+    flip7BustFreeze = { name: bustedPlayer.name, display: bustedPlayer.display };
+    renderFlip7Table(container, { room, player, state, onLeave });
+    flip7BustFreezeTimer = window.setTimeout(() => {
+      flip7BustFreezeTimer = null;
+      flip7BustFreeze = null;
+      flip7PrevCurrentPlayerId = state.currentPlayerId;
+      renderTable(container, { room, player, state, onLeave });
+    }, 1000);
+    return;
+  }
+
+  flip7PrevCurrentPlayerId = state.currentPlayerId;
   renderFlip7Table(container, { room, player, state, onLeave });
 }
 
@@ -83,13 +120,14 @@ function renderFlip7Table(container, { room, player, state, onLeave }) {
     })
     .join('');
 
-  // Pendant mon propre tour, ma main est déjà affichée juste en dessous
-  // (avec les boutons d'action) — pas la peine de la dupliquer ici. La zone
-  // de flip ne montre donc les cartes que quand c'est un adversaire qui flippe.
+  // Les cartes piochées (les miennes comme celles d'un adversaire) s'affichent
+  // toutes dans la zone de flip centrale, jamais dans "ma main" — une seule
+  // zone commune à tout le monde, cohérente avec le reste de la table.
   const currentFlipper = state.players.find((p) => p.id === state.currentPlayerId);
+  const flipDisplay = flip7BustFreeze ? flip7BustFreeze.display : currentFlipper?.display;
   const flipZoneHtml =
-    currentFlipper && !finished && !isMyTurn
-      ? `<div class="flip7-hand">${currentFlipper.display.map(flip7CardHtml).join('') || '<p class="my-hand__empty">Pas encore de carte cette manche.</p>'}</div>`
+    flipDisplay && !finished
+      ? `<div class="flip7-hand">${flipDisplay.map(flip7CardHtml).join('') || '<p class="my-hand__empty">Pas encore de carte cette manche.</p>'}</div>`
       : '';
 
   container.innerHTML = `
@@ -111,11 +149,13 @@ function renderFlip7Table(container, { room, player, state, onLeave }) {
         }
         <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
           ${
-            finished
-              ? 'Manche terminée'
-              : isMyTurn
-                ? 'À toi de flipper'
-                : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`
+            flip7BustFreeze
+              ? `💥 ${flip7BustFreeze.name} pioche un doublon — perdu pour cette manche !`
+              : finished
+                ? 'Manche terminée'
+                : isMyTurn
+                  ? 'À toi de flipper'
+                  : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`
           }
         </div>
         ${flipZoneHtml}
@@ -124,7 +164,6 @@ function renderFlip7Table(container, { room, player, state, onLeave }) {
       <div class="my-hand">
         <p class="my-hand__label">Ta main (${uniqueCountFor(me)}/7) · ${statusLabelFor(me)}</p>
         <p class="my-hand__label">Score total : ${me.score}${me.id === state.gameWinnerId ? ' 🏆' : ''}</p>
-        <div class="flip7-hand">${me.display.map(flip7CardHtml).join('') || '<p class="my-hand__empty">Pas encore de carte cette manche.</p>'}</div>
 
         ${
           canAct

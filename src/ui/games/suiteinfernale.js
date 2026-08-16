@@ -76,6 +76,16 @@ function suiteInfernaleSlotContent(card) {
   return card.type === 'jokerPlus2' ? '🃏²' : '🃏';
 }
 
+// Miniature de la carte réellement jouée dans la case (même illustration que
+// dans la main), plutôt qu'un simple chiffre — repli sur `suiteInfernaleSlotContent`
+// si aucune illustration n'est disponible pour ce thème de cartes.
+function suiteInfernaleSlotIllustration(card) {
+  if (!card) return null;
+  const theme = document.documentElement.dataset.cardTheme;
+  if (card.kind === 'number') return gameCardImage(theme, 'numbers', String(card.value), card.value);
+  return gameCardImage(theme, 'suiteinfernale', card.type, card.id);
+}
+
 function suiteInfernaleSlotTitle(card, index) {
   if (!card) return `Case ${index + 1} (vide)`;
   if (card.kind === 'number') return `${card.value}`;
@@ -95,7 +105,9 @@ export function suiteInfernaleSequenceHtml(sequence, { clickableIndexes, targetI
         const clickable = clickableIndexes && clickableIndexes.includes(i);
         const isJoker = card && card.kind === 'special';
         const dropAttrs = targetId && card ? `data-dropzone="opponent-slot" data-target-id="${targetId}" data-slot-index="${i}"` : '';
-        return `<div class="suiteinfernale-slot ${card ? 'suiteinfernale-slot--filled' : ''} ${isJoker ? 'suiteinfernale-slot--joker' : ''} ${clickable ? 'suiteinfernale-slot--pickable' : ''}" data-index="${i}" ${dropAttrs} title="${suiteInfernaleSlotTitle(card, i)}">${suiteInfernaleSlotContent(card) || i + 1}</div>`;
+        const illustration = suiteInfernaleSlotIllustration(card);
+        const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
+        return `<div class="suiteinfernale-slot ${card ? 'suiteinfernale-slot--filled' : ''} ${isJoker ? 'suiteinfernale-slot--joker' : ''} ${illustration ? 'suiteinfernale-slot--illustrated' : ''} ${clickable ? 'suiteinfernale-slot--pickable' : ''}" data-index="${i}" ${dropAttrs}${style} title="${suiteInfernaleSlotTitle(card, i)}">${illustration ? '' : (suiteInfernaleSlotContent(card) || i + 1)}</div>`;
       })
       .join('')}
   </div>`;
@@ -198,10 +210,16 @@ function renderSuiteInfernaleTable(container, { room, player, state, onLeave }) 
             ? `<p class="flip7-banner flip7-banner--winner">🏆 ${state.players.find((p) => p.id === state.winnerId)?.name || '?'} termine sa suite et gagne la partie !</p>`
             : ''
         }
-        <button type="button" class="suiteinfernale-stock ${canDraw ? 'suiteinfernale-stock--pickable' : ''}" id="btn-draw" ${canDraw ? '' : 'disabled'}>
-          ${cardBackHtml()}
-          <span class="suiteinfernale-stock__count">Pioche (${state.deck.length})</span>
-        </button>
+        <div class="suiteinfernale-piles">
+          <button type="button" class="suiteinfernale-stock ${canDraw ? 'suiteinfernale-stock--pickable' : ''}" id="btn-draw" ${canDraw ? '' : 'disabled'}>
+            ${cardBackHtml()}
+            <span class="suiteinfernale-stock__count">Pioche (${state.deck.length})</span>
+          </button>
+          <div class="suiteinfernale-discard-pile">
+            ${state.lastDiscarded ? suiteInfernaleCardHtml(state.lastDiscarded) : '<div class="suiteinfernale-discard-pile__empty"></div>'}
+            <span class="suiteinfernale-discard-pile__label">Défausse</span>
+          </div>
+        </div>
 
         ${
           (() => {

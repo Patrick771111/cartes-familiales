@@ -133,6 +133,7 @@ export function initGame(players) {
     pendingAttack: null,
     deck: deck0.slice(cursor),
     discard: [],
+    lastDiscarded: null,
     winnerId: null,
     log: [{ ts: Date.now(), message: `${gamePlayers.find((p) => p.id === turnOrder[0]).name} commence, à toi de piocher !` }]
   };
@@ -415,7 +416,7 @@ export function applyDiscard(state, playerId, cardId) {
 
   current.hand = current.hand.filter((c) => c.id !== cardId);
   const discard = [...state.discard, card];
-  const nextState = { ...state, players, discard, log: [...state.log, { ts: Date.now(), message: `${current.name} défausse une carte.` }].slice(-40) };
+  const nextState = { ...state, players, discard, lastDiscarded: card, log: [...state.log, { ts: Date.now(), message: `${current.name} défausse une carte.` }].slice(-40) };
   return endPlayAfterAction(nextState, playerId);
 }
 

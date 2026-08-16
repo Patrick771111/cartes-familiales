@@ -1354,16 +1354,18 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   overflow: hidden;
   gap: 8px;
 }
+/* Mêmes proportions qu'au Pouilleux (voir .pouilleux-zone--others/--target
+   plus bas) : adversaires compacts (juste leur taille de contenu, comme le
+   style de base partagé .pouilleux-zone--others), le centre (pioche +
+   défausse) est la seule zone qui grandit pour occuper l'espace restant. */
 @media (orientation: portrait), (min-height: 621px) {
   .americain-screen { padding-bottom: 64px; }
   .americain-screen .pouilleux-zone--others {
-    flex: 1 1 auto;
-    min-height: 0;
     overflow-y: auto;
   }
   .americain-screen .americain-felt {
-    flex: 0 0 auto;
-    max-height: 50vh;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
   }
   .americain-screen .my-hand {
@@ -1374,7 +1376,47 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   }
 }
 
+/* Paysage : 3 colonnes plutôt que le row/wrap générique — adversaires
+   au-dessus de la pioche/défausse à gauche (une seule colonne, empilés),
+   ma main à droite (pleine hauteur), la colonne de bulles fixes réservée
+   par le padding-right générique vient s'ajouter à droite de tout ça. */
+@media (orientation: landscape) and (max-height: 620px) {
+  .screen--table.americain-screen {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto 1fr;
+    gap: 8px 16px;
+    align-items: stretch;
+  }
+  .americain-screen .pouilleux-zone--others {
+    grid-column: 1;
+    grid-row: 1;
+    max-height: none;
+    overflow-y: auto;
+  }
+  .americain-screen .americain-felt {
+    grid-column: 1;
+    grid-row: 2;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+  }
+  .americain-screen .my-hand {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    max-height: none;
+    overflow-y: auto;
+  }
+}
+
 .americain-felt { padding: 20px 14px 24px; }
+
+/* Pas d'estompage des cartes non jouables en main : contrairement à d'autres
+   jeux, l'intégralité de la main paraît en permanence "grisée" dès que ce
+   n'est pas mon tour (isMyTurn=false rend toutes les cartes non jouables) —
+   trop agressif ici, les cartes restent donc pleinement visibles. */
+.americain-screen .hand-card--unplayable { opacity: 1; }
+.americain-screen .hand-card--unplayable .card { filter: none; }
 
 .americain-center {
   display: flex;
@@ -1722,6 +1764,15 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
     min-height: 0;
     overflow-y: auto;
   }
+  /* Le feutre contient banque + adversaires imbriqués (pas de restructuration
+     du DOM pour ce jeu) : sans ce plafond, le flottant `min-height: 16vh` de
+     `.pouilleux-zone--others` (générique, pensé pour une zone qui est un
+     enfant flex direct ailleurs) s'ajoute à la banque et pousse le feutre
+     au-delà de l'espace réservé — coupé net par `overflow: hidden` sur
+     `.blackjack-screen` plutôt que de défiler dans le feutre. */
+  .blackjack-screen .pouilleux-zone--others {
+    min-height: 0;
+  }
   .blackjack-screen .my-hand {
     flex: 0 0 auto;
     max-height: 34vh;
@@ -1777,19 +1828,24 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 }
 @media (orientation: portrait), (min-height: 621px) {
   .flip7-screen { padding-bottom: 64px; }
+  /* Adversaires (juste nom + score) et ma main (juste score + boutons) sont
+     statiques, à peine plus grands que leur contenu — la zone de flip
+     centrale est la seule chose qui varie (0 à 7 cartes) et reçoit donc la
+     part du lion : jusqu'à 75% de l'écran plutôt que le 46vh générique. */
   .flip7-screen .pouilleux-zone--others {
-    flex: 1 1 auto;
-    min-height: 0;
+    flex: 0 0 auto;
+    max-height: 16vh;
     overflow-y: auto;
   }
   .flip7-screen .flip7-felt {
-    flex: 0 0 auto;
-    max-height: 46vh;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: 75vh;
     overflow-y: auto;
   }
   .flip7-screen .my-hand {
     flex: 0 0 auto;
-    max-height: 34vh;
+    max-height: 20vh;
     overflow-y: auto;
     margin-top: 0;
   }
@@ -1810,8 +1866,8 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 .flip7-banner--winner { background: rgba(201, 162, 39, 0.28); }
 
 .flip7-card {
-  width: 44px;
-  height: 60px;
+  width: 64px;
+  height: 90px;
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -1825,7 +1881,7 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   background-color: var(--cream);
   color: var(--dark-suit);
   font-family: var(--font-mono);
-  font-size: 22px;
+  font-size: 28px;
 }
 /* Illustration (voir gameCardImage dans cardThemes.js/flip7.js) — cartes
    numéro : mêmes images que le Trio pour 1-12. Cartes modificateur/action :
@@ -1861,9 +1917,21 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 .flip7-hand {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 10px 0;
   justify-content: center;
   margin: 8px 0;
+}
+/* Cartes plus grosses (voir .flip7-card) qui se chevauchent en éventail —
+   passent sur une 2e ligne si les 7 (ou plus, en cas de doublon) ne tiennent
+   pas sur une seule, comme .hand-card ailleurs dans l'appli. */
+.flip7-hand .flip7-card {
+  margin-left: -14px;
+}
+.flip7-hand .flip7-card:first-child {
+  margin-left: 0;
+}
+.flip7-hand .flip7-card:hover {
+  z-index: 5;
 }
 
 /* Zone de flip : le feutre n'affiche plus que la main de celui dont c'est
@@ -2096,13 +2164,44 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 
 .suiteinfernale-felt { padding: 18px 14px; text-align: center; }
 
+.suiteinfernale-piles {
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.suiteinfernale-discard-pile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.suiteinfernale-discard-pile .suiteinfernale-card {
+  width: 60px;
+  height: 88px;
+}
+.suiteinfernale-discard-pile__empty {
+  width: 60px;
+  height: 88px;
+  border: 1.5px dashed var(--line);
+  border-radius: 8px;
+}
+.suiteinfernale-discard-pile__label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: rgba(247, 241, 225, 0.65);
+}
+
 .suiteinfernale-stock {
   appearance: none;
   -webkit-appearance: none;
   border: none;
   background: none;
   padding: 0;
-  margin: 0 0 8px;
+  margin: 0;
   box-sizing: border-box;
   position: relative;
   cursor: default;
@@ -2168,6 +2267,19 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   box-shadow: 0 0 0 2px var(--red-suit), 0 2px 6px rgba(0,0,0,0.3);
 }
 .opponent--compact .suiteinfernale-slot--pickable { box-shadow: 0 0 0 1.5px var(--red-suit); }
+
+/* Case remplie par une carte illustrée : miniature de la vraie carte plutôt
+   qu'un chiffre dans un rond — un petit rectangle façon carte à jouer prend
+   le pas sur la forme circulaire par défaut des cases. */
+.suiteinfernale-slot--illustrated {
+  width: 24px;
+  height: 32px;
+  border-radius: 5px;
+  border: none;
+  background-size: cover;
+  background-position: center;
+}
+.opponent--compact .suiteinfernale-slot--illustrated { width: 18px; height: 24px; border-radius: 4px; }
 
 .suiteinfernale-card {
   width: 44px;
@@ -2434,20 +2546,11 @@ body.is-card-dragging * {
     overflow-y: auto;
   }
 
-  /* 8 américain : même verrouillage de hauteur qu'en portrait, colonne de
-     bulles à droite plutôt qu'en bas — la largeur relative des 3 zones
-     (adversaires/feutre/main) reste celle du layout paysage générique
-     ci-dessus (.screen--table en rangée), seul un plafond + défilement
-     interne est ajouté pour éviter tout redimensionnement dynamique. */
+  /* 8 américain : layout dédié en grille 3 colonnes, voir plus haut (règle
+     .screen--table.americain-screen{display:grid...}) — juste la réserve
+     pour la colonne de bulles fixes à droite ici. */
   .screen--table.americain-screen {
     padding-right: 64px;
-    overflow-y: auto;
-  }
-  .americain-screen .pouilleux-zone--others,
-  .americain-screen .americain-felt,
-  .americain-screen .my-hand {
-    max-height: 46vh;
-    overflow-y: auto;
   }
 
   /* Flip 7, La Suite Infernale, Uno : même traitement qu'à l'Américain
@@ -2470,6 +2573,20 @@ body.is-card-dragging * {
   .uno-screen .my-hand {
     max-height: 46vh;
     overflow-y: auto;
+  }
+
+  /* La Suite Infernale : la pioche/défausse n'a besoin ni de 52% de largeur
+     ni de 46vh de hauteur (juste deux petites piles) — on lui laisse moins
+     de place pour en donner davantage à la main (suite + cartes en main). */
+  .screen--table.suiteinfernale-screen .suiteinfernale-felt {
+    flex: 1 1 30%;
+    max-width: 280px;
+    max-height: 28vh;
+  }
+  .screen--table.suiteinfernale-screen .my-hand {
+    flex: 1 1 58%;
+    max-width: 560px;
+    max-height: 50vh;
   }
 
   /* Blackjack : feutre (banque+adversaires imbriqués) et main plafonnés,
@@ -2496,22 +2613,51 @@ body.is-card-dragging * {
     overflow-y: auto;
   }
 
-  /* Skyjo : la grille perso reste dans son dock fixe tout en bas (~240px,
-     ne suit pas le paysage — voir la règle dédiée en toute fin de feuille de
-     style) même ici, il faut donc plafonner adversaires+feutre bien plus
-     bas que les autres jeux pour qu'ils tiennent dans l'espace restant
-     au-dessus, sans quoi ils se retrouvent visuellement cachés sous le dock
-     (opaque, z-index élevé). Le passage en row+wrap étire aussi les lignes
-     wrappées (align-content:normal ~= stretch) et créait un grand vide
-     entre adversaires/feutre : align-content:flex-start les recolle. */
+  /* Skyjo : même logique 3 colonnes + barre de bulles qu'à Lucky Numbers —
+     adversaires (défilables) / pioche+défausse / grille perso. Le dock (voir
+     .skyjo-my-grid-dock, fixe en portrait) redevient un simple élément de
+     grille ici : plus besoin de réserver 300px en bas d'écran, ni de garder
+     les bulles au ras du dock (elles rejoignent la colonne générique à
+     droite, comme les autres jeux — voir la règle dédiée en toute fin de
+     feuille de style, désormais limitée au portrait). */
   .screen--table.skyjo-screen {
-    align-content: flex-start;
-  }
-  .skyjo-screen .pouilleux-zone--others,
-  .skyjo-screen .skyjo-felt {
-    flex: 0 1 auto;
-    max-height: 6vh;
+    display: grid;
+    grid-template-columns: minmax(130px, 1fr) minmax(160px, 1fr) minmax(200px, 1.2fr);
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      "opp felt dock"
+      "opp felt end";
+    align-items: start;
+    gap: 8px 14px;
+    padding-right: 64px;
+    padding-bottom: 8px;
     overflow-y: auto;
+  }
+  .skyjo-screen .pouilleux-zone--others {
+    grid-area: opp;
+    max-height: 100%;
+    overflow-y: auto;
+  }
+  .skyjo-screen .skyjo-felt {
+    grid-area: felt;
+    max-height: none;
+  }
+  .skyjo-screen .skyjo-my-grid-dock {
+    grid-area: dock;
+    position: static;
+    bottom: auto;
+    left: auto;
+    right: auto;
+    z-index: auto;
+    background: rgba(15, 46, 33, 0.5);
+    border: 1px solid var(--line);
+    border-top: 1px solid var(--line);
+    box-shadow: none;
+    border-radius: 16px;
+    padding: 10px 14px;
+  }
+  .skyjo-screen .my-hand {
+    grid-area: end;
   }
 }
 
@@ -2938,15 +3084,63 @@ body.is-card-dragging * {
   overflow: hidden;
   gap: 8px;
 }
-/* Déjà proche du verrouillage recherché (les adversaires, .lucky-top, ne
-   captent jamais plus que leur contenu réel — pas besoin d'inverser les
-   priorités flex comme pour Trio) : il ne manquait que la réserve pour la
-   rangée de bulles fixes et un filet de sécurité si le contenu dépasse. */
+/* Avec plusieurs adversaires, .lucky-top (sans plafond) grandissait sans
+   limite et écrasait .lucky-bottom (pioche/défausse/jardin) — la pioche se
+   retrouvait poussée hors champ, visible seulement via l'ascenseur de
+   .lucky-bottom. La zone principale (jardin + pioche) ne doit jamais avoir
+   besoin de défiler : c'est .lucky-top (les adversaires) qui absorbe le
+   trop-plein, avec son propre défilement interne si besoin. */
 @media (orientation: portrait), (min-height: 621px) {
   .lucky-screen { padding-bottom: 64px; }
+  .lucky-top {
+    flex: 0 1 auto;
+    max-height: 20vh;
+    overflow-y: auto;
+  }
+  .lucky-bottom {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: visible;
+  }
 }
+/* Paysage : 3 colonnes (adversaires / pioche+défausse / jardin) plutôt que
+   le row/wrap générique — chacune a la largeur pour respirer, la colonne de
+   bulles fixes vient s'ajouter au-delà via le padding-right. Adversaires
+   défilables verticalement comme en portrait si besoin ; pioche et jardin ne
+   défilent jamais (mêmes contraintes qu'en portrait). */
 @media (orientation: landscape) and (max-height: 620px) {
-  .lucky-screen { padding-right: 64px; overflow-y: auto; }
+  .screen--table.lucky-screen {
+    display: grid;
+    grid-template-columns: minmax(130px, 1fr) minmax(150px, 1fr) minmax(200px, 1.2fr);
+    align-items: start;
+    gap: 8px 14px;
+    padding-right: 64px;
+    padding-bottom: 8px;
+    overflow-y: auto;
+  }
+  .lucky-screen .lucky-top {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    max-height: 100%;
+    padding-top: 0;
+    overflow-y: auto;
+  }
+  .lucky-screen .lucky-bottom {
+    display: contents;
+  }
+  .lucky-screen .lucky-draw-area {
+    grid-column: 2;
+    grid-row: 1;
+    margin-bottom: 0;
+  }
+  .lucky-screen .lucky-my-board {
+    grid-column: 3;
+    grid-row: 1 / 3;
+  }
+  .lucky-screen .end-actions {
+    grid-column: 2;
+    grid-row: 2;
+  }
 }
 .lucky-top {
   flex: 0 0 auto;
@@ -3640,20 +3834,24 @@ body.is-card-dragging * {
   min-height: 100dvh;
 }
 
-/* Skyjo : la grille perso reste épinglée en bas (dock position:fixed, voir
-   .skyjo-my-grid-dock) dans TOUTE orientation — le glisser-déposer vise des
-   coordonnées écran stables, contrairement aux autres jeux le paysage ne
-   fait pas passer cette zone à droite. Les bulles suivent donc : elles
-   restent tout en bas de l'écran (comme les autres jeux), le dock remonte
-   juste au-dessus d'elles plutôt que l'inverse. Placé en toute fin de
-   feuille de style pour l'emporter par ordre de cascade sur les règles
-   paysage génériques (même spécificité). */
-body:has(.skyjo-screen) .settings-fab,
-body:has(.skyjo-screen) .game-hud__bubble {
-  top: auto;
-  bottom: 12px;
+/* Skyjo en portrait : la grille perso reste épinglée en bas (dock
+   position:fixed, voir .skyjo-my-grid-dock), le glisser-déposer y vise des
+   coordonnées écran stables — les bulles restent donc tout en bas de
+   l'écran, le dock juste au-dessus d'elles plutôt que l'inverse. En paysage
+   le dock redevient un simple élément de la grille 3 colonnes (voir la
+   règle .screen--table.skyjo-screen{display:grid} plus haut) : les bulles
+   suivent alors le comportement générique (colonne à droite), donc PAS de
+   règle ici pour cette orientation. Placé en toute fin de feuille de style
+   pour l'emporter par ordre de cascade sur les règles paysage génériques
+   (même spécificité). */
+@media (orientation: portrait), (min-height: 621px) {
+  body:has(.skyjo-screen) .settings-fab,
+  body:has(.skyjo-screen) .game-hud__bubble {
+    top: auto;
+    bottom: 12px;
+  }
+  body:has(.skyjo-screen) .settings-fab { left: 12px; right: auto; }
+  body:has(.skyjo-screen) .game-hud__bubble--help { left: 60px; right: auto; }
+  body:has(.skyjo-screen) .game-hud__bubble--log { left: 108px; right: auto; }
+  body:has(.skyjo-screen) .game-hud__bubble--quit { right: 12px; left: auto; }
 }
-body:has(.skyjo-screen) .settings-fab { left: 12px; right: auto; }
-body:has(.skyjo-screen) .game-hud__bubble--help { left: 60px; right: auto; }
-body:has(.skyjo-screen) .game-hud__bubble--log { left: 108px; right: auto; }
-body:has(.skyjo-screen) .game-hud__bubble--quit { right: 12px; left: auto; }
