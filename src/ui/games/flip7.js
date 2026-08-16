@@ -1,5 +1,6 @@
 import { hitFlip7, stayFlip7, TARGET_SCORE as FLIP7_TARGET_SCORE } from '../../game/flip7.js';
 import { openRulesModal } from '../rules.js';
+import { gameCardImage } from '../cardThemes.js';
 import {
   connectionBadge,
   endGameActionsHtml,
@@ -18,10 +19,36 @@ export function renderTable(container, { room, player, state, onLeave }) {
   renderFlip7Table(container, { room, player, state, onLeave });
 }
 
+/** Clé de slot illustration (voir gameCardImage) pour une carte modificateur — évite le `+` de `card.id`/`card.label`, invalide dans un nom de fichier/le regex de buildGameSlotRegistry. */
+function flip7ModifierSlotKey(card) {
+  return card.modType === 'x2' ? 'x2' : `plus${card.amount}`;
+}
+
+/** Clé de slot illustration pour une carte action — par `kind` (pas `card.id`) : les 3 exemplaires de chaque action partagent la même unique illustration. */
+function flip7ActionSlotKey(card) {
+  if (card.kind === 'freeze') return 'freeze';
+  if (card.kind === 'flipThree') return 'flip3';
+  if (card.kind === 'secondChance') return 'secondchance';
+  return card.kind;
+}
+
 function flip7CardHtml(card) {
-  if (card.kind === 'number') return `<div class="flip7-card flip7-card--number">${card.value}</div>`;
-  if (card.kind === 'modifier') return `<div class="flip7-card flip7-card--modifier">${card.label}</div>`;
-  return `<div class="flip7-card flip7-card--action">${FLIP7_ACTION_LABEL[card.kind] || card.label}</div>`;
+  const theme = document.documentElement.dataset.cardTheme;
+  // Mêmes illustrations "numéro" que le Trio pour 1-12 (voir
+  // classique/games/flip7/) ; le 0, propre à Flip 7, a la sienne.
+  if (card.kind === 'number') {
+    const illustration = gameCardImage(theme, 'flip7', String(card.value), card.value);
+    const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
+    return `<div class="flip7-card flip7-card--number ${illustration ? 'flip7-card--illustrated' : ''}"${style}>${illustration ? '' : card.value}</div>`;
+  }
+  if (card.kind === 'modifier') {
+    const illustration = gameCardImage(theme, 'flip7', flip7ModifierSlotKey(card), card.id);
+    const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
+    return `<div class="flip7-card flip7-card--modifier ${illustration ? 'flip7-card--illustrated' : ''}"${style}>${illustration ? '' : card.label}</div>`;
+  }
+  const illustration = gameCardImage(theme, 'flip7', flip7ActionSlotKey(card), card.id);
+  const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
+  return `<div class="flip7-card flip7-card--action ${illustration ? 'flip7-card--illustrated' : ''}"${style}>${illustration ? '' : FLIP7_ACTION_LABEL[card.kind] || card.label}</div>`;
 }
 
 function renderFlip7Table(container, { room, player, state, onLeave }) {
@@ -35,17 +62,30 @@ function renderFlip7Table(container, { room, player, state, onLeave }) {
   const statusLabelFor = (p) =>
     finished ? `${FLIP7_STATUS_LABEL[p.status]} · ${p.roundScore ?? 0} pt${(p.roundScore ?? 0) > 1 ? 's' : ''} cette manche` : FLIP7_STATUS_LABEL[p.status];
 
+  // Les cartes d'un adversaire ne s'affichent plus dans cette liste du tout
+  // — juste nom + score, toujours à jour. La main du joueur en train de
+  // flipper (lui inclus) s'affiche à sa place au milieu, dans le feutre
+  // (voir plus bas) : une seule "zone de flip" commune plutôt qu'une par
+  // adversaire, moins de redite et plus de place pour chacune.
   const restHtml = others
     .map((p) => {
       const isTurn = p.id === state.currentPlayerId;
       return `
         <div class="opponent opponent--compact ${isTurn ? 'opponent--turn' : ''}">
-          <div class="flip7-mini-hand">${p.display.map(flip7CardHtml).join('') || '<span class="flip7-mini-hand__empty">—</span>'}</div>
           <p class="opponent__name">${p.name}${connectionBadge(state, p.id)} · ${uniqueCountFor(p)}/7 · ${statusLabelFor(p)}</p>
           <p class="opponent__name">Score total : ${p.score}${p.id === state.gameWinnerId ? ' 🏆' : ''}</p>
         </div>`;
     })
     .join('');
+
+  // Pendant mon propre tour, ma main est déjà affichée juste en dessous
+  // (avec les boutons d'action) — pas la peine de la dupliquer ici. La zone
+  // de flip ne montre donc les cartes que quand c'est un adversaire qui flippe.
+  const currentFlipper = state.players.find((p) => p.id === state.currentPlayerId);
+  const flipZoneHtml =
+    currentFlipper && !finished && !isMyTurn
+      ? `<div class="flip7-hand">${currentFlipper.display.map(flip7CardHtml).join('') || '<p class="my-hand__empty">Pas encore de carte cette manche.</p>'}</div>`
+      : '';
 
   container.innerHTML = `
     <div class="screen screen--table flip7-screen">
@@ -73,6 +113,7 @@ function renderFlip7Table(container, { room, player, state, onLeave }) {
                 : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`
           }
         </div>
+        ${flipZoneHtml}
       </div>
 
       <div class="my-hand">

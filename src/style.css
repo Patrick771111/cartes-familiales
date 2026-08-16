@@ -1561,6 +1561,19 @@ h1 {
   font-family: var(--font-mono);
   font-size: 22px;
 }
+/* Illustration (voir gameCardImage dans cardThemes.js/flip7.js) — cartes
+   numéro : mêmes images que le Trio pour 1-12. Cartes modificateur/action :
+   illustrations propres à Flip 7 (une seule par type d'action, les 3
+   exemplaires en main la partagent — voir flip7ActionSlotKey). `border-color`
+   et `padding:0` réinitialisent le cadre/l'espace prévu pour l'ancien texte
+   brut, l'image ayant déjà son propre cadre dessiné. */
+.flip7-card--illustrated {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-color: rgba(0,0,0,0.15);
+  padding: 0;
+}
 .flip7-card--modifier {
   background: var(--brass-soft);
   color: var(--felt-900);
@@ -1575,16 +1588,18 @@ h1 {
   padding: 4px;
 }
 
-.flip7-hand, .flip7-mini-hand {
+.flip7-hand {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   justify-content: center;
   margin: 8px 0;
 }
-.flip7-mini-hand .flip7-card { width: 30px; height: 42px; font-size: 14px; }
-.flip7-mini-hand .flip7-card--action { font-size: 7px; }
-.flip7-mini-hand__empty { color: rgba(247, 241, 225, 0.4); font-size: 13px; }
+
+/* Zone de flip : le feutre n'affiche plus que la main de celui dont c'est
+   le tour (nom déjà donné par .turn-banner juste au-dessus) — la liste des
+   adversaires en haut ne montre plus que nom + score, sans carte. */
+.flip7-felt .flip7-hand { margin-top: 14px; }
 
 .flip7-actions { display: flex; gap: 10px; justify-content: center; margin: 10px 0; }
 .flip7-actions .btn { flex: 1; max-width: 160px; }

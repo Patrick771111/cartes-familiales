@@ -54,7 +54,12 @@ export function renderTable(container, { room, player, state, onLeave }) {
 
 function suiteInfernaleCardHtml(card) {
   const theme = document.documentElement.dataset.cardTheme;
-  if (card.kind === 'number') return `<div class="suiteinfernale-card suiteinfernale-card--number">${card.value}</div>`;
+  if (card.kind === 'number') {
+    // Mêmes illustrations 1-10 que le Trio/Flip 7 (voir classique/games/suiteinfernale/).
+    const illustration = gameCardImage(theme, 'suiteinfernale', String(card.value), card.value);
+    const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
+    return `<div class="suiteinfernale-card suiteinfernale-card--number ${illustration ? 'suiteinfernale-card--illustrated' : ''}"${style}>${illustration ? '' : card.value}</div>`;
+  }
   const label = SUITE_INFERNALE_SPECIAL_TYPES[card.type]?.label || card.type;
   const illustration = gameCardImage(theme, 'suiteinfernale', card.type, card.id);
   const style = illustration ? ` style="background-image:url('${illustration}')"` : '';
