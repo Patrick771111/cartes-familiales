@@ -5,6 +5,16 @@ description: Vérification E2E des 10 jeux de cartes-familiales dans un navigate
 
 # Tests de non-régression E2E — cartes-familiales
 
+## Avant de commencer : Node.js est-il disponible ?
+
+Ce skill part du principe qu'il n'y a pas de Node.js dans l'environnement.
+Si `node --version` répond (ça a été le cas dans certaines sessions), le
+skill `vite-dev-harness` fait la même chose avec le vrai serveur Vite —
+plus rapide, zéro réécriture de code source, et permet en plus de scripter
+des scénarios précis (plusieurs joueurs, hôte qui part...) directement via
+`import()` dans la console. Préfère-le quand Node est là ; garde celui-ci
+pour les environnements qui en sont vraiment dépourvus.
+
 ## Pourquoi ce skill existe
 
 Cet environnement de dev n'a pas Node.js — impossible de lancer `npm run
