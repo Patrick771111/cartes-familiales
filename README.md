@@ -209,9 +209,19 @@ total). Les bots jouent tout seuls après un court délai :
   `renderRoomList`). Un salon est juste une ligne `game_rooms` de plus — le
   code aléatoire à 4 caractères généré par `createRoom`
   (`src/supabase/sync.js`) n'a pas besoin d'être tapé ou partagé, la liste
-  sert de point d'entrée. Rejoindre un salon dont la partie a déjà démarré
-  bascule automatiquement en mode spectateur (lecture seule) plutôt que de
-  bloquer.
+  sert de point d'entrée — sauf lien d'invitation direct (`?room=CODE`, voir
+  le bouton "Inviter" 📤 de la salle d'attente et du HUD en jeu), qui rejoint
+  ce salon précis sans passer par la liste. Rejoindre un salon dont la
+  partie a déjà démarré bascule automatiquement en mode spectateur (lecture
+  seule) plutôt que de bloquer — avec la possibilité de prendre la place
+  d'un bot présent (`replaceBotWithPlayer`) si son prénom n'y est pas déjà
+  associé.
+- Reprise automatique (`findMyRoom` dans `engine.js`, appelé au démarrage de
+  l'appli dans `main.js`) : si l'appareil est déjà membre d'un salon actif —
+  humain, ou remplacé par un bot après un départ en pleine partie/une
+  déconnexion — il y est ramené directement, sans repasser par l'écran des
+  salons. Un départ explicite depuis la **salle d'attente** (avant que la
+  partie démarre) reste définitif : rien ne l'y ramène de force.
 - Chaque appareil mémorise son prénom dans `localStorage` dès la première visite
   (modifiable à tout moment depuis la modale de réglages ⚙️, en haut à droite de l'écran).
 - Modale de réglages (`src/ui/settings.js`) : prénom, couleur du tapis et style des
@@ -272,6 +282,10 @@ semble ne pas partir. `src/webrtc/relay.js` ajoute une couche de fiabilité
    première personne qui recharge la page après 2 minutes d'inactivité de
    l'hôte reprend automatiquement la main — pas besoin d'attendre qu'il
    revienne. Ça marche aussi immédiatement si l'hôte est un bot.
+   Si l'hôte quitte explicitement (bouton "Quitter") alors qu'il reste au
+   moins un autre humain à la table, un nouvel hôte humain est désigné
+   aussitôt (`computeLeaveOutcome` dans `core.js`) — le salon ne se ferme
+   que s'il ne reste plus aucun humain.
 2. La salle d'attente affiche la liste des joueurs déjà connectés en temps réel.
 3. L'hôte clique sur "Lancer la partie" quand tout le monde est là (pas besoin
    d'attendre exactement 4 joueurs, ça marche dès 2).

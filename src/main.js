@@ -11,6 +11,7 @@ import {
   renameLocalPlayer,
   leaveTable,
   leaveOtherRooms,
+  findMyRoom,
   kickPlayer,
   reclaimStaleHost,
   pingHostPresence,
@@ -367,7 +368,26 @@ async function boot() {
     return;
   }
 
-  await showRoomList(profile);
+  await resumeMyRoomOrShowList(profile);
+}
+
+/**
+ * Reprend directement le salon où ce profil est déjà membre — humain actif,
+ * ou remplacé par un bot après un départ en pleine partie/une déconnexion
+ * (ensureMembership reprend alors sa place automatiquement) — plutôt que de
+ * toujours atterrir sur l'écran des salons et devoir cliquer soi-même pour
+ * s'y retrouver. Rien à faire si aucun salon (première visite, ou a quitté
+ * explicitement une salle d'attente).
+ */
+async function resumeMyRoomOrShowList(profile) {
+  const myRoom = await findMyRoom(profile);
+  if (!myRoom) {
+    await showRoomList(profile);
+    return;
+  }
+  const joined = await ensureMembership(myRoom, profile);
+  const reclaimed = await reclaimStaleHost(joined, profile);
+  enterRoom(reclaimed, profile);
 }
 
 // Battement de cœur : tant que cet appareil est ouvert et que son utilisateur

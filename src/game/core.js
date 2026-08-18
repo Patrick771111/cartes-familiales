@@ -404,6 +404,21 @@ export async function leaveOtherRooms(profile, exceptRoomId) {
   }
 }
 
+/**
+ * Salon où ce profil est déjà membre (humain actif, ou remplacé par un bot
+ * après un départ en pleine partie/une déconnexion — voir `computeLeaveOutcome`),
+ * s'il y en a un. Utilisé au démarrage de l'appli pour reprendre directement
+ * sa place plutôt que de repasser par l'écran des salons — un joueur n'étant
+ * jamais membre que d'un seul salon à la fois (voir `leaveOtherRooms`), le
+ * premier trouvé suffit. `null` si aucun (première visite, ou a quitté
+ * explicitement une salle d'attente — ce départ-ci retire l'entrée pour de
+ * bon, contrairement à un départ en pleine partie).
+ */
+export async function findMyRoom(profile) {
+  const rows = await listRooms(100);
+  return rows.find((row) => row.state.players.some((p) => p.id === profile.id)) || null;
+}
+
 export async function leaveTable(room, profile) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const fresh = await fetchRoomById(room.id);

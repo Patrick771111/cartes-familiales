@@ -21,6 +21,7 @@ export {
   replaceBotWithPlayer,
   leaveTable,
   leaveOtherRooms,
+  findMyRoom,
   kickPlayer,
   addBot,
   claimHost,
