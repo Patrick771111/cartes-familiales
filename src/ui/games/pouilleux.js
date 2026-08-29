@@ -20,13 +20,7 @@ import {
   wireThreeDToggle
 } from '../gameShared.js';
 import { is3DEnabled } from '../settings.js';
-import {
-  mountPouilleuxScene,
-  positionPouilleuxScene,
-  updatePouilleuxScene,
-  showPouilleuxScene,
-  hidePouilleuxScene
-} from '../../three/pouilleuxScene.js';
+import { mountFan, positionFan, updateFan, showFan, hideAllFans, flipCardAt } from '../../three/pouilleuxScene.js';
 
 let lastRenderedState = null;
 
@@ -34,7 +28,7 @@ let lastRenderedState = null;
 // fichier qui "s'inscrit" à la 3D, les fichiers communs n'ont besoin de
 // connaître aucun jeu en particulier pour savoir masquer sa scène au bon moment.
 export function hide3D() {
-  hidePouilleuxScene();
+  hideAllFans();
 }
 
 /** Réinitialise l'état local propre à ce jeu — appelé au retour en salle d'attente. */
@@ -43,13 +37,23 @@ export function resetSelection() {
   resetHandOrder('pouilleux');
 }
 
+/** Mode 3D actif pour CET état : jamais en même temps que "mains dévoilées" (showFaces, texte/faces réelles que la 3D ne sait pas dessiner pour un adversaire) — cas volontairement laissé en 2D. */
+function shouldUse3D(state, player) {
+  const me = state.players.find((p) => p.id === player.id);
+  const isSafe = me.hand.length === 0;
+  const showFaces = isSafe && getRevealHands();
+  return is3DEnabled('pouilleux') && !showFaces;
+}
+
 export function renderTable(container, { room, player, state, onLeave }) {
   const previous = lastRenderedState;
   const isNewDraw = previous && state.lastDraw && (!previous.lastDraw || previous.lastDraw.id !== state.lastDraw.id);
+  const use3D = shouldUse3D(state, player);
 
   if (isNewDraw) {
     lastRenderedState = state;
-    renderDrawReveal(container, { previousState: previous, newState: state, player, room, onLeave });
+    if (use3D) renderDrawReveal3D(container, { previousState: previous, newState: state, player, room, onLeave });
+    else renderDrawReveal2D(container, { previousState: previous, newState: state, player, room, onLeave });
     return;
   }
   lastRenderedState = state;
@@ -58,11 +62,12 @@ export function renderTable(container, { room, player, state, onLeave }) {
     renderEndScreen(container, { room, player, onLeave });
     return;
   }
-  renderTableNow(container, { room, player, state, onLeave });
+  if (use3D) renderTableNow3D(container, { room, player, state, onLeave });
+  else renderTableNow2D(container, { room, player, state, onLeave });
 }
 
-function renderDrawReveal(container, { previousState, newState, player, room, onLeave }) {
-  renderTableNow(container, { room: { ...room, state: previousState }, player, state: previousState, onLeave });
+function renderDrawReveal2D(container, { previousState, newState, player, room, onLeave }) {
+  renderTableNow2D(container, { room: { ...room, state: previousState }, player, state: previousState, onLeave });
 
   const draw = newState.lastDraw;
   const drawer = previousState.players.find((p) => p.id === draw.by);
@@ -103,16 +108,66 @@ function renderDrawReveal(container, { previousState, newState, player, room, on
 
   const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   window.setTimeout(() => {
-    lastRenderedState = newState;
     if (newState.status === 'finished') {
       renderEndScreen(container, { room, player, onLeave });
     } else {
-      renderTableNow(container, { room, player, state: newState, onLeave });
+      renderTableNow2D(container, { room, player, state: newState, onLeave });
     }
   }, reduceMotion ? 500 : isOddCard || safeNames.length ? 1900 : 1400);
 }
 
-function renderTableNow(container, { room, player, state, onLeave }) {
+/**
+ * Version 3D de la révélation d'un tirage : la carte piochée pivote sur
+ * elle-même pour dévoiler sa face (voir flipCardAt) au lieu du grand
+ * médaillon 2D — seulement si la main d'où l'on a piocher n'était pas déjà
+ * affichée face visible (voir "ta main" quand on est soi-même la cible, plus
+ * rien à révéler dans ce cas).
+ */
+function renderDrawReveal3D(container, { previousState, newState, player, room, onLeave }) {
+  renderTableNow3D(container, { room: { ...room, state: previousState }, player, state: previousState, onLeave });
+
+  const draw = newState.lastDraw;
+  const drawer = previousState.players.find((p) => p.id === draw.by);
+  const target = previousState.players.find((p) => p.id === draw.from);
+  const targetWasMe = draw.from === player.id;
+
+  if (!targetWasMe && target) {
+    const idx = target.hand.findIndex((c) => c.id === draw.card.id);
+    if (idx !== -1) flipCardAt('stage', idx, { rank: draw.card.rank, suit: draw.card.suit });
+  }
+
+  const isOddCard = draw.card.id === newState.oddCardId;
+  const isFinalReveal = isOddCard && newState.status === 'finished';
+  const safeNames = [draw.drawerFinished ? drawer?.name : null, draw.targetFinished ? target?.name : null].filter(Boolean);
+
+  const messages = [`${drawer?.name || '?'} pioche chez ${target?.name || '?'}${draw.paired ? ' — paire !' : ''}`];
+  if (isOddCard) messages.push(isFinalReveal ? `${drawer?.name || '?'} est LE Pouilleux !` : 'Attention, LE Pouilleux !');
+  safeNames.forEach((name) => messages.push(`${name} est à l'abri !`));
+
+  const banner = container.querySelector('.turn-banner');
+  if (banner) banner.textContent = messages[0];
+  const status = container.querySelector('.pouilleux-3d-status');
+  if (status && messages.length > 1) status.textContent = messages.slice(1).join(' · ');
+
+  if (isFinalReveal) {
+    vibrate([150, 80, 150, 80, 300]);
+  } else if (isOddCard) {
+    vibrate([80, 40, 80, 40, 150]);
+  } else if (safeNames.length) {
+    vibrate(200);
+  }
+
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  window.setTimeout(() => {
+    if (newState.status === 'finished') {
+      renderEndScreen(container, { room, player, onLeave });
+    } else {
+      renderTableNow3D(container, { room, player, state: newState, onLeave });
+    }
+  }, reduceMotion ? 500 : isOddCard || safeNames.length ? 1900 : 1400);
+}
+
+function renderTableNow2D(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
   const isMyTurn = state.currentPlayerId === player.id;
   // La cible (chez qui on pioche ce tour-ci) est toujours calculable, pas
@@ -132,26 +187,17 @@ function renderTableNow(container, { room, player, state, onLeave }) {
   const restOthers = orderedOpponents(state, player.id).filter((p) => p.id !== targetId);
 
   const targetPickable = isMyTurn && target && target.hand.length > 0;
-  // La 3D ne sait dessiner que des dos de carte génériques (pas de vraies
-  // faces) — hors de propos ici puisque showFaces ne concerne que le rendu
-  // "mains dévoilées" quand on est déjà sorti·e, cas volontairement laissé
-  // en 2D pour cette tranche.
-  const use3D = is3DEnabled('pouilleux') && !showFaces;
-  const pickableButtonsHtml = () =>
-    Array.from({ length: target.hand.length })
-      .map((_, i) => `<button type="button" class="card card--back target-card--pickable" data-pick-index="${i}"></button>`)
-      .join('');
   const targetHandHtml = !target
     ? ''
     : targetPickable
-      ? pickableButtonsHtml() // boutons DOM toujours présents pour le clic — rendus transparents en 3D par CSS
-      : use3D
-        ? '' // rien à dessiner en 2D : le canvas 3D montre les dos de carte par-dessus
-        : target.hand.length === 0
-          ? ''
-          : showFaces
-            ? target.hand.map(cardFaceHtml).join('')
-            : Array.from({ length: target.hand.length }).map(() => cardBackHtml()).join('');
+      ? Array.from({ length: target.hand.length })
+          .map((_, i) => `<button type="button" class="card card--back target-card--pickable" data-pick-index="${i}"></button>`)
+          .join('')
+      : target.hand.length === 0
+        ? ''
+        : showFaces
+          ? target.hand.map(cardFaceHtml).join('')
+          : Array.from({ length: target.hand.length }).map(() => cardBackHtml()).join('');
 
   const restHtml = restOthers
     .map((p) => {
@@ -182,7 +228,7 @@ function renderTableNow(container, { room, player, state, onLeave }) {
           ${isMyTurn ? `Touche une carte chez ${targetName}` : `Tour de ${currentPlayerName}`}
         </div>
         ${target ? `<p class="pouilleux-target__name">${target.name}${connectionBadge(state, target.id)}${target.hand.length === 0 ? ' — sorti·e' : ` · ${target.hand.length} carte${target.hand.length > 1 ? 's' : ''}`}</p>` : ''}
-        <div class="pouilleux-target__hand ${targetPickable ? 'pouilleux-target__hand--pickable' : ''} ${showFaces ? 'opponent__hand--revealed' : ''} ${use3D ? 'pouilleux-target__hand--3d' : ''}">
+        <div class="pouilleux-target__hand ${targetPickable ? 'pouilleux-target__hand--pickable' : ''} ${showFaces ? 'opponent__hand--revealed' : ''}">
           ${targetHandHtml}
         </div>
         ${isSafe ? `<button id="btn-toggle-reveal" class="btn btn--ghost btn--small">${revealHands ? 'Masquer les mains' : 'Afficher les mains'}</button>` : ''}
@@ -196,31 +242,25 @@ function renderTableNow(container, { room, player, state, onLeave }) {
           </div>
         </div>
 
-        ${threeDToggleHtml('pouilleux')}
-
         <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
         <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
         <button class="game-hud__bubble game-hud__bubble--invite" id="btn-invite-game" title="Inviter un ami" aria-label="Inviter un ami">📤</button>
+        ${threeDToggleHtml('pouilleux')}
         <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
       </div>
     </div>
   `;
 
-  if (use3D) {
-    mountPouilleuxScene();
-    const handEl = container.querySelector('.pouilleux-target__hand');
-    if (handEl) positionPouilleuxScene(handEl.getBoundingClientRect());
-    updatePouilleuxScene({ count: target ? target.hand.length : 0, pickable: targetPickable });
-    showPouilleuxScene();
-  } else {
-    hidePouilleuxScene();
-  }
+  // Nécessaire même si main.js masque déjà systématiquement les scènes 3D en
+  // tout début de draw() : ce rendu peut aussi être atteint directement par
+  // un clic sur la bascule 2D/3D (voir plus bas), sans repasser par draw().
+  hideAllFans();
 
-  wireThreeDToggle(container, 'pouilleux', () => renderTableNow(container, { room, player, state, onLeave }));
+  wireThreeDToggle(container, 'pouilleux', () => renderTable(container, { room, player, state, onLeave }));
 
   container.querySelector('#btn-toggle-reveal')?.addEventListener('click', () => {
     toggleRevealHands();
-    renderTableNow(container, { room, player, state, onLeave });
+    renderTableNow2D(container, { room, player, state, onLeave });
   });
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
   container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
@@ -232,7 +272,7 @@ function renderTableNow(container, { room, player, state, onLeave }) {
     enableHandDrag(myHandEl, {
       onDrop: (cardId, index) => {
         moveCard('pouilleux', cardId, index);
-        renderTableNow(container, { room, player, state, onLeave });
+        renderTableNow2D(container, { room, player, state, onLeave });
       }
     });
   }
@@ -258,10 +298,87 @@ function renderTableNow(container, { room, player, state, onLeave }) {
   }
 }
 
+/**
+ * Rendu 3D : pas de zones 2D à conserver (adversaires, mains séparées) — un
+ * seul grand éventail ("stage") qui montre soit sa propre main face visible
+ * (quand on est la cible du tour), soit celle du joueur ciblé dos visible
+ * (quand on pioche, ou qu'on regarde quelqu'un d'autre piocher).
+ */
+function renderTableNow3D(container, { room, player, state, onLeave }) {
+  const me = state.players.find((p) => p.id === player.id);
+  const isMyTurn = state.currentPlayerId === player.id;
+  const targetId = computeTarget(state);
+  const target = state.players.find((p) => p.id === targetId) || null;
+  const targetIsMe = Boolean(target) && target.id === player.id;
+  const currentPlayerName = state.players.find((p) => p.id === state.currentPlayerId)?.name || '';
+  const orderedHand = getOrderedHand('pouilleux', me.hand, sortedHand);
+
+  const stagePickable = Boolean(isMyTurn && target && !targetIsMe && target.hand.length > 0);
+  const pickableButtonsHtml = stagePickable
+    ? Array.from({ length: target.hand.length })
+        .map((_, i) => `<button type="button" class="card card--back target-card--pickable" data-pick-index="${i}"></button>`)
+        .join('')
+    : '';
+
+  const statusText = !target
+    ? ''
+    : targetIsMe
+      ? `Ta main (${orderedHand.length})`
+      : `${target.name}${connectionBadge(state, target.id)} · ${target.hand.length} carte${target.hand.length > 1 ? 's' : ''}`;
+
+  container.innerHTML = `
+    <div class="screen screen--table pouilleux-screen pouilleux-screen--3d">
+      <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
+        ${targetIsMe ? 'On pioche chez toi !' : isMyTurn ? `Touche une carte chez ${target?.name || ''}` : `Tour de ${currentPlayerName}`}
+      </div>
+      ${statusText ? `<p class="pouilleux-3d-status">${statusText}</p>` : ''}
+      <div class="pouilleux-3d-stage">${pickableButtonsHtml}</div>
+
+      <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
+      <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
+      <button class="game-hud__bubble game-hud__bubble--invite" id="btn-invite-game" title="Inviter un ami" aria-label="Inviter un ami">📤</button>
+      ${threeDToggleHtml('pouilleux')}
+      <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
+    </div>
+  `;
+
+  mountFan('stage');
+  const stageEl = container.querySelector('.pouilleux-3d-stage');
+  if (stageEl) positionFan('stage', stageEl.getBoundingClientRect());
+  const stageCards = targetIsMe
+    ? orderedHand.map((c) => ({ rank: c.rank, suit: c.suit }))
+    : Array(target ? target.hand.length : 0).fill(null);
+  updateFan('stage', stageCards, { pickable: stagePickable });
+  showFan('stage');
+
+  wireThreeDToggle(container, 'pouilleux', () => renderTable(container, { room, player, state, onLeave }));
+  container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
+  container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
+  container.querySelector('#btn-invite-game')?.addEventListener('click', () => shareInviteLink(room));
+  wireAbandonButton(container, { room, player, state, onLeave });
+
+  if (stagePickable) {
+    container.querySelectorAll('.target-card--pickable').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        vibrate(30);
+        const cardIndex = Number(btn.dataset.pickIndex);
+        container.querySelectorAll('.target-card--pickable').forEach((b) => (b.disabled = true));
+        try {
+          await drawForCurrentPlayer(room, player.id, cardIndex);
+        } catch (err) {
+          container.querySelectorAll('.target-card--pickable').forEach((b) => (b.disabled = false));
+        }
+      });
+    });
+  }
+}
+
 function renderEndScreen(container, { room, player, onLeave }) {
   const state = room.state;
   const loser = state.players.find((p) => p.id === state.loserId);
   const youLost = state.loserId === player.id;
+
+  hideAllFans();
 
   container.innerHTML = `
     <div class="screen screen--end">

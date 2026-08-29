@@ -729,9 +729,18 @@ sans avoir à lire le contenu des dossiers à la main.
 
 Rendu 3D optionnel, en plus du rendu 2D habituel, activable par jeu et par
 appareil (préférence `localStorage`, 2D par défaut partout). Le Pouilleux est
-le premier jeu converti (`src/ui/games/pouilleux.js` + `src/three/pouilleuxScene.js`) ;
-pour l'instant seule la pioche (choix d'une carte chez le joueur ciblé) est en
-3D, le reste de l'écran (adversaires, ma main, HUD) reste en 2D.
+le premier jeu converti (`src/ui/games/pouilleux.js` + `src/three/pouilleuxScene.js`).
+
+En 3D, l'écran ne reprend PAS les zones du rendu 2D (adversaires, mains
+séparées) — juste un bandeau de tour et un grand éventail ("stage") qui
+occupe l'essentiel de l'écran, montrant selon le moment :
+- **sa propre main, face visible**, quand on est la cible du tour (on va se
+  faire piocher) — rien à cacher, c'est la sienne ;
+- **la main du joueur ciblé, dos visible**, quand on pioche ou qu'on regarde
+  quelqu'un d'autre piocher.
+
+La carte piochée pivote sur elle-même (dos → face, `flipCardAt`) au moment de
+la révélation plutôt que d'apparaître directement.
 
 **Règle impérative, comme pour les bots** : aucun fichier commun
 (`main.js`, `src/ui/game.js`, `src/ui/gameShared.js`, `src/ui/settings.js`,
@@ -762,10 +771,14 @@ depuis son propre `src/ui/games/<id>.js` — exactement comme il s'inscrit à
   dans `src/ui/settings.js` (générique, paramétré par `gameId`, même blob
   `localStorage` que les autres réglages visuels).
 - Bascule HUD : `threeDToggleHtml(gameId)`/`wireThreeDToggle(container, gameId, onChange)`
-  dans `src/ui/gameShared.js` (générique aussi) — un jeu sans version 3D
-  n'appelle simplement jamais ces fonctions, donc la bascule n'apparaît que
-  là où elle a un sens, sans code conditionnel dans les fichiers communs.
-- Interaction : pour cette première tranche, les vrais clics restent sur des
-  boutons DOM (`.target-card--pickable`, rendus transparents en 3D via CSS)
-  plutôt que du raycasting 3D — la logique de sélection ne change pas d'un
-  octet entre les deux modes.
+  dans `src/ui/gameShared.js` (générique aussi) — une bulle de plus dans la
+  rangée `.game-hud__bubble` (même famille que règles/journal/inviter/quitter,
+  pas un contrôle à part), affichant le mode vers lequel on bascule. Un jeu
+  sans version 3D n'appelle simplement jamais ces fonctions, donc la bulle
+  n'apparaît que là où elle a un sens, sans code conditionnel dans les
+  fichiers communs.
+- Interaction : les vrais clics restent sur des boutons DOM
+  (`.target-card--pickable`, rendus transparents en 3D via CSS) plutôt que du
+  raycasting 3D — la logique de sélection ne change pas d'un octet entre les
+  deux modes. Sa propre main affichée en 3D n'a aucune interaction pour cette
+  passe (ordre de tri fixe, pas de glisser-déposer).

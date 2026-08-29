@@ -7,31 +7,28 @@ import { playAgain, continueGame } from '../game/engine.js';
 import { is3DEnabled, set3DEnabled } from './settings.js';
 
 /**
- * Bascule 2D/3D du HUD — générique (paramétrée par `gameId`), à appeler
+ * Bascule 2D/3D — une bulle de plus dans la rangée `.game-hud__bubble`
+ * (même famille visuelle que règles/journal/inviter/quitter), pas un
+ * contrôle à part : générique (paramétrée par `gameId`), à appeler
  * uniquement depuis le fichier d'un jeu qui exporte réellement une version 3D
  * (voir `hide3D` dans src/ui/games/pouilleux.js pour l'exemple actuel) : ce
  * module ne décide pas lui-même quels jeux ont une version 3D, il fournit
  * juste le rendu + le câblage une fois que l'appelant a établi que c'est
  * pertinent — c'est pour ça qu'elle n'apparaît que dans le HTML des jeux qui
- * l'appellent effectivement.
+ * l'appellent effectivement. L'étiquette affiche le mode vers lequel on
+ * bascule (pas le mode actuel), comme un bouton d'action plutôt qu'un état.
  */
 export function threeDToggleHtml(gameId) {
   const enabled = is3DEnabled(gameId);
-  return `
-    <div class="game-hud__mode-toggle">
-      <button type="button" class="game-hud__mode-btn ${!enabled ? 'game-hud__mode-btn--active' : ''}" data-mode-toggle="2d" title="Affichage 2D" aria-label="Affichage 2D">2D</button>
-      <button type="button" class="game-hud__mode-btn ${enabled ? 'game-hud__mode-btn--active' : ''}" data-mode-toggle="3d" title="Affichage 3D" aria-label="Affichage 3D">3D</button>
-    </div>
-  `;
+  const nextLabel = enabled ? '2D' : '3D';
+  return `<button type="button" class="game-hud__bubble game-hud__bubble--mode" data-mode-toggle title="Passer en ${nextLabel}" aria-label="Passer en ${nextLabel}">${nextLabel}</button>`;
 }
 
 /** `onChange` : rappelée après le changement de préférence, pour redessiner l'écran dans le nouveau mode. */
 export function wireThreeDToggle(container, gameId, onChange) {
-  container.querySelectorAll('[data-mode-toggle]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      set3DEnabled(gameId, btn.dataset.modeToggle === '3d');
-      onChange?.();
-    });
+  container.querySelector('[data-mode-toggle]')?.addEventListener('click', () => {
+    set3DEnabled(gameId, !is3DEnabled(gameId));
+    onChange?.();
   });
 }
 

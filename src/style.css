@@ -1224,12 +1224,13 @@ h1 {
    visuelle. Inchangé partout ailleurs (salons, salle d'attente…). */
 body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; left: 12px; }
 
-/* 4 bulles rondes communes à la table de jeu : réglages (bas gauche, voir
-   ci-dessus), règles "?" juste à côté, journal, inviter un ami "📤", quitter
-   "✕" en bas à droite — même gabarit que .settings-fab pour former un jeu
-   cohérent. Position fixe (comme la roue dentée) : ces boutons vivent dans le
-   flux HTML de chaque jeu mais doivent rester ancrés à l'écran, pas au flux
-   de la page. */
+/* 5 bulles rondes communes à la table de jeu : réglages (bas gauche, voir
+   ci-dessus), règles "?" juste à côté, journal, inviter un ami "📤",
+   bascule 2D/3D "2D"/"3D" (uniquement les jeux qui exportent une version 3D,
+   voir threeDToggleHtml dans gameShared.js), quitter "✕" en bas à droite —
+   même gabarit que .settings-fab pour former un jeu cohérent. Position fixe
+   (comme la roue dentée) : ces boutons vivent dans le flux HTML de chaque
+   jeu mais doivent rester ancrés à l'écran, pas au flux de la page. */
 .game-hud__bubble {
   position: fixed;
   bottom: 12px;
@@ -1249,10 +1250,11 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 .game-hud__bubble--help { left: 60px; }
 .game-hud__bubble--log { left: 108px; }
 .game-hud__bubble--invite { left: 156px; }
+.game-hud__bubble--mode { left: 204px; font-size: 13px; }
 .game-hud__bubble--quit { right: 12px; }
 
-/* Paysage : la rangée basse (règles/journal/inviter) empièterait sur le
-   feutre et la main, tous deux déjà à l'étroit en hauteur — les 5 bulles +
+/* Paysage : la rangée basse (règles/journal/inviter/mode) empièterait sur le
+   feutre et la main, tous deux déjà à l'étroit en hauteur — les 6 bulles +
    la roue dentée se regroupent plutôt en colonne verticale, ancrées au bord
    droit. Même règle `:has()` que la version portrait, mais plus loin dans la
    feuille de style donc prioritaire une fois la media query active. */
@@ -1267,41 +1269,41 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   .game-hud__bubble--help { top: calc(50% - 44px); }
   .game-hud__bubble--log { top: calc(50% + 4px); }
   .game-hud__bubble--invite { top: calc(50% + 52px); }
-  .game-hud__bubble--quit { top: calc(50% + 100px); }
+  .game-hud__bubble--mode { top: calc(50% + 100px); }
+  .game-hud__bubble--quit { top: calc(50% + 148px); }
 }
 
-/* Bascule 2D/3D (voir threeDToggleHtml/wireThreeDToggle dans gameShared.js) —
-   uniquement affichée par les jeux qui exportent une version 3D (has3D).
-   Même famille visuelle que .game-hud__bubble, groupée en pilule plutôt
-   qu'en bulles séparées puisque les deux options s'excluent mutuellement. */
-.game-hud__mode-toggle {
-  position: fixed;
-  bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 50;
-  display: flex;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
-}
-.game-hud__mode-btn {
-  padding: 8px 14px;
-  border: none;
-  background: var(--felt-700);
-  color: var(--cream);
+/* Écran 3D du Pouilleux (voir renderTableNow3D dans pouilleux.js) : pas de
+   zones 2D à reproduire (adversaires, mains séparées), juste un bandeau de
+   tour + un grand éventail ("stage") qui occupe l'essentiel de l'écran.
+   .pouilleux-screen centre ses enfants par défaut (align-items:center,
+   largeur au contenu) — cet écran-ci n'a qu'un seul enfant pertinent et le
+   veut pleine largeur, d'où l'étirement forcé ici plutôt que le
+   contournement ciblé utilisé côté 2D. */
+.pouilleux-screen--3d { align-items: stretch; justify-content: center; }
+.pouilleux-3d-status {
+  text-align: center;
+  font-family: var(--font-mono);
   font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
+  color: rgba(247, 241, 225, 0.7);
+  margin: 0;
 }
-.game-hud__mode-btn--active { background: var(--brass); color: var(--felt-900); }
-
-/* Zone de pioche en mode 3D : le canvas WebGL persistant (voir
-   src/three/pouilleuxScene.js) est positionné par-dessus cette zone en JS —
-   les boutons de sélection restent de vrais boutons DOM (clic identique au
-   2D), juste rendus transparents pour laisser voir le rendu 3D dessous. */
-.pouilleux-target__hand--3d .target-card--pickable { opacity: 0; }
+/* Le canvas WebGL persistant (voir src/three/pouilleuxScene.js) est
+   positionné par-dessus cette zone en JS — les boutons de sélection restent
+   de vrais boutons DOM (clic identique au 2D), juste rendus transparents
+   pour laisser voir le rendu 3D dessous. Un éventail s'étale surtout à
+   l'horizontale : `aspect-ratio` (plutôt que `flex:1`, qui la laisserait
+   filer en hauteur sur un écran de téléphone haut et étroit) garde la zone
+   large plutôt que haute, sans quoi le champ de vision horizontal de la
+   caméra se retrouve écrasé et ne montre plus que 1-2 cartes du milieu. */
+.pouilleux-3d-stage {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 55vh;
+  min-height: 220px;
+  position: relative;
+}
+.pouilleux-3d-stage .target-card--pickable { opacity: 0; }
 
 .settings-overlay {
   position: fixed;
