@@ -30,6 +30,7 @@ const RED_SUIT = '#B33A3A';
 const DARK_SUIT = '#201E18';
 const SUIT_COLOR = { S: DARK_SUIT, H: RED_SUIT, D: RED_SUIT, C: DARK_SUIT };
 const SUIT_SYMBOL = { S: '♠', H: '♥', D: '♦', C: '♣' };
+const BASE_CAMERA_DISTANCE = 3.2; // distance mini (mains courtes) — voir fitCameraToExtent pour les mains plus grandes
 
 const scenes = new Map(); // key -> { canvas, renderer, scene, camera, meshes: [] }
 let cardBackTexture = null;
@@ -156,7 +157,13 @@ function ensureScene(key) {
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
-  camera.position.set(0, 1.3, 3.2);
+  // Caméra bien en face (pas surélevée) : une carte tournée sur elle-même
+  // (rotation.z, l'éventail) doit rester une simple rotation "à plat" à
+  // l'écran — vue depuis un angle en plongée, la même rotation change aussi
+  // l'inclinaison apparente de la carte par rapport à la caméra, et donc sa
+  // taille projetée (certaines cartes de l'éventail semblaient plus grandes
+  // que les autres).
+  camera.position.set(0, 0, BASE_CAMERA_DISTANCE);
   camera.lookAt(0, 0, 0);
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.7));
@@ -227,6 +234,42 @@ export function positionFan(key, rect) {
   camera.updateProjectionMatrix();
 }
 
+/**
+ * Rectangle écran (coordonnées CSS px, relatives au canvas/à la zone de
+ * `positionFan`) couvert par chaque carte de l'éventail `key`, dans le même
+ * ordre que `updateFan` — sert à superposer précisément les vrais boutons
+ * DOM cliquables (`.target-card--pickable`) sur les cartes 3D dessinées :
+ * sans ça, ces boutons restent dans le flux HTML normal (empilés en haut à
+ * gauche du "stage") au lieu de correspondre à l'éventail réellement
+ * affiché, rendant la pioche impossible à toucher. Englobant (AABB) des 4
+ * coins projetés — ignore la rotation propre du bouton (invisible, seule sa
+ * zone de clic compte).
+ */
+export function getCardScreenRects(key) {
+  const entry = scenes.get(key);
+  if (!entry) return [];
+  const { camera, meshes, canvas } = entry;
+  const w = parseFloat(canvas.style.width) || canvas.clientWidth || 1;
+  const h = parseFloat(canvas.style.height) || canvas.clientHeight || 1;
+  const halfW = CARD_ASPECT / 2;
+  const halfH = 0.5;
+  const corner = new THREE.Vector3();
+
+  return meshes.map((mesh) => {
+    mesh.updateMatrixWorld();
+    const xs = [];
+    const ys = [];
+    for (const [cx, cy] of [[-halfW, halfH], [halfW, halfH], [halfW, -halfH], [-halfW, -halfH]]) {
+      corner.set(cx, cy, 0).applyMatrix4(mesh.matrixWorld).project(camera);
+      xs.push((corner.x * 0.5 + 0.5) * w);
+      ys.push((-corner.y * 0.5 + 0.5) * h);
+    }
+    const left = Math.min(...xs);
+    const top = Math.min(...ys);
+    return { left, top, width: Math.max(...xs) - left, height: Math.max(...ys) - top };
+  });
+}
+
 function disposeMesh(scene, mesh) {
   scene.remove(mesh);
   mesh.geometry.dispose();
@@ -238,22 +281,30 @@ function disposeMesh(scene, mesh) {
  * plutôt qu'un éventail qui continue de s'élargir sans fin une fois la main
  * grande — même intention que applyDynamicHandOverlap côté 2D, voir
  * src/ui/dragReorder.js, sans le réutiliser tel quel puisqu'ici c'est un
- * calcul 3D).
+ * calcul 3D). Retourne l'étendue horizontale maximale atteinte (demi-largeur
+ * en unités monde) — utilisé par `updateFan` pour reculer la caméra si
+ * besoin, sans quoi les cartes des extrémités d'une grande main dépassent le
+ * champ de vision (invisibles, et donc impossibles à toucher).
  */
 function layoutFan(meshes) {
   const n = meshes.length;
-  if (n === 0) return;
+  if (n === 0) return 0;
   const maxSpanDeg = 70;
   const minAnglePerCardDeg = 4;
   const anglePerCardDeg = n > 1 ? Math.max(minAnglePerCardDeg, Math.min(maxSpanDeg / (n - 1), 10)) : 0;
   const anglePerCard = (anglePerCardDeg * Math.PI) / 180;
   const radius = 3;
+  const halfDiagonal = Math.sqrt((CARD_ASPECT / 2) ** 2 + 0.5 ** 2);
 
+  let maxExtent = halfDiagonal;
   meshes.forEach((mesh, i) => {
     const angle = (i - (n - 1) / 2) * anglePerCard;
-    mesh.position.set(Math.sin(angle) * radius, (Math.cos(angle) - 1) * radius * 0.15, i * 0.01);
+    const x = Math.sin(angle) * radius;
+    mesh.position.set(x, (Math.cos(angle) - 1) * radius * 0.15, i * 0.01);
     mesh.rotation.z = -angle;
+    maxExtent = Math.max(maxExtent, Math.abs(x) + halfDiagonal);
   });
+  return maxExtent;
 }
 
 /**
@@ -288,7 +339,25 @@ export function updateFan(key, cards = [], { pickable = false } = {}) {
     mesh.rotation.y = 0; // efface un retournement précédent déjà terminé
   });
 
-  layoutFan(meshes);
+  const maxExtent = layoutFan(meshes);
+  fitCameraToExtent(entry.camera, maxExtent);
+}
+
+/**
+ * Recule la caméra au besoin pour que `maxExtent` (demi-largeur en unités
+ * monde, voir layoutFan) tienne dans le champ de vision horizontal, avec une
+ * marge de sécurité — sans ça, les cartes des extrémités d'une grande main
+ * (le Pouilleux peut en distribuer plus de 20 par joueur) dépassent le cadre
+ * et deviennent invisibles ET impossibles à toucher (voir getCardScreenRects,
+ * qui reflète fidèlement ce que rend la caméra). Ne rapproche jamais sous la
+ * distance de base (pas la peine de zoomer davantage pour une main courte).
+ */
+function fitCameraToExtent(camera, maxExtent) {
+  const halfVFov = (camera.fov * Math.PI) / 360;
+  const halfHFov = Math.atan(Math.tan(halfVFov) * camera.aspect);
+  const margin = 0.82; // <1 : garde une marge, n'utilise pas tout le cadre pile au bord
+  const neededDistance = maxExtent / Math.tan(halfHFov * margin);
+  camera.position.z = Math.max(BASE_CAMERA_DISTANCE, neededDistance);
 }
 
 /**

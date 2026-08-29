@@ -1303,7 +1303,11 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   min-height: 220px;
   position: relative;
 }
-.pouilleux-3d-stage .target-card--pickable { opacity: 0; }
+/* position:absolute avec left/top/width/height posés en JS (voir
+   getCardScreenRects dans pouilleuxScene.js) pour recouvrir exactement la
+   carte 3D correspondante — sans ça les boutons restent dans le flux HTML
+   normal du stage (empilés en haut à gauche), loin de l'éventail affiché. */
+.pouilleux-3d-stage .target-card--pickable { position: absolute; opacity: 0; margin: 0; }
 
 .settings-overlay {
   position: fixed;

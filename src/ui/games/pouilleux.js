@@ -20,7 +20,15 @@ import {
   wireThreeDToggle
 } from '../gameShared.js';
 import { is3DEnabled } from '../settings.js';
-import { mountFan, positionFan, updateFan, showFan, hideAllFans, flipCardAt } from '../../three/pouilleuxScene.js';
+import {
+  mountFan,
+  positionFan,
+  updateFan,
+  showFan,
+  hideAllFans,
+  flipCardAt,
+  getCardScreenRects
+} from '../../three/pouilleuxScene.js';
 
 let lastRenderedState = null;
 
@@ -350,6 +358,22 @@ function renderTableNow3D(container, { room, player, state, onLeave }) {
     : Array(target ? target.hand.length : 0).fill(null);
   updateFan('stage', stageCards, { pickable: stagePickable });
   showFan('stage');
+
+  // Les boutons de clic invisibles doivent recouvrir les VRAIES positions des
+  // cartes dessinées en 3D (éventail, pas un simple alignement) — sans ça ils
+  // restent empilés dans le flux HTML normal du "stage", loin des cartes
+  // visibles, et la pioche devient impossible à toucher.
+  if (stagePickable) {
+    const rects = getCardScreenRects('stage');
+    container.querySelectorAll('.target-card--pickable').forEach((btn, i) => {
+      const r = rects[i];
+      if (!r) return;
+      btn.style.left = `${r.left}px`;
+      btn.style.top = `${r.top}px`;
+      btn.style.width = `${r.width}px`;
+      btn.style.height = `${r.height}px`;
+    });
+  }
 
   wireThreeDToggle(container, 'pouilleux', () => renderTable(container, { room, player, state, onLeave }));
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
