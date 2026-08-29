@@ -24,7 +24,21 @@ export const CARD_INTERACTIONS = [
 
 export const SUITE_INFERNALE_INTERACTIONS = CARD_INTERACTIONS;
 
-const DEFAULTS = { felt: 'foret', cardTheme: 'classique', cardInteraction: 'drag' };
+const DEFAULTS = { felt: 'foret', cardTheme: 'classique', cardInteraction: 'drag', render3d: {} };
+
+/**
+ * Préférence 2D/3D par jeu et par appareil — 2D par défaut partout. Générique
+ * (clé = `gameId` quelconque) : ce module ne connaît aucun jeu en particulier,
+ * c'est `src/ui/game.js` (`gameHasThreeDVersion`) qui sait, en lisant le
+ * registre des jeux, LESQUELS ont effectivement une version 3D à proposer.
+ */
+export function is3DEnabled(gameId, settings = getSettings()) {
+  return Boolean(settings.render3d?.[gameId]);
+}
+
+export function set3DEnabled(gameId, enabled) {
+  return saveSettings({ render3d: { ...getSettings().render3d, [gameId]: enabled } });
+}
 
 /**
  * Préférence transverse : glisser-déposer actif (souris + tactile).

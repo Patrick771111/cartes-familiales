@@ -1270,6 +1270,39 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   .game-hud__bubble--quit { top: calc(50% + 100px); }
 }
 
+/* Bascule 2D/3D (voir threeDToggleHtml/wireThreeDToggle dans gameShared.js) —
+   uniquement affichée par les jeux qui exportent une version 3D (has3D).
+   Même famille visuelle que .game-hud__bubble, groupée en pilule plutôt
+   qu'en bulles séparées puisque les deux options s'excluent mutuellement. */
+.game-hud__mode-toggle {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+}
+.game-hud__mode-btn {
+  padding: 8px 14px;
+  border: none;
+  background: var(--felt-700);
+  color: var(--cream);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.game-hud__mode-btn--active { background: var(--brass); color: var(--felt-900); }
+
+/* Zone de pioche en mode 3D : le canvas WebGL persistant (voir
+   src/three/pouilleuxScene.js) est positionné par-dessus cette zone en JS —
+   les boutons de sélection restent de vrais boutons DOM (clic identique au
+   2D), juste rendus transparents pour laisser voir le rendu 3D dessous. */
+.pouilleux-target__hand--3d .target-card--pickable { opacity: 0; }
+
 .settings-overlay {
   position: fixed;
   inset: 0;

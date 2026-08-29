@@ -724,3 +724,48 @@ sans avoir à lire le contenu des dossiers à la main.
    le sélecteur "Quel jeu ?" (trié alphabétiquement, via `AVAILABLE_GAMES`
    exporté par `src/game/engine.js`) — pas besoin de le lister ailleurs, ni
    de toucher `src/game/engine.js` ou `src/ui/game.js`.
+
+## Refonte graphique 3D (Three.js)
+
+Rendu 3D optionnel, en plus du rendu 2D habituel, activable par jeu et par
+appareil (préférence `localStorage`, 2D par défaut partout). Le Pouilleux est
+le premier jeu converti (`src/ui/games/pouilleux.js` + `src/three/pouilleuxScene.js`) ;
+pour l'instant seule la pioche (choix d'une carte chez le joueur ciblé) est en
+3D, le reste de l'écran (adversaires, ma main, HUD) reste en 2D.
+
+**Règle impérative, comme pour les bots** : aucun fichier commun
+(`main.js`, `src/ui/game.js`, `src/ui/gameShared.js`, `src/ui/settings.js`,
+`src/game/core.js`/`engine.js`) ne doit mentionner un jeu en particulier.
+Un jeu "s'inscrit" à la 3D uniquement en exportant lui-même les bons crochets
+depuis son propre `src/ui/games/<id>.js` — exactement comme il s'inscrit à
+`resetSelection` :
+
+- `export function hide3D() { ... }` — masque la scène 3D de ce jeu (jamais
+  de dispose complet ici, juste cacher). Découvert et appelé génériquement
+  par `hideAllThreeDScenes()` dans `src/ui/game.js`, elle-même appelée
+  **inconditionnellement en tout début de `draw()`** dans `main.js` — c'est
+  ce qui garantit qu'un canvas persistant ne reste jamais affiché en
+  regardant autre chose, quel que soit le chemin de navigation emprunté
+  (salle d'attente, spectateur, autre salon...), sans avoir à énumérer les
+  cas de sortie : le rendu par défaut est "caché", seul le `renderTable` du
+  jeu concerné la ré-affiche explicitement quand elle est pertinente pour
+  CE rendu précis.
+- Dans son propre `renderTable`, le jeu appelle directement les fonctions de
+  son module 3D dédié (`mount.../update.../position.../show...` — voir
+  `src/three/pouilleuxScene.js` pour le contrat complet) : ce module vit en
+  dehors de `#app` (ajouté une fois à `document.body`, comme
+  `mountSettingsButton()` dans `src/ui/settings.js`), donc jamais détruit
+  par les `container.innerHTML = ...` qui reconstruisent le reste de l'écran
+  à chaque mise à jour d'état — un `<canvas>` WebGL recréé à chaque coup
+  perdrait son contexte GL (clignotement, fuite mémoire).
+- Préférence 2D/3D : `is3DEnabled(gameId)`/`set3DEnabled(gameId, enabled)`
+  dans `src/ui/settings.js` (générique, paramétré par `gameId`, même blob
+  `localStorage` que les autres réglages visuels).
+- Bascule HUD : `threeDToggleHtml(gameId)`/`wireThreeDToggle(container, gameId, onChange)`
+  dans `src/ui/gameShared.js` (générique aussi) — un jeu sans version 3D
+  n'appelle simplement jamais ces fonctions, donc la bascule n'apparaît que
+  là où elle a un sens, sans code conditionnel dans les fichiers communs.
+- Interaction : pour cette première tranche, les vrais clics restent sur des
+  boutons DOM (`.target-card--pickable`, rendus transparents en 3D via CSS)
+  plutôt que du raycasting 3D — la logique de sélection ne change pas d'un
+  octet entre les deux modes.

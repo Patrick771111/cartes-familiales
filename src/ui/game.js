@@ -22,6 +22,20 @@ for (const path in gameUiModules) {
 }
 
 /**
+ * Cache toute scène 3D encore affichée par un jeu (propriété `hide3D`,
+ * optionnelle sur son module — voir "Refonte graphique 3D" dans README) —
+ * appelé au tout début de chaque rendu (main.js:draw) pour qu'un canvas
+ * WebGL persistant ne reste jamais visible en regardant autre chose, quel
+ * que soit le chemin de navigation emprunté (salle d'attente, spectateur,
+ * autre salon...). Générique comme resetSelection ci-dessous : ce fichier ne
+ * sait pas lequel des jeux implémente ce hook — un jeu s'y "inscrit" juste en
+ * exportant `hide3D` depuis son propre src/ui/games/<id>.js.
+ */
+export function hideAllThreeDScenes() {
+  Object.values(GAME_UI).forEach((mod) => mod.hide3D?.());
+}
+
+/**
  * Affiche l'écran de partie (salle d'attente / plateau / fin) dans `container`.
  * `room` = ligne courante (state + type de jeu inclus), `player` = profil local.
  * Le changement de prénom se fait désormais depuis la modale de réglages (settings.js).

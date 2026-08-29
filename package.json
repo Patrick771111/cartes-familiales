@@ -10,7 +10,8 @@
     "theme:coverage": "node scripts/theme-coverage.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.0"
+    "@supabase/supabase-js": "^2.45.0",
+    "three": "^0.128.0"
   },
   "devDependencies": {
     "vite": "^5.4.0"

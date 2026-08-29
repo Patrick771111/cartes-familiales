@@ -1,6 +1,6 @@
 import './style.css';
 import { renderNamePrompt, renderLeftTable, renderRoomList } from './ui/lobby.js';
-import { renderGame, renderSpectatorGame } from './ui/game.js';
+import { renderGame, renderSpectatorGame, hideAllThreeDScenes } from './ui/game.js';
 import { applySettings, mountSettingsButton, setPlayerNameController } from './ui/settings.js';
 import {
   getLocalProfile,
@@ -135,6 +135,11 @@ function maybeScheduleBotMove(room) {
 function draw(room) {
   currentRoomRef = room;
   updateDocumentTitle(room);
+  // Repli par défaut "caché" pour toute scène 3D persistante (voir hideAllThreeDScenes) :
+  // seul le rendu du jeu concerné la ré-affichera explicitement plus bas dans CE
+  // même rendu si elle est pertinente — couvre tous les chemins de navigation
+  // (salle d'attente, spectateur, autre salon...) sans avoir à les énumérer.
+  hideAllThreeDScenes();
   maybeReinitRelay(room);
   maybeScheduleBotMove(room);
 

@@ -15,10 +15,27 @@ import {
   toggleRevealHands,
   orderedOpponents,
   openLogModal,
-  shareInviteLink
+  shareInviteLink,
+  threeDToggleHtml,
+  wireThreeDToggle
 } from '../gameShared.js';
+import { is3DEnabled } from '../settings.js';
+import {
+  mountPouilleuxScene,
+  positionPouilleuxScene,
+  updatePouilleuxScene,
+  showPouilleuxScene,
+  hidePouilleuxScene
+} from '../../three/pouilleuxScene.js';
 
 let lastRenderedState = null;
+
+// Hook générique lu par src/ui/game.js (hideAllThreeDScenes) — c'est CE
+// fichier qui "s'inscrit" à la 3D, les fichiers communs n'ont besoin de
+// connaître aucun jeu en particulier pour savoir masquer sa scène au bon moment.
+export function hide3D() {
+  hidePouilleuxScene();
+}
 
 /** Réinitialise l'état local propre à ce jeu — appelé au retour en salle d'attente. */
 export function resetSelection() {
@@ -115,20 +132,26 @@ function renderTableNow(container, { room, player, state, onLeave }) {
   const restOthers = orderedOpponents(state, player.id).filter((p) => p.id !== targetId);
 
   const targetPickable = isMyTurn && target && target.hand.length > 0;
+  // La 3D ne sait dessiner que des dos de carte génériques (pas de vraies
+  // faces) — hors de propos ici puisque showFaces ne concerne que le rendu
+  // "mains dévoilées" quand on est déjà sorti·e, cas volontairement laissé
+  // en 2D pour cette tranche.
+  const use3D = is3DEnabled('pouilleux') && !showFaces;
+  const pickableButtonsHtml = () =>
+    Array.from({ length: target.hand.length })
+      .map((_, i) => `<button type="button" class="card card--back target-card--pickable" data-pick-index="${i}"></button>`)
+      .join('');
   const targetHandHtml = !target
     ? ''
     : targetPickable
-      ? Array.from({ length: target.hand.length })
-          .map(
-            (_, i) =>
-              `<button type="button" class="card card--back target-card--pickable" data-pick-index="${i}"></button>`
-          )
-          .join('')
-      : target.hand.length === 0
-        ? ''
-        : showFaces
-          ? target.hand.map(cardFaceHtml).join('')
-          : Array.from({ length: target.hand.length }).map(() => cardBackHtml()).join('');
+      ? pickableButtonsHtml() // boutons DOM toujours présents pour le clic — rendus transparents en 3D par CSS
+      : use3D
+        ? '' // rien à dessiner en 2D : le canvas 3D montre les dos de carte par-dessus
+        : target.hand.length === 0
+          ? ''
+          : showFaces
+            ? target.hand.map(cardFaceHtml).join('')
+            : Array.from({ length: target.hand.length }).map(() => cardBackHtml()).join('');
 
   const restHtml = restOthers
     .map((p) => {
@@ -159,7 +182,7 @@ function renderTableNow(container, { room, player, state, onLeave }) {
           ${isMyTurn ? `Touche une carte chez ${targetName}` : `Tour de ${currentPlayerName}`}
         </div>
         ${target ? `<p class="pouilleux-target__name">${target.name}${connectionBadge(state, target.id)}${target.hand.length === 0 ? ' — sorti·e' : ` · ${target.hand.length} carte${target.hand.length > 1 ? 's' : ''}`}</p>` : ''}
-        <div class="pouilleux-target__hand ${targetPickable ? 'pouilleux-target__hand--pickable' : ''} ${showFaces ? 'opponent__hand--revealed' : ''}">
+        <div class="pouilleux-target__hand ${targetPickable ? 'pouilleux-target__hand--pickable' : ''} ${showFaces ? 'opponent__hand--revealed' : ''} ${use3D ? 'pouilleux-target__hand--3d' : ''}">
           ${targetHandHtml}
         </div>
         ${isSafe ? `<button id="btn-toggle-reveal" class="btn btn--ghost btn--small">${revealHands ? 'Masquer les mains' : 'Afficher les mains'}</button>` : ''}
@@ -173,6 +196,8 @@ function renderTableNow(container, { room, player, state, onLeave }) {
           </div>
         </div>
 
+        ${threeDToggleHtml('pouilleux')}
+
         <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
         <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
         <button class="game-hud__bubble game-hud__bubble--invite" id="btn-invite-game" title="Inviter un ami" aria-label="Inviter un ami">📤</button>
@@ -180,6 +205,18 @@ function renderTableNow(container, { room, player, state, onLeave }) {
       </div>
     </div>
   `;
+
+  if (use3D) {
+    mountPouilleuxScene();
+    const handEl = container.querySelector('.pouilleux-target__hand');
+    if (handEl) positionPouilleuxScene(handEl.getBoundingClientRect());
+    updatePouilleuxScene({ count: target ? target.hand.length : 0, pickable: targetPickable });
+    showPouilleuxScene();
+  } else {
+    hidePouilleuxScene();
+  }
+
+  wireThreeDToggle(container, 'pouilleux', () => renderTableNow(container, { room, player, state, onLeave }));
 
   container.querySelector('#btn-toggle-reveal')?.addEventListener('click', () => {
     toggleRevealHands();
