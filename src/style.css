@@ -2695,17 +2695,26 @@ body.is-card-dragging * {
   }
   /* Le rendu 3D n'a plus les 3 zones 2D (adversaires / feutre / main) : une
      seule table pleine largeur, comme .uno-screen--3d — sans ça la règle
-     `flex-direction:row` ci-dessus casserait le canvas. */
+     `flex-direction:row` ci-dessus casserait le canvas. `align-items:
+     flex-start` / `justify-content:center` du `.screen--table` paysage
+     laissaient ~30 % vides à droite, avant la colonne de bulles. */
   .screen--table.trio-screen.trio-screen--3d {
     flex-direction: column;
     flex-wrap: nowrap;
     overflow: hidden;
+    align-items: stretch;
+    justify-content: flex-start;
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    padding-right: 64px;
   }
   .trio-screen--3d .trio-3d-table {
     flex: 1 1 auto;
-    aspect-ratio: 16 / 9;
-    max-height: 78vh;
-    min-height: 160px;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    align-self: stretch;
   }
   /* 3 sections (adversaires / feutre / ma main) au lieu des 2 habituelles
      (feutre / main) — sans flex-basis explicite, la zone adversaires ne
@@ -3776,15 +3785,19 @@ body.is-card-dragging * {
 /* Écran 3D de Trio (voir renderTrioTable3D dans src/ui/games/trio.js) : une
    seule scène de table (rangées adverses au loin, centre en vrac, sa main
    en bas — voir src/three/trioScene.js) plutôt que les zones 2D séparées.
-   `aspect-ratio` plutôt que `flex:1` : même piège que .uno-3d-table /
-   .pouilleux-3d-stage (hauteur — donc FOV caméra — qui fluctuerait avec le
-   bandeau de tour sur 1 ou 2 lignes). */
-.trio-screen--3d { align-items: stretch; overflow: hidden; touch-action: none; }
+   `flex:1` plutôt qu'un `aspect-ratio: 3/4` + `max-height: 68vh` : ce couple
+   (copié d'Uno, où le FOV ne doit pas bouger avec le bandeau) laissait
+   ~30 % de l'écran vide au-dessus des bulles du bas — même bug que
+   .lucky-3d-table, corrigé là-bas en allongeant le ratio. Ici la table est
+   ronde et les overlays sont recalés à chaque frame, un léger changement
+   d'aspect si le bandeau passe sur 2 lignes n'est pas un problème. */
+.trio-screen--3d { align-items: stretch; overflow: hidden; touch-action: none; width: 100%; }
 .trio-3d-table {
   width: 100%;
-  aspect-ratio: 3 / 4;
-  max-height: 68vh;
-  min-height: 320px;
+  flex: 1 1 auto;
+  min-height: 280px;
+  min-width: 0;
+  align-self: stretch;
   position: relative;
   touch-action: none;
   cursor: grab;

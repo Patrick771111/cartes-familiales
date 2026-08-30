@@ -653,20 +653,14 @@ function maxOrbitDistance() {
 
 function computeFittedDistance() {
   if (!camera) return BASE_DIST;
-  const saved = orbitDistance;
-  orbitDistance = BASE_DIST;
-  applyOrbitCamera();
   const halfVFov = (CAMERA_FOV * Math.PI) / 360;
-  const halfHFov = Math.atan(Math.tan(halfVFov) * camera.aspect);
+  const halfHFov = Math.atan(Math.tan(halfVFov) * Math.max(camera.aspect, 0.05));
   const margin = TABLE_RADIUS + 0.5;
-  const offset = camera.position.clone().sub(_look);
-  const visibleHalfW = offset.length() * Math.tan(halfHFov);
-  let dist = BASE_DIST;
-  if (visibleHalfW < margin && visibleHalfW > 0) {
-    dist = offset.length() * (margin / visibleHalfW);
-  }
-  orbitDistance = saved;
-  return dist;
+  const byWidth = margin / Math.tan(halfHFov);
+  const byHeight = margin / Math.tan(halfVFov);
+  // Les deux axes : en paysage large le fit largeur seul recadrait le
+  // plateau en haut/bas, avec du vide à droite avant les bulles.
+  return Math.max(BASE_DIST, byWidth, byHeight);
 }
 
 function fitCamera() {

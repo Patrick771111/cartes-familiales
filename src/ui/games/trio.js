@@ -440,7 +440,6 @@ function renderTrioTable3D(container, { room, player, state, onLeave, flipping =
 
   mountTable();
   const tableEl = container.querySelector('.trio-3d-table');
-  if (tableEl) positionTable(tableEl.getBoundingClientRect());
   updateTable({
     myRow,
     myTrios: me?.trios || [],
@@ -482,8 +481,7 @@ function renderTrioTable3D(container, { room, player, state, onLeave, flipping =
         el.style.top = `${anchor.top}px`;
       });
     };
-    repositionOverlays();
-    wireTrioOrbit(tableEl, repositionOverlays);
+    attachTrioViewport(tableEl, repositionOverlays);
   }
 
   wireCommonHud(container, { room, player, state, onLeave });
@@ -608,6 +606,17 @@ function wireTrioOrbit(tableEl, onOrbit) {
   );
 }
 
+function attachTrioViewport(tableEl, repositionOverlays) {
+  const sync = () => {
+    positionTable(tableEl.getBoundingClientRect());
+    repositionOverlays?.();
+  };
+  sync();
+  wireTrioOrbit(tableEl, repositionOverlays);
+  const ro = new ResizeObserver(sync);
+  ro.observe(tableEl);
+}
+
 /**
  * Vue spectateur 3D : orbite libre autour de la table. Renvoie `false` si
  * le mode 2D est actif, pour que game.js garde son rendu générique.
@@ -677,7 +686,6 @@ function renderTrioSpectator3D(container, { room, player, gameLabel, onBackToRoo
 
   mountTable();
   const tableEl = container.querySelector('.trio-3d-table');
-  if (tableEl) positionTable(tableEl.getBoundingClientRect());
   updateTable({
     myRow: [],
     myTrios: [],
@@ -699,8 +707,7 @@ function renderTrioSpectator3D(container, { room, player, gameLabel, onBackToRoo
         el.style.top = `${anchor.top}px`;
       });
     };
-    repositionOverlays();
-    wireTrioOrbit(tableEl, repositionOverlays);
+    attachTrioViewport(tableEl, repositionOverlays);
   }
 
   container.querySelector('#btn-back-to-rooms')?.addEventListener('click', () => onBackToRooms?.());
