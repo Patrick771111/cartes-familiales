@@ -17,18 +17,12 @@ import discardPlateUrl from '../assets/games/luckynumbers/discard-plate.png';
  * demande explicite de l'utilisateur — avec un remplacement "blanc → vert"
  * au chargement (voir loadBoardPlateTexture) pour que le fond blanc de la
  * photo (hors de la forme octogonale du plateau) ne laisse pas de taches
- * blanches aux 4 coins de notre géométrie rectangulaire. Les encoches
- * (anneau + puits + halo) restent une VRAIE géométrie/dégradé par-dessus
- * cette texture, pour garder la surbrillance dynamique des cases jouables.
- *
- * ATTENTION — piège rencontré avec un puits en vrai relief (cône peu
- * profond) : même caméra non inclinée, un plateau loin de l'axe optique
- * est quand même VU avec un angle de biais non nul (pure perspective,
- * rien à voir avec une rotation de caméra). Un cône À PEINE creusé est
- * extrêmement sensible à cet angle : la moindre bascule fait disparaître
- * la moitié du dégradé, donnant un "croissant" au lieu d'un creux net.
- * D'où le choix d'un puits en disque plat + DÉGRADÉ PEINT (texture
- * radiale, non éclairé) : indépendant de l'angle de vue et de la lumière.
+ * blanches aux 4 coins de notre géométrie rectangulaire. Les encoches sont
+ * déjà PEINTES dans cette photo — plus d'anneau/puits 3D dessinés par-dessus
+ * (demande explicite : "sans dessiner toi même les trous") ; seul le halo
+ * de surbrillance (voir createGlowMesh) reste une vraie géométrie, calée au
+ * centre EXACT de chaque trou peint via le même recadrage pixel-précis que
+ * la texture (voir les constantes sx/sy/sw/sh dans loadBoardPlateTexture).
  *
  * Montée UNE SEULE FOIS, ajoutée à `document.body` (donc en dehors de
  * `#app`) — un canvas WebGL recréé à chaque coup perdrait son contexte GL
@@ -43,14 +37,18 @@ import discardPlateUrl from '../assets/games/luckynumbers/discard-plate.png';
 
 const GRID_DIM = 4;
 const GRID_SIZE = GRID_DIM * GRID_DIM;
-const CELL_SPACING = 0.85;
-const TOKEN_RADIUS = 0.36;
-// Rayon extérieur (NOTCH_RADIUS + NOTCH_TUBE) volontairement < CELL_SPACING/2
-// pour que deux anneaux voisins ne se touchent/chevauchent jamais — sinon
-// leurs bords fusionnent en une bande continue entre les cases (bug constaté).
-const NOTCH_RADIUS = 0.35;
-const NOTCH_TUBE = 0.035;
-const BOARD_MARGIN = 0.45;
+// Grille agrandie de 20% (0.85 → 1.02) à BOARD_SIZE inchangé (donc bordure
+// réduite d'autant, voir BOARD_MARGIN) — demande explicite : "l'illustration
+// est trop petite", pas la taille/position globale du plateau (déjà bonne).
+const CELL_SPACING = 1.02;
+const TOKEN_RADIUS = 0.432;
+// Rayon du halo de surbrillance (voir getGlowGeometry) — les encoches
+// elles-mêmes sont déjà peintes dans la photo du plateau, plus de rebord/
+// puits 3D dessinés par-dessus (demande explicite).
+const NOTCH_RADIUS = 0.42;
+// Réduit (0.45 → 0.195) pour compenser CELL_SPACING et garder BOARD_SIZE
+// identique — voir le recadrage recalculé dans loadBoardPlateTexture.
+const BOARD_MARGIN = 0.195;
 const BOARD_SIZE = (GRID_DIM - 1) * CELL_SPACING + BOARD_MARGIN * 2;
 const BOARD_THICKNESS = 0.14;
 
@@ -63,10 +61,13 @@ const CAMERA_FOV = 45;
 // DEUX rangées tiennent dans le champ vertical (voir MY_ROW_Y/OPPONENT_ROW_Y) —
 // les adversaires ont leur propre rangée, plutôt que la même ligne que moi.
 const TABLE_Z = 1.6;
-const BOARD_SCALE = 0.52;
+const BOARD_SCALE = 0.5;
 const BOARD_HALF = (BOARD_SIZE / 2) * BOARD_SCALE;
 const SEAT_SPACING = BOARD_SIZE * BOARD_SCALE * 1.6;
-const ROW_GAP = 0.65;
+// Écart entre les 2 rangées assez grand pour que l'assiette de défausse
+// (voir PLATE_DIAMETER) ne déborde jamais sur les plateaux — bug constaté
+// avec l'ancien écart de 0.65, bien plus petit que le diamètre de l'assiette.
+const ROW_GAP = 2.0;
 const MY_ROW_Y = -(BOARD_HALF + ROW_GAP / 2);
 const OPPONENT_ROW_Y = BOARD_HALF + ROW_GAP / 2;
 
@@ -127,8 +128,6 @@ let panMin = 0;
 let panMax = 0;
 
 const tokenFaceTextures = new Map(); // value -> THREE.Texture (fond crème + nombre, indépendant de la couleur)
-let wellGeometry = null;
-let wellMaterial = null;
 let glowGeometry = null;
 let glowMaterial = null;
 let petalGeometry = null;
@@ -165,14 +164,17 @@ function loadBoardPlateTexture() {
       const ctx = c.getContext('2d');
       // Recadrage calé sur la vraie grille de la photo (mesuré une fois par
       // analyse de pixels sur les 2 coins HORS diagonale dorée — index 3 et
-      // 12 — pour qu'ils tombent exactement aux fractions 0.1304/0.8696 de
-      // BOARD_MARGIN/BOARD_SIZE, comme nos propres cases). Sans ce calage,
-      // les vrais anneaux/puits 3D ne tombent pas sur les trous peints de la
-      // photo (bug constaté : "cale les trous sur les trous").
-      const sx = 161;
-      const sy = 91;
-      const sw = 1073;
-      const sh = 1073;
+      // 12 — pour qu'ils tombent exactement aux fractions BOARD_MARGIN/
+      // BOARD_SIZE = 0.0565/0.9435, comme nos propres cases). Recalculé pour
+      // la grille agrandie de 20% (voir CELL_SPACING/BOARD_MARGIN) : mêmes
+      // centres de coin mesurés (1094.07,231.03) et (300.88,1023.67), crop
+      // resserré de 1/1.2 autour du même centre pour matcher les nouvelles
+      // fractions. Sans ce calage, les jetons ne tombent pas sur les trous
+      // peints de la photo (bug constaté : "cale les trous sur les trous").
+      const sx = 250;
+      const sy = 180;
+      const sw = 894;
+      const sh = 894;
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
       const imageData = ctx.getImageData(0, 0, size, size);
       const px = imageData.data;
@@ -335,64 +337,6 @@ function setTokenBlank(group) {
   group.userData.center.material.needsUpdate = true;
 }
 
-/**
- * Rebord d'encoche — vrai anneau en relief (TorusGeometry), pas une texture
- * peinte : "le plateau doit avoir des encoches" (demande explicite).
- * PAS de rotation : un TorusGeometry est DÉJÀ face à la caméra par défaut
- * (anneau dans le plan XY, trou le long de Z) — contrairement au Cylindre/
- * Cercle/Sphère de ce fichier qui, eux, ont besoin d'une rotation.x pour ça.
- * MeshBasicMaterial (non éclairé) : une couleur fixe reste prévisible quel
- * que soit l'angle de vue, contrairement à un matériau éclairé qui peut
- * attraper la lumière directionnelle de façon inégale sur un tube épais.
- */
-function createNotchMesh() {
-  const geometry = new THREE.TorusGeometry(NOTCH_RADIUS, NOTCH_TUBE, 12, 28);
-  const material = new THREE.MeshBasicMaterial({ color: RIM_GREEN, side: THREE.DoubleSide });
-  return new THREE.Mesh(geometry, material);
-}
-
-/** Dégradé radial peint (sombre au centre, halo léger avant le bord) — voir le commentaire d'en-tête sur pourquoi un vrai relief ne marche pas ici. */
-function buildWellTexture() {
-  const size = 128;
-  const c = document.createElement('canvas');
-  c.width = size;
-  c.height = size;
-  const ctx = c.getContext('2d');
-  const cx = size / 2;
-  const cy = size / 2;
-  const grad = ctx.createRadialGradient(cx, cy, size * 0.04, cx, cy, size * 0.5);
-  grad.addColorStop(0, '#0d2610');
-  grad.addColorStop(0.55, WELL_DARK);
-  grad.addColorStop(0.85, '#2e5a34');
-  grad.addColorStop(1, 'rgba(46,90,52,0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-  const texture = new THREE.CanvasTexture(c);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
-function getWellGeometry() {
-  if (!wellGeometry) {
-    wellGeometry = new THREE.CircleGeometry(NOTCH_RADIUS * 0.98, 28);
-    wellGeometry.userData.shared = true;
-  }
-  return wellGeometry;
-}
-
-function getWellMaterial() {
-  if (!wellMaterial) {
-    wellMaterial = new THREE.MeshBasicMaterial({ map: buildWellTexture(), transparent: true });
-    wellMaterial.userData.shared = true;
-  }
-  return wellMaterial;
-}
-
-/** Puits sombre d'une encoche vide — géométrie et matériau partagés (jamais recolorés individuellement). */
-function createWellMesh() {
-  return new THREE.Mesh(getWellGeometry(), getWellMaterial());
-}
-
 function getGlowGeometry() {
   if (!glowGeometry) {
     glowGeometry = new THREE.CircleGeometry(NOTCH_RADIUS * 1.12, 32);
@@ -499,8 +443,6 @@ function cellLocalOffset(index) {
 function createBoardGroup() {
   return {
     board: createBoardMesh(),
-    wellMeshes: Array(GRID_SIZE).fill(null),
-    notchMeshes: Array(GRID_SIZE).fill(null),
     glowMeshes: Array(GRID_SIZE).fill(null),
     tokenMeshes: Array(GRID_SIZE).fill(null)
   };
@@ -508,8 +450,6 @@ function createBoardGroup() {
 
 function disposeBoardGroup(group) {
   disposeMesh(group.board);
-  group.wellMeshes.forEach(disposeMesh);
-  group.notchMeshes.forEach(disposeMesh);
   group.glowMeshes.forEach(disposeMesh);
   group.tokenMeshes.forEach(disposeMesh);
 }
@@ -517,9 +457,12 @@ function disposeBoardGroup(group) {
 /**
  * Place/actualise un plateau complet à (centerX, centerY, centerZ), mis à
  * l'échelle `scale` (désormais IDENTIQUE pour tout le monde — voir
- * BOARD_SCALE). `placeableIndexes` (miennes uniquement) éclaircit
- * l'encoche en doré (rebord + halo), même intention que le contraste
- * jouable/grisé des autres jeux.
+ * BOARD_SCALE). Les "encoches" sont déjà peintes dans la photo du plateau
+ * (voir loadBoardPlateTexture) — plus d'anneau/puits 3D dessinés par-dessus
+ * (demande explicite : "sans dessiner toi même les trous"), seuls les
+ * jetons et le halo de surbrillance sont de vraie géométrie, positionnés au
+ * centre EXACT de chaque trou peint (même calage pixel que le recadrage de
+ * la photo, voir cellLocalOffset/loadBoardPlateTexture).
  */
 function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, placeableIndexes = [] }) {
   group.board.position.set(centerX, centerY, centerZ);
@@ -531,31 +474,6 @@ function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, plac
     const x = centerX + dx * scale;
     const y = centerY + dy * scale;
     const highlighted = placeableIndexes.includes(i);
-
-    // renderOrder explicite : ces meshes sont si proches en Z (quelques
-    // millièmes) que le tri par distance-caméra par défaut de Three.js pour
-    // les objets transparents peut les intercaler dans le mauvais ordre
-    // (bug constaté : bande visible traversant les cases en surbrillance).
-    if (!group.wellMeshes[i]) {
-      const well = createWellMesh();
-      well.renderOrder = 1;
-      scene.add(well);
-      group.wellMeshes[i] = well;
-    }
-    const well = group.wellMeshes[i];
-    well.position.set(x, y, surfaceZ + 0.002 * scale);
-    well.scale.setScalar(scale);
-
-    if (!group.notchMeshes[i]) {
-      const notch = createNotchMesh();
-      notch.renderOrder = 2;
-      scene.add(notch);
-      group.notchMeshes[i] = notch;
-    }
-    const notch = group.notchMeshes[i];
-    notch.position.set(x, y, surfaceZ + 0.005 * scale);
-    notch.scale.setScalar(scale);
-    notch.material.color.set(highlighted ? GOLD : RIM_GREEN);
 
     if (!group.glowMeshes[i]) {
       const glow = createGlowMesh();
@@ -749,7 +667,7 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   // Centrée sur la zone de défausse (0.55, voir plus bas), pas sur tout
   // l'espace pioche+défausse — demande explicite : l'assiette est pour les
   // jetons de défausse, pas la pioche.
-  const plateSize = TOKEN_RADIUS * 5.2;
+  const plateSize = TOKEN_RADIUS * 4.2;
   plateMesh.position.set(0.55, pileY, pileZ - 0.08);
   plateMesh.scale.set(plateSize, plateSize, 1);
 
