@@ -1711,10 +1711,18 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 /* Le canvas WebGL persistant est positionné par-dessus cette zone en JS —
    les boutons de ma main/de la pioche restent de vrais boutons DOM (clic
    et glisser-déposer identiques au 2D), juste rendus transparents pour
-   laisser voir le rendu 3D dessous. */
-.uno-3d-table { width: 100%; flex: 1; min-height: 280px; position: relative; }
+   laisser voir le rendu 3D dessous. `aspect-ratio` (plutôt que `flex:1`,
+   qui laissait sa hauteur — et donc l'aspect ratio de la caméra —
+   fluctuer avec la taille des éléments voisins : bandeau de tour sur 1 ou
+   2 lignes, apparition du sélecteur de couleur Joker...) fixe sa taille
+   uniquement à partir de sa propre largeur, indépendamment du contenu
+   autour : sans ça, la pioche/défausse (position 3D fixe) semblait
+   légèrement se déplacer d'un rendu à l'autre — même famille de piège que
+   .pouilleux-3d-stage. */
+.uno-3d-table { width: 100%; aspect-ratio: 3 / 4; max-height: 62vh; min-height: 320px; position: relative; }
 .uno-3d-hand-card,
-.uno-3d-draw {
+.uno-3d-draw,
+.uno-3d-catch {
   position: absolute;
   opacity: 0;
   margin: 0;
@@ -1730,13 +1738,6 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   color: rgba(247, 241, 225, 0.7);
   pointer-events: none;
 }
-.uno-3d-catch-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-}
-
 .uno-felt { padding: 20px 14px 24px; }
 
 .uno-center {

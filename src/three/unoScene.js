@@ -358,3 +358,9 @@ export function getHandCardRects() {
 export function getDrawPileRect() {
   return projectMeshRects(drawPileMeshes)[drawPileMeshes.length - 1] || null;
 }
+
+/** Rectangles écran des cartes de l'adversaire d'indice `index` (même ordre des sièges que `opponents` dans `updateTable`) — sert notamment à superposer un bouton Contre-UNO sur sa dernière carte visible. */
+export function getOpponentCardRects(index) {
+  const group = opponentMeshGroups[index];
+  return group ? projectMeshRects(group.meshes) : [];
+}

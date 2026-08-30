@@ -17,7 +17,7 @@ import {
   wireThreeDToggle
 } from '../gameShared.js';
 import { is3DEnabled } from '../settings.js';
-import { mountTable, positionTable, updateTable, showTable, hideTable, getHandCardRects, getDrawPileRect } from '../../three/unoScene.js';
+import { mountTable, positionTable, updateTable, showTable, hideTable, getHandCardRects, getDrawPileRect, getOpponentCardRects } from '../../three/unoScene.js';
 
 // Carte Joker/Joker +4 en attente du choix de couleur (clic sur la pastille
 // pour valider, ou Annuler) — distincte de toute autre sélection, remise à
@@ -364,8 +364,6 @@ function renderUnoTable3D(container, { room, player, state, onLeave }) {
           : ''
       }
 
-      ${others.length ? `<div class="uno-3d-catch-row">${others.map((p) => `<button type="button" class="uno-catch-btn" data-catch-target="${p.id}">Contre-UNO ${p.name}</button>`).join('')}</div>` : ''}
-
       <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
       <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
       <button class="game-hud__bubble game-hud__bubble--invite" id="btn-invite-game" title="Inviter un ami" aria-label="Inviter un ami">📤</button>
@@ -393,7 +391,17 @@ function renderUnoTable3D(container, { room, player, state, onLeave }) {
     const handButtonsHtml = orderedHand.map((c) => `<button type="button" class="card uno-3d-hand-card" data-card-id="${c.id}"></button>`).join('');
     const drawRect = getDrawPileRect();
     const drawButtonHtml = drawRect ? `<button type="button" class="uno-3d-draw" id="btn-draw" ${canDraw ? '' : 'disabled'}></button>` : '';
-    tableEl.insertAdjacentHTML('beforeend', handButtonsHtml + drawButtonHtml);
+    // Contre-UNO : clic direct sur la dernière carte visible d'un adversaire
+    // (voir demande utilisateur) plutôt qu'un bouton séparé — uniquement
+    // quand il n'a plus qu'une carte, seul moment où "la carte restante" a
+    // un sens. Toujours cliquable dès qu'elle est visible (même logique que
+    // l'ancien bouton "toujours affiché" en 2D) : le nombre de cartes est de
+    // toute façon déjà visible sur l'éventail, aucune info supplémentaire
+    // n'est révélée par la présence de ce bouton.
+    const catchButtonsHtml = others
+      .map((p, i) => (p.hand.length === 1 ? `<button type="button" class="uno-3d-catch" data-catch-target="${p.id}"></button>` : ''))
+      .join('');
+    tableEl.insertAdjacentHTML('beforeend', handButtonsHtml + drawButtonHtml + catchButtonsHtml);
 
     getHandCardRects().forEach((r, i) => {
       const btn = tableEl.querySelectorAll('.uno-3d-hand-card')[i];
@@ -416,6 +424,19 @@ function renderUnoTable3D(container, { room, player, state, onLeave }) {
         countEl.style.top = `${drawRect.top + drawRect.height + 4}px`;
       }
     }
+
+    const catchButtons = tableEl.querySelectorAll('.uno-3d-catch');
+    let catchIndex = 0;
+    others.forEach((p, i) => {
+      if (p.hand.length !== 1) return;
+      const r = getOpponentCardRects(i)[0];
+      const btn = catchButtons[catchIndex++];
+      if (!btn || !r) return;
+      btn.style.left = `${r.left}px`;
+      btn.style.top = `${r.top}px`;
+      btn.style.width = `${r.width}px`;
+      btn.style.height = `${r.height}px`;
+    });
   }
 
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
