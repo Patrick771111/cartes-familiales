@@ -52,7 +52,11 @@ const CAMERA_DISTANCE = 8.5;
 const CAMERA_FOV = 45;
 
 const MY_BOARD_Z = 1.6;
-const MY_BOARD_SCALE = 1;
+// < 1 : un plateau à taille pleine (scale 1) est si grand que le remonter
+// pour éviter le clipping (voir MY_BOARD_Y) laisse son bord haut presque
+// coller aux plateaux adversaires — plus de place pour la pioche/défausse
+// entre les deux (bug constaté : plateau "trop haut", piles invisibles).
+const MY_BOARD_SCALE = 0.82;
 
 /**
  * Le FOV d'une PerspectiveCamera est TOUJOURS vertical (indépendant de
@@ -481,7 +485,10 @@ function ensureScene() {
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(SCENE_BG);
-  scene.fog = new THREE.Fog(SCENE_BG, 7.5, 14);
+  // near au-delà de la distance des plateaux adversaires (~10.9) : le
+  // brouillard ne doit pas les rendre flous/délavés, juste teinter le vide
+  // derrière eux — bug constaté avec near=7.5 (déjà ~50% de brouillard là-bas).
+  scene.fog = new THREE.Fog(SCENE_BG, 11.5, 20);
 
   camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 100);
   camera.position.set(0, 0, CAMERA_DISTANCE);
@@ -495,7 +502,7 @@ function ensureScene() {
   fillLight.position.set(-3, 2, -2);
   scene.add(fillLight);
 
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -580,18 +587,22 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   const opponentBottomEdge = 1.9 - (BOARD_SIZE / 2) * oppScale;
   const NEUTRAL_ZONE_Y = (myBoardTopEdge + opponentBottomEdge) / 2;
 
+  // Z rapproché de la caméra (mais toujours derrière mon plateau à MY_BOARD_Z)
+  // pour que la pioche/défausse restent bien visibles, pas minuscules au loin.
+  const PILE_Z = 0.9;
+
   ensureDiscardMeshCount(discardTiles.length);
   discardTiles.forEach((tile, i) => {
     const mesh = discardMeshes[i];
     mesh.visible = true;
     setTokenValue(mesh, tile);
     const spread = (i - (discardTiles.length - 1) / 2) * (TOKEN_RADIUS * 2.1);
-    mesh.position.set(0.65 + spread, NEUTRAL_ZONE_Y, 0.15);
+    mesh.position.set(0.65 + spread, NEUTRAL_ZONE_Y, PILE_Z);
   });
 
   ensureDrawPileMeshCount(stockCount > 0 ? 4 : 0);
   drawPileMeshes.forEach((mesh, i) => {
-    mesh.position.set(-0.65, NEUTRAL_ZONE_Y + i * 0.02, 0.1 + i * 0.01);
+    mesh.position.set(-0.65, NEUTRAL_ZONE_Y + i * 0.02, PILE_Z - 0.05 + i * 0.01);
   });
 }
 
@@ -644,10 +655,10 @@ function projectPointsRect(points) {
 /** Rectangle de la case `index` de MON plateau (case vide ou occupée — pure géométrie de grille, indépendante d'un éventuel jeton dessus). */
 export function getMyBoardCellRect(index) {
   const { dx, dy } = cellLocalOffset(index);
-  const half = TOKEN_RADIUS * 1.15;
-  const x = dx;
-  const y = MY_BOARD_Y + dy;
-  const z = MY_BOARD_Z + BOARD_THICKNESS / 2 + 0.02;
+  const half = TOKEN_RADIUS * 1.15 * MY_BOARD_SCALE;
+  const x = dx * MY_BOARD_SCALE;
+  const y = MY_BOARD_Y + dy * MY_BOARD_SCALE;
+  const z = MY_BOARD_Z + (BOARD_THICKNESS / 2 + 0.02) * MY_BOARD_SCALE;
   return projectPointsRect([
     [x - half, y + half, z],
     [x + half, y + half, z],
