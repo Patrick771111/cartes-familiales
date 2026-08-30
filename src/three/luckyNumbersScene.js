@@ -162,11 +162,16 @@ function loadBoardPlateTexture() {
       c.width = size;
       c.height = size;
       const ctx = c.getContext('2d');
-      const cropFrac = 0.92;
-      const sx = img.width * (1 - cropFrac) * 0.5;
-      const sy = img.height * (1 - cropFrac) * 0.35;
-      const sw = img.width * cropFrac;
-      const sh = img.height * cropFrac;
+      // Recadrage calé sur la vraie grille de la photo (mesuré une fois par
+      // analyse de pixels sur les 2 coins HORS diagonale dorée — index 3 et
+      // 12 — pour qu'ils tombent exactement aux fractions 0.1304/0.8696 de
+      // BOARD_MARGIN/BOARD_SIZE, comme nos propres cases). Sans ce calage,
+      // les vrais anneaux/puits 3D ne tombent pas sur les trous peints de la
+      // photo (bug constaté : "cale les trous sur les trous").
+      const sx = 161;
+      const sy = 91;
+      const sw = 1073;
+      const sh = 1073;
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
       const imageData = ctx.getImageData(0, 0, size, size);
       const px = imageData.data;
