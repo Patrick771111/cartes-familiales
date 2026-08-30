@@ -218,11 +218,12 @@ function maxHandCenterY(handZ) {
 
 /**
  * Empile les dernières poses "en vrac" (décalage pseudo-aléatoire mais
- * stable, voir stableJitter) plutôt qu'un éventail rangé — amplitude
- * volontairement large (jusqu'à une pleine largeur de carte en X, une
- * rotation quasi complète) : un tas de cartes jetées les unes sur les
- * autres a des coins qui dépassent nettement, pas un chevauchement propre
- * qui laisserait deviner un rangement.
+ * stable, voir stableJitter) plutôt qu'un éventail rangé — sans pour
+ * autant simuler un chaos total : des cartes lâchées l'une après l'autre
+ * au même endroit restent globalement DROITES (léger tilt, pas une
+ * rotation extrême) et juste légèrement décalées (pas parfaitement
+ * empilées, mais sans déborder jusqu'à la pioche juste à côté — voir le
+ * centerX de la pioche dans updateTable, à 1 unité monde de la défausse).
  */
 function layoutDiscardPile(meshes, cards, { centerX, centerY, centerZ }) {
   meshes.forEach((mesh, i) => {
@@ -230,8 +231,8 @@ function layoutDiscardPile(meshes, cards, { centerX, centerY, centerZ }) {
     const jx = stableJitter(card.id, 17) - 0.5;
     const jy = stableJitter(card.id, 31) - 0.5;
     const jr = stableJitter(card.id, 53) - 0.5;
-    mesh.position.set(centerX + jx * CARD_ASPECT * 1.4, centerY + jy * 0.9, centerZ + i * 0.01);
-    mesh.rotation.z = jr * Math.PI * 0.9;
+    mesh.position.set(centerX + jx * 0.35, centerY + jy * 0.3, centerZ + i * 0.01);
+    mesh.rotation.z = jr * 0.7;
   });
 }
 
