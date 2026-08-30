@@ -57,18 +57,25 @@ const CAMERA_FOV = 45;
 
 // Taille UNIQUE pour tous les plateaux (moi + adversaires) — demande
 // explicite de l'utilisateur, remplace l'ancien système "le mien proche/
-// grand, ceux des adversaires loin/petits". Réduite (0.75 → 0.52) pour que
-// DEUX rangées tiennent dans le champ vertical (voir MY_ROW_Y/OPPONENT_ROW_Y) —
-// les adversaires ont leur propre rangée, plutôt que la même ligne que moi.
+// grand, ceux des adversaires loin/petits". Réduite (0.75 → 0.47) pour que
+// DEUX rangées + l'écart entre elles tiennent dans le champ vertical RÉEL de
+// la caméra à la profondeur TABLE_Z (voir visibleHalfHeightAt) — à 0.5 le
+// bord de mon plateau (le plus proche du bord de l'écran) dépassait
+// légèrement ce champ et se retrouvait coupé en bas sur mobile (bug
+// constaté : "le plateau de jeu est coupé").
 const TABLE_Z = 1.6;
-const BOARD_SCALE = 0.5;
+const BOARD_SCALE = 0.47;
 const BOARD_HALF = (BOARD_SIZE / 2) * BOARD_SCALE;
 const SEAT_SPACING = BOARD_SIZE * BOARD_SCALE * 1.6;
-// Écart entre les 2 rangées assez grand pour que l'assiette de défausse
-// (voir PLATE_DIAMETER, DISCARD_GRID_COLS) ne déborde jamais sur les
-// plateaux voisins — l'assiette doit pouvoir contenir une quinzaine de
-// jetons (demande explicite), donc bien plus grande que le premier essai.
-const ROW_GAP = 2.6;
+// Écart entre les 2 rangées : assez grand pour que l'assiette de défausse
+// (voir plateDiameter dans updateScene) ne déborde jamais sur les plateaux
+// voisins, mais assez petit pour que `2*BOARD_HALF + ROW_GAP/2` (distance du
+// centre de la table au bord le plus éloigné de mon plateau) reste sous
+// `visibleHalfHeightAt(TABLE_Z)` — sinon ce bord sort du champ de la caméra
+// et le plateau apparaît coupé, quelle que soit la taille du conteneur CSS
+// (un conteneur plus grand agrandit le rendu mais ne change pas la portion
+// du MONDE 3D visible à cette profondeur).
+const ROW_GAP = 2.2;
 const MY_ROW_Y = -(BOARD_HALF + ROW_GAP / 2);
 const OPPONENT_ROW_Y = BOARD_HALF + ROW_GAP / 2;
 
@@ -685,7 +692,9 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   // DISCARD_GRID_COLS/DISCARD_SPACING ci-dessous) — demande explicite,
   // centrée sur X=0 ("au milieu de la table") plutôt que décalée vers la
   // défausse, pour laisser toute la place nécessaire de chaque côté.
-  const plateDiameter = 2.4;
+  // Réduite (2.4 → 2.1) avec ROW_GAP (voir plus haut) pour garder une marge
+  // confortable entre le bord de l'assiette et les plateaux voisins.
+  const plateDiameter = 2.1;
   const plateCenterX = 0;
   plateMesh.position.set(plateCenterX, pileY, pileZ - 0.08);
   plateMesh.scale.set(plateDiameter, plateDiameter, 1);
@@ -699,7 +708,7 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   // colonnes fixe) — sinon 1 ou 2 jetons se retrouvent collés à gauche de
   // l'assiette au lieu d'être au milieu (bug constaté avec peu de jetons).
   const DISCARD_GRID_COLS = 4;
-  const DISCARD_SPACING = 0.32;
+  const DISCARD_SPACING = 0.25;
   const discardCount = discardTiles.length;
   const discardRows = Math.max(1, Math.ceil(discardCount / DISCARD_GRID_COLS));
   ensureDiscardMeshCount(discardCount);
