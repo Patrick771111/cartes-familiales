@@ -12,8 +12,12 @@ import {
   wireEndGameActions,
   orderedOpponents,
   openLogModal,
-  shareInviteLink
+  shareInviteLink,
+  threeDToggleHtml,
+  wireThreeDToggle
 } from '../gameShared.js';
+import { is3DEnabled } from '../settings.js';
+import { mountTable, positionTable, updateTable, showTable, hideTable, getHandCardRects, getDrawPileRect } from '../../three/unoScene.js';
 
 // Carte Joker/Joker +4 en attente du choix de couleur (clic sur la pastille
 // pour valider, ou Annuler) — distincte de toute autre sélection, remise à
@@ -60,15 +64,23 @@ export function resetSelection() {
   resetHandOrder('uno');
 }
 
+// Hook générique lu par src/ui/game.js (hideAllThreeDScenes) — c'est CE
+// fichier qui "s'inscrit" à la 3D, les fichiers communs n'ont besoin de
+// connaître aucun jeu en particulier pour savoir masquer sa scène au bon moment.
+export function hide3D() {
+  hideTable();
+}
+
 export function renderTable(container, { room, player, state, onLeave }) {
   if (state.status === 'finished') {
     renderUnoEnd(container, { room, player, state, onLeave });
     return;
   }
-  renderUnoTable(container, { room, player, state, onLeave });
+  if (is3DEnabled('uno')) renderUnoTable3D(container, { room, player, state, onLeave });
+  else renderUnoTable2D(container, { room, player, state, onLeave });
 }
 
-function renderUnoTable(container, { room, player, state, onLeave }) {
+function renderUnoTable2D(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
   const others = orderedOpponents(state, player.id);
   const isMyTurn = state.currentPlayerId === player.id;
@@ -200,6 +212,7 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
         <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
         <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
         <button class="game-hud__bubble game-hud__bubble--invite" id="btn-invite-game" title="Inviter un ami" aria-label="Inviter un ami">📤</button>
+        ${threeDToggleHtml('uno')}
         <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
       </div>
     </div>
@@ -209,6 +222,7 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
   container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
   container.querySelector('#btn-invite-game')?.addEventListener('click', () => shareInviteLink(room));
   wireAbandonButton(container, { room, player, state, onLeave });
+  wireThreeDToggle(container, 'uno', () => renderTable(container, { room, player, state, onLeave }));
 
   container.querySelector('#btn-draw')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
@@ -221,7 +235,7 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
 
   container.querySelector('#btn-cancel-wild')?.addEventListener('click', () => {
     pendingWildCardId = null;
-    renderUnoTable(container, { room, player, state, onLeave });
+    renderUnoTable2D(container, { room, player, state, onLeave });
   });
 
   container.querySelector('#btn-call-uno')?.addEventListener('click', async (e) => {
@@ -272,7 +286,7 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
       const card = me.hand.find((c) => c.id === id);
       if (card.kind === 'wild' || card.kind === 'wildDrawFour') {
         pendingWildCardId = id;
-        renderUnoTable(container, { room, player, state, onLeave });
+        renderUnoTable2D(container, { room, player, state, onLeave });
         return;
       }
       try {
@@ -289,7 +303,202 @@ function renderUnoTable(container, { room, player, state, onLeave }) {
     enableHandDrag(myHandEl, {
       onDrop: (cardId, index) => {
         moveCard('uno', cardId, index);
-        renderUnoTable(container, { room, player, state, onLeave });
+        renderUnoTable2D(container, { room, player, state, onLeave });
+      }
+    });
+  }
+}
+
+/**
+ * Rendu 3D : une seule scène de table (voir src/three/unoScene.js) au lieu
+ * des zones 2D séparées (adversaires/feutre/main) — pioche et défausse "en
+ * vrac" au centre, adversaires en petits éventails dos visible "au loin",
+ * ma main en grand éventail face visible en bas. Le sélecteur de couleur
+ * Joker et les boutons Contre-UNO restent de vrais overlays DOM 2D (pas
+ * utile de les sortir en 3D pour cette première tranche).
+ */
+function renderUnoTable3D(container, { room, player, state, onLeave }) {
+  const me = state.players.find((p) => p.id === player.id);
+  const others = orderedOpponents(state, player.id);
+  const isMyTurn = state.currentPlayerId === player.id;
+  if (!isMyTurn) pendingWildCardId = null;
+
+  const topCard = state.discard[state.discard.length - 1];
+  const underAttack = state.pendingDraw > 0;
+  const myLegalMove = isMyTurn && hasLegalMove(state, me.hand);
+  const canDraw = isMyTurn && !pendingWildCardId;
+  const currentPlayerName = state.players.find((p) => p.id === state.currentPlayerId)?.name || '';
+
+  const orderedHand = getOrderedHand('uno', me.hand, sortedUnoHand);
+  const discardHistory = state.discardHistory && state.discardHistory.length ? state.discardHistory : [{ by: null, cards: [topCard] }];
+  const discardCards = discardHistory.flatMap((entry) => entry.cards).slice(-4);
+
+  container.innerHTML = `
+    <div class="screen screen--table uno-screen uno-screen--3d">
+      <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
+        ${
+          isMyTurn
+            ? underAttack
+              ? myLegalMove
+                ? 'Empile une carte +2/+4, ou pioche la pile'
+                : `Pioche la pile (+${state.pendingDraw})`
+              : 'À toi de jouer'
+            : `Tour de ${currentPlayerName}`
+        }
+      </div>
+      <p class="americain-direction">${state.direction === -1 ? '↺ Sens inversé' : '↻ Sens normal'}${underAttack ? ` · ⚡ Pile de pioche : +${state.pendingDraw}` : ''}</p>
+
+      <div class="uno-3d-table">
+        <span class="uno-3d-draw-count">${state.stock.length}</span>
+      </div>
+
+      ${
+        pendingWildCardId
+          ? `<div class="americain-suit-picker">
+               <p class="americain-suit-picker__label">Choisis la couleur :</p>
+               <div class="americain-suit-picker__options">
+                 ${COLORS.map((key) => `<button type="button" class="uno-color-picker__option" data-color="${key}" style="background:${colorInfo(key).hex}" title="${colorInfo(key).label}"></button>`).join('')}
+               </div>
+               <button type="button" class="btn btn--link btn--small" id="btn-cancel-wild">Annuler</button>
+             </div>`
+          : ''
+      }
+
+      ${others.length ? `<div class="uno-3d-catch-row">${others.map((p) => `<button type="button" class="uno-catch-btn" data-catch-target="${p.id}">Contre-UNO ${p.name}</button>`).join('')}</div>` : ''}
+
+      <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
+      <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
+      <button class="game-hud__bubble game-hud__bubble--invite" id="btn-invite-game" title="Inviter un ami" aria-label="Inviter un ami">📤</button>
+      ${threeDToggleHtml('uno')}
+      <button class="game-hud__bubble game-hud__bubble--uno" id="btn-call-uno" title="Annoncer UNO" aria-label="Annoncer UNO">UNO!</button>
+      <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
+    </div>
+  `;
+
+  mountTable();
+  const tableEl = container.querySelector('.uno-3d-table');
+  if (tableEl) positionTable(tableEl.getBoundingClientRect());
+  updateTable({
+    hand: orderedHand,
+    handPlayable: orderedHand.map((c) => (isMyTurn && isLegalCard(state, c)) || (!isMyTurn && isJumpInCard(state, c))),
+    opponents: others.map((p) => ({ count: p.hand.length })),
+    discardCards
+  });
+  showTable();
+
+  // Boutons invisibles superposés aux VRAIES positions des cartes dessinées
+  // en 3D (éventail, pas un simple alignement) — même technique que
+  // .target-card--pickable au Pouilleux (voir getHandCardRects).
+  if (tableEl) {
+    const handButtonsHtml = orderedHand.map((c) => `<button type="button" class="card uno-3d-hand-card" data-card-id="${c.id}"></button>`).join('');
+    const drawRect = getDrawPileRect();
+    const drawButtonHtml = drawRect ? `<button type="button" class="uno-3d-draw" id="btn-draw" ${canDraw ? '' : 'disabled'}></button>` : '';
+    tableEl.insertAdjacentHTML('beforeend', handButtonsHtml + drawButtonHtml);
+
+    getHandCardRects().forEach((r, i) => {
+      const btn = tableEl.querySelectorAll('.uno-3d-hand-card')[i];
+      if (!btn || !r) return;
+      btn.style.left = `${r.left}px`;
+      btn.style.top = `${r.top}px`;
+      btn.style.width = `${r.width}px`;
+      btn.style.height = `${r.height}px`;
+    });
+    if (drawRect) {
+      const drawBtn = tableEl.querySelector('#btn-draw');
+      drawBtn.style.left = `${drawRect.left}px`;
+      drawBtn.style.top = `${drawRect.top}px`;
+      drawBtn.style.width = `${drawRect.width}px`;
+      drawBtn.style.height = `${drawRect.height}px`;
+
+      const countEl = tableEl.querySelector('.uno-3d-draw-count');
+      if (countEl) {
+        countEl.style.left = `${drawRect.left + drawRect.width / 2}px`;
+        countEl.style.top = `${drawRect.top + drawRect.height + 4}px`;
+      }
+    }
+  }
+
+  container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
+  container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
+  container.querySelector('#btn-invite-game')?.addEventListener('click', () => shareInviteLink(room));
+  wireAbandonButton(container, { room, player, state, onLeave });
+  wireThreeDToggle(container, 'uno', () => renderTable(container, { room, player, state, onLeave }));
+
+  container.querySelector('#btn-draw')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await drawUnoCard(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+    }
+  });
+
+  container.querySelector('#btn-cancel-wild')?.addEventListener('click', () => {
+    pendingWildCardId = null;
+    renderUnoTable3D(container, { room, player, state, onLeave });
+  });
+
+  container.querySelector('#btn-call-uno')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await callUno(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de signaler UNO.');
+    }
+  });
+
+  container.querySelectorAll('[data-catch-target]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await catchUno(room, player.id, btn.dataset.catchTarget);
+      } catch (err) {
+        btn.disabled = false;
+      }
+    });
+  });
+
+  container.querySelectorAll('.uno-color-picker__option').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const color = btn.dataset.color;
+      const cardId = pendingWildCardId;
+      container.querySelectorAll('.uno-color-picker__option').forEach((b) => (b.disabled = true));
+      try {
+        await playUnoCard(room, player.id, cardId, color);
+        pendingWildCardId = null;
+      } catch (err) {
+        container.querySelectorAll('.uno-color-picker__option').forEach((b) => (b.disabled = false));
+        alert(err.message || 'Impossible de jouer cette carte.');
+      }
+    });
+  });
+
+  container.querySelectorAll('.uno-3d-hand-card').forEach((btn) => {
+    const id = btn.dataset.cardId;
+    const card = me.hand.find((c) => c.id === id);
+    const legalForTurn = isMyTurn && isLegalCard(state, card);
+    const jumpInEligible = !isMyTurn && isJumpInCard(state, card);
+    if (!legalForTurn && !jumpInEligible) return;
+    btn.addEventListener('click', async () => {
+      if (card.kind === 'wild' || card.kind === 'wildDrawFour') {
+        pendingWildCardId = id;
+        renderUnoTable3D(container, { room, player, state, onLeave });
+        return;
+      }
+      try {
+        await playUnoCard(room, player.id, id);
+      } catch (err) {
+        alert(err.message || 'Impossible de jouer cette carte.');
+      }
+    });
+  });
+
+  if (tableEl) {
+    enableHandDrag(tableEl, {
+      onDrop: (cardId, index) => {
+        moveCard('uno', cardId, index);
+        renderUnoTable3D(container, { room, player, state, onLeave });
       }
     });
   }

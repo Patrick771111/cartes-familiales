@@ -1251,6 +1251,7 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 .game-hud__bubble--log { left: 108px; }
 .game-hud__bubble--invite { left: 156px; }
 .game-hud__bubble--mode { left: 204px; font-size: 13px; }
+.game-hud__bubble--uno { left: 252px; font-size: 12px; }
 .game-hud__bubble--quit { right: 12px; }
 
 /* Paysage : la rangée basse (règles/journal/inviter/mode) empièterait sur le
@@ -1270,7 +1271,8 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   .game-hud__bubble--log { top: calc(50% + 4px); }
   .game-hud__bubble--invite { top: calc(50% + 52px); }
   .game-hud__bubble--mode { top: calc(50% + 100px); }
-  .game-hud__bubble--quit { top: calc(50% + 148px); }
+  .game-hud__bubble--uno { top: calc(50% + 148px); }
+  .game-hud__bubble--quit { top: calc(50% + 196px); }
 }
 
 /* Écran 3D du Pouilleux (voir renderTableNow3D dans pouilleux.js) : pas de
@@ -1697,6 +1699,42 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
     overflow-y: auto;
     margin-top: 0;
   }
+}
+
+/* Écran 3D du Uno (voir renderUnoTable3D dans src/ui/games/uno.js) : une
+   seule scène de table (pioche/défausse au centre, adversaires au loin en
+   haut, ma main en grand en bas — voir src/three/unoScene.js) plutôt que
+   les zones 2D séparées (adversaires/feutre/main) — étirée en largeur
+   comme .pouilleux-screen--3d, pour la même raison (un seul enfant
+   pertinent, .uno-screen centre ses enfants par défaut sinon). */
+.uno-screen--3d { align-items: stretch; }
+/* Le canvas WebGL persistant est positionné par-dessus cette zone en JS —
+   les boutons de ma main/de la pioche restent de vrais boutons DOM (clic
+   et glisser-déposer identiques au 2D), juste rendus transparents pour
+   laisser voir le rendu 3D dessous. */
+.uno-3d-table { width: 100%; flex: 1; min-height: 280px; position: relative; }
+.uno-3d-hand-card,
+.uno-3d-draw {
+  position: absolute;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+  touch-action: none;
+}
+/* left/top posés en JS (voir getDrawPileRect dans src/ui/games/uno.js), juste sous la vraie pile de pioche dessinée en 3D. */
+.uno-3d-draw-count {
+  position: absolute;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: rgba(247, 241, 225, 0.7);
+  pointer-events: none;
+}
+.uno-3d-catch-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
 }
 
 .uno-felt { padding: 20px 14px 24px; }
