@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import boardPlateUrl from '../assets/games/luckynumbers/board-plate.png';
 import tableWoodUrl from '../assets/games/luckynumbers/table-wood.jpg';
 import discardPlateUrl from '../assets/games/luckynumbers/discard-plate.png';
+import piocheUrl from '../assets/games/luckynumbers/pioche.png';
 
 /**
  * Scène 3D persistante pour Lucky Numbers — une seule scène/caméra (comme
@@ -116,8 +117,6 @@ function seatX(index, total) {
 // (vraie photo, voir boardPlateUrl) + jetons trèfle pastel par couleur.
 const SCENE_BG = '#0f1f0f';
 const BOARD_GREEN = '#3a8a42';
-const WELL_DARK = '#1a4a22';
-const RIM_GREEN = '#2a6a32';
 const GOLD = '#ffd700';
 const GOLD_EMISSIVE = '#ffaa00';
 const CENTER_CREAM = '#fffaf0';
@@ -141,9 +140,9 @@ let mounted = false;
 
 let boardGroups = []; // [0] = moi, [1..] = adversaires dans l'ordre des sièges déjà calculé par l'appelant
 let discardMeshes = [];
-let drawPileMeshes = [];
 let tableMesh = null;
 let plateMesh = null;
+let piocheMesh = null;
 
 let myCurrentSeatX = 0; // recalculé à chaque updateScene selon le nombre de sièges — voir getMyBoardCellRect
 
@@ -161,6 +160,8 @@ let boardPlateTexture = null;
 let boardPlateLoadPromise = null;
 let discardPlateTexture = null;
 let discardPlateLoadPromise = null;
+let piocheTexture = null;
+let piocheLoadPromise = null;
 
 /**
  * Charge la photo du plateau (voir boardPlateUrl, demande explicite) — un
@@ -245,6 +246,39 @@ function loadDiscardPlateTexture() {
     img.src = discardPlateUrl;
   });
   return discardPlateLoadPromise;
+}
+
+/**
+ * Illustration de la pioche (sac en tissu vert avec breloque trèfle, voir
+ * piocheUrl, demande explicite) — vrai fond alpha transparent (comme
+ * board-plate.png), recadrée sur son contenu réel (bbox alpha mesurée une
+ * fois par analyse de pixels) plutôt que le carré source qui a une grosse
+ * marge transparente inutile autour du sac.
+ */
+function loadPiocheTexture() {
+  if (piocheTexture) return Promise.resolve(piocheTexture);
+  if (piocheLoadPromise) return piocheLoadPromise;
+  piocheLoadPromise = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const size = 512;
+      const c = document.createElement('canvas');
+      c.width = size;
+      c.height = size;
+      const ctx = c.getContext('2d');
+      const sx = 88;
+      const sy = 72;
+      const sw = 1244;
+      const sh = 1244;
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
+      const texture = new THREE.CanvasTexture(c);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      piocheTexture = texture;
+      resolve(texture);
+    };
+    img.src = piocheUrl;
+  });
+  return piocheLoadPromise;
 }
 
 function buildTokenFaceTexture(value) {
@@ -338,18 +372,6 @@ function setTokenValue(group, tile) {
   group.userData.center.material.needsUpdate = true;
 }
 
-/** Apparence "dos" (pioche non retournée) — pétales ternes, disque central vide. */
-function setTokenBlank(group) {
-  group.userData.petals.forEach((p) => {
-    p.material.color.set(RIM_GREEN);
-    p.material.emissive.set(0x000000);
-    p.material.emissiveIntensity = 0;
-  });
-  group.userData.center.material.map = null;
-  group.userData.center.material.color.set(WELL_DARK);
-  group.userData.center.material.needsUpdate = true;
-}
-
 function getGlowGeometry() {
   if (!glowGeometry) {
     glowGeometry = new THREE.CircleGeometry(NOTCH_RADIUS * 1.12, 32);
@@ -433,6 +455,19 @@ function createPlateMesh() {
   const material = new THREE.MeshStandardMaterial({ color: 0xf2ece0, roughness: 0.6, transparent: true });
   const mesh = new THREE.Mesh(geometry, material);
   loadDiscardPlateTexture().then((texture) => {
+    material.map = texture;
+    material.color.set(0xffffff);
+    material.needsUpdate = true;
+  });
+  return mesh;
+}
+
+/** Sac de pioche (voir loadPiocheTexture, demande explicite) — remplace l'ancienne pile de jetons face cachée. */
+function createPiocheMesh() {
+  const geometry = new THREE.PlaneGeometry(1, 1);
+  const material = new THREE.MeshStandardMaterial({ color: 0x6a9a5a, roughness: 0.7, transparent: true });
+  const mesh = new THREE.Mesh(geometry, material);
+  loadPiocheTexture().then((texture) => {
     material.map = texture;
     material.color.set(0xffffff);
     material.needsUpdate = true;
@@ -579,6 +614,9 @@ function ensureScene() {
 
   plateMesh = createPlateMesh();
   scene.add(plateMesh);
+
+  piocheMesh = createPiocheMesh();
+  scene.add(piocheMesh);
 
   const tick = () => {
     requestAnimationFrame(tick);
@@ -734,12 +772,13 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
     mesh.position.set(x, y, pileZ);
   });
 
-  // Pioche décalée à gauche de l'assiette pour ne jamais s'y superposer.
-  ensureDrawPileMeshCount(stockCount > 0 ? 4 : 0);
-  drawPileMeshes.forEach((mesh, i) => {
-    mesh.scale.setScalar(BOARD_SCALE);
-    mesh.position.set(-1.0, pileY + i * 0.02, pileZ - 0.05 + i * 0.01);
-  });
+  // Pioche décalée à gauche de l'assiette pour ne jamais s'y superposer —
+  // un seul sac illustré (voir createPiocheMesh) plutôt qu'une pile de
+  // jetons face cachée, demande explicite de l'utilisateur.
+  piocheMesh.visible = stockCount > 0;
+  const piocheDiameter = 1.1;
+  piocheMesh.position.set(-1.0, pileY, pileZ - 0.05);
+  piocheMesh.scale.set(piocheDiameter, piocheDiameter, 1);
 }
 
 function ensureDiscardMeshCount(count) {
@@ -748,16 +787,6 @@ function ensureDiscardMeshCount(count) {
     const mesh = createTokenMesh();
     scene.add(mesh);
     discardMeshes.push(mesh);
-  }
-}
-
-function ensureDrawPileMeshCount(count) {
-  while (drawPileMeshes.length > count) disposeMesh(drawPileMeshes.pop());
-  while (drawPileMeshes.length < count) {
-    const mesh = createTokenMesh();
-    setTokenBlank(mesh);
-    scene.add(mesh);
-    drawPileMeshes.push(mesh);
   }
 }
 
@@ -831,5 +860,16 @@ export function getDiscardTileRects() {
 }
 
 export function getDrawPileRect() {
-  return meshScreenRect(drawPileMeshes[drawPileMeshes.length - 1]);
+  if (!piocheMesh || !piocheMesh.visible) return null;
+  // Pas `meshScreenRect` : ce mesh est un plan carré (voir createPiocheMesh),
+  // pas un jeton — son "rayon" de clic est la moitié de sa propre échelle,
+  // pas TOKEN_RADIUS (qui n'a aucun rapport avec la taille du sac).
+  const half = piocheMesh.scale.x / 2;
+  const { x, y, z } = piocheMesh.position;
+  return projectPointsRect([
+    [x - half, y + half, z],
+    [x + half, y + half, z],
+    [x + half, y - half, z],
+    [x - half, y - half, z]
+  ]);
 }

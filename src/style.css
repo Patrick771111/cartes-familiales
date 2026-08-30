@@ -3779,7 +3779,7 @@ body.is-card-dragging * {
    `aspect-ratio` plutôt que `flex:1` : même piège que .uno-3d-table /
    .pouilleux-3d-stage (hauteur — donc FOV caméra — qui fluctuerait avec le
    bandeau de tour sur 1 ou 2 lignes). */
-.trio-screen--3d { align-items: stretch; overflow: hidden; }
+.trio-screen--3d { align-items: stretch; overflow: hidden; touch-action: none; }
 .trio-3d-table {
   width: 100%;
   aspect-ratio: 3 / 4;
@@ -4045,6 +4045,22 @@ body.is-card-dragging * {
   background-image:
     linear-gradient(160deg, rgba(15, 46, 33, 0.86), rgba(12, 36, 24, 0.94)),
     url('/assets/backgrounds/games/luckynumbers.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+/* Écran 3D : la table 3D (voir .lucky-3d-table) ne couvre pas forcément
+   toute la largeur de l'écran (contrainte par son propre aspect-ratio
+   portrait) — sans ceci, le trèfle doré en filigrane du fond 2D restait
+   visible de part et d'autre, incohérent avec la vraie table en bois du
+   rendu 3D. Étend cette même photo de bois (voir tableWoodUrl côté JS) sur
+   tout l'écran à la place — demande explicite de l'utilisateur. Après (donc
+   prioritaire sur) .lucky-screen ci-dessus : même spécificité, l'ordre dans
+   la feuille de style tranche. */
+.lucky-screen--3d {
+  background-image:
+    linear-gradient(rgba(15, 31, 15, 0.15), rgba(15, 31, 15, 0.15)),
+    url('./assets/games/luckynumbers/table-wood.jpg');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
