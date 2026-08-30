@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import boardPlateUrl from '../assets/games/luckynumbers/board-plate.jpg';
+import tableWoodUrl from '../assets/games/luckynumbers/table-wood.jpg';
+import discardPlateUrl from '../assets/games/luckynumbers/discard-plate.png';
 
 /**
  * Scène 3D persistante pour Lucky Numbers — une seule scène/caméra (comme
@@ -57,11 +59,16 @@ const CAMERA_FOV = 45;
 
 // Taille UNIQUE pour tous les plateaux (moi + adversaires) — demande
 // explicite de l'utilisateur, remplace l'ancien système "le mien proche/
-// grand, ceux des adversaires loin/petits".
+// grand, ceux des adversaires loin/petits". Réduite (0.75 → 0.52) pour que
+// DEUX rangées tiennent dans le champ vertical (voir MY_ROW_Y/OPPONENT_ROW_Y) —
+// les adversaires ont leur propre rangée, plutôt que la même ligne que moi.
 const TABLE_Z = 1.6;
-const BOARD_SCALE = 0.75;
+const BOARD_SCALE = 0.52;
 const BOARD_HALF = (BOARD_SIZE / 2) * BOARD_SCALE;
-const SEAT_SPACING = BOARD_SIZE * BOARD_SCALE * 1.65;
+const SEAT_SPACING = BOARD_SIZE * BOARD_SCALE * 1.6;
+const ROW_GAP = 0.65;
+const MY_ROW_Y = -(BOARD_HALF + ROW_GAP / 2);
+const OPPONENT_ROW_Y = BOARD_HALF + ROW_GAP / 2;
 
 /**
  * Le FOV d'une PerspectiveCamera est TOUJOURS vertical (indépendant de
@@ -74,13 +81,6 @@ function visibleHalfHeightAt(z) {
   const halfVFov = (CAMERA_FOV * Math.PI) / 360;
   return (CAMERA_DISTANCE - z) * Math.tan(halfVFov);
 }
-
-// Légèrement sous le centre optique pour laisser de la place au texte de
-// statut en haut d'écran, tout en gardant une bonne marge de sécurité
-// verticale (BOARD_HALF est petit maintenant que tous les plateaux
-// partagent la même échelle réduite — plus besoin du calcul au plus près
-// du bord comme à l'époque du plateau "plein cadre").
-const TABLE_Y = -0.35;
 
 /** Position X du siège `index` parmi `total` sièges, centrée sur X=0 (le "milieu de la table"). */
 function seatX(index, total) {
@@ -98,8 +98,6 @@ const GOLD_EMISSIVE = '#ffaa00';
 const CENTER_CREAM = '#fffaf0';
 const CENTER_RIM = '#d8c9a8';
 const NUMBER_DARK = '#2a1e10';
-const WOOD_TABLE = '#8a5a34';
-const WOOD_TABLE_DARK = '#6b3f22';
 
 /** Couleur du pétale par couleur réelle de la tuile (yellow/red/violet/green du jeu) — assez saturée pour rester lisible sous l'éclairage/tone mapping de la scène. */
 const TILE_COLOR_MAP = {
@@ -120,6 +118,7 @@ let boardGroups = []; // [0] = moi, [1..] = adversaires dans l'ordre des sièges
 let discardMeshes = [];
 let drawPileMeshes = [];
 let tableMesh = null;
+let plateMesh = null;
 
 let myCurrentSeatX = 0; // recalculé à chaque updateScene selon le nombre de sièges — voir getMyBoardCellRect
 
@@ -137,6 +136,8 @@ let centerGeometry = null;
 let woodTexture = null;
 let boardPlateTexture = null;
 let boardPlateLoadPromise = null;
+let discardPlateTexture = null;
+let discardPlateLoadPromise = null;
 
 function hexToRgbTuple(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -192,6 +193,43 @@ function loadBoardPlateTexture() {
     img.src = boardPlateUrl;
   });
   return boardPlateLoadPromise;
+}
+
+/**
+ * Assiette (voir discardPlateUrl, fournie par l'utilisateur) posée entre les
+ * deux rangées pour accueillir les jetons de défausse — demande explicite.
+ * Contrairement au plateau (fond blanc remplacé par du vert plein), ici on
+ * garde une vraie TRANSPARENCE (alpha) : l'assiette est ronde sur un fond
+ * carré, on veut voir la table en bois autour, pas une couleur de secours.
+ */
+function loadDiscardPlateTexture() {
+  if (discardPlateTexture) return Promise.resolve(discardPlateTexture);
+  if (discardPlateLoadPromise) return discardPlateLoadPromise;
+  discardPlateLoadPromise = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const size = 512;
+      const c = document.createElement('canvas');
+      c.width = size;
+      c.height = size;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, size, size);
+      const imageData = ctx.getImageData(0, 0, size, size);
+      const px = imageData.data;
+      for (let i = 0; i < px.length; i += 4) {
+        if (px[i] > 240 && px[i + 1] > 240 && px[i + 2] > 240) {
+          px[i + 3] = 0;
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+      const texture = new THREE.CanvasTexture(c);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      discardPlateTexture = texture;
+      resolve(texture);
+    };
+    img.src = discardPlateUrl;
+  });
+  return discardPlateLoadPromise;
 }
 
 function buildTokenFaceTexture(value) {
@@ -400,43 +438,41 @@ function createBoardMesh() {
   return mesh;
 }
 
-function buildWoodTableTexture() {
-  const size = 512;
-  const c = document.createElement('canvas');
-  c.width = size;
-  c.height = size;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = WOOD_TABLE;
-  ctx.fillRect(0, 0, size, size);
-  ctx.strokeStyle = WOOD_TABLE_DARK;
-  for (let y = 6; y < size; y += 16) {
-    ctx.globalAlpha = 0.12 + ((y * 5) % 20) / 100;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    for (let x = 0; x <= size; x += 40) {
-      ctx.lineTo(x, y + Math.sin((x + y) * 0.04) * 5);
-    }
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-  const texture = new THREE.CanvasTexture(c);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  return texture;
-}
-
-function getWoodTexture() {
-  if (!woodTexture) woodTexture = buildWoodTableTexture();
-  return woodTexture;
+/** Vraie photo de bois (voir tableWoodUrl, fournie par l'utilisateur) — plus de texture peinte, le premier essai procédural donnait un aplat brun trop uni une fois répété/vu de loin. */
+function loadWoodTexture() {
+  if (woodTexture) return Promise.resolve(woodTexture);
+  return new THREE.TextureLoader().loadAsync(tableWoodUrl).then((texture) => {
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    woodTexture = texture;
+    return texture;
+  });
 }
 
 /** Grande table en bois derrière tous les plateaux — demande explicite de l'utilisateur. Redimensionnée dynamiquement selon le nombre de sièges (voir updateScene). */
 function createTableMesh() {
   const geometry = new THREE.PlaneGeometry(1, 1);
-  const texture = getWoodTexture();
-  const material = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.92 });
+  const material = new THREE.MeshStandardMaterial({ color: 0x9a6b3f, roughness: 0.92 });
   const mesh = new THREE.Mesh(geometry, material);
+  loadWoodTexture().then((texture) => {
+    material.map = texture;
+    material.color.set(0xffffff);
+    material.needsUpdate = true;
+  });
+  return mesh;
+}
+
+/** Assiette pour la défausse, entre les 2 rangées (voir loadDiscardPlateTexture). */
+function createPlateMesh() {
+  const geometry = new THREE.PlaneGeometry(1, 1);
+  const material = new THREE.MeshStandardMaterial({ color: 0xf2ece0, roughness: 0.6, transparent: true });
+  const mesh = new THREE.Mesh(geometry, material);
+  loadDiscardPlateTexture().then((texture) => {
+    material.map = texture;
+    material.color.set(0xffffff);
+    material.needsUpdate = true;
+  });
   return mesh;
 }
 
@@ -584,9 +620,14 @@ function ensureScene() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
+  // Position/échelle Y ajustées dynamiquement dans updateScene selon le
+  // nombre de sièges — seul le Z (juste derrière les plateaux) est fixe.
   tableMesh = createTableMesh();
-  tableMesh.position.set(0, TABLE_Y, TABLE_Z - (BOARD_THICKNESS / 2) * BOARD_SCALE - 0.05);
+  tableMesh.position.z = TABLE_Z - (BOARD_THICKNESS / 2) * BOARD_SCALE - 0.05;
   scene.add(tableMesh);
+
+  plateMesh = createPlateMesh();
+  scene.add(plateMesh);
 
   const tick = () => {
     requestAnimationFrame(tick);
@@ -658,8 +699,12 @@ export function panCameraToMySeat() {
 export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponents = [], discardTiles = [], stockCount = 0 }) {
   if (!mounted) return;
 
+  // Mon plateau a sa PROPRE rangée (toujours seul dessus, donc toujours à
+  // X=0) ; les adversaires occupent une deuxième rangée au-dessus, alignés
+  // entre eux (voir seatX) — demande explicite, remplace la disposition
+  // "tout le monde sur la même ligne".
+  myCurrentSeatX = 0;
   const totalSeats = 1 + opponents.length;
-  myCurrentSeatX = seatX(0, totalSeats);
 
   while (boardGroups.length > totalSeats) disposeBoardGroup(boardGroups.pop());
   while (boardGroups.length < totalSeats) {
@@ -668,29 +713,45 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
     boardGroups.push(group);
   }
 
-  layoutBoardGroup(boardGroups[0], myBoardTiles, { centerX: myCurrentSeatX, centerY: TABLE_Y, centerZ: TABLE_Z, scale: BOARD_SCALE, placeableIndexes });
+  layoutBoardGroup(boardGroups[0], myBoardTiles, { centerX: 0, centerY: MY_ROW_Y, centerZ: TABLE_Z, scale: BOARD_SCALE, placeableIndexes });
   opponents.forEach((opp, i) => {
-    layoutBoardGroup(boardGroups[i + 1], opp.board, { centerX: seatX(i + 1, totalSeats), centerY: TABLE_Y, centerZ: TABLE_Z, scale: BOARD_SCALE });
+    layoutBoardGroup(boardGroups[i + 1], opp.board, { centerX: seatX(i, opponents.length), centerY: OPPONENT_ROW_Y, centerZ: TABLE_Z, scale: BOARD_SCALE });
   });
 
-  // Un peu de marge de part et d'autre du premier/dernier siège pour ne pas
-  // stopper le glisser pile sur le bord du plateau extrême.
-  panMin = seatX(0, totalSeats) - SEAT_SPACING * 0.6;
-  panMax = seatX(totalSeats - 1, totalSeats) + SEAT_SPACING * 0.6;
+  // Le glisser ne sert qu'à parcourir la rangée des adversaires (la mienne
+  // n'a qu'un seul siège, toujours à X=0) — un peu de marge de part et
+  // d'autre pour ne pas stopper le glisser pile sur le bord extrême.
+  if (opponents.length > 0) {
+    panMin = seatX(0, opponents.length) - SEAT_SPACING * 0.6;
+    panMax = seatX(opponents.length - 1, opponents.length) + SEAT_SPACING * 0.6;
+  } else {
+    panMin = 0;
+    panMax = 0;
+  }
   cameraPanX = Math.max(panMin, Math.min(panMax, cameraPanX));
   camera.position.x = cameraPanX;
 
-  // Table en bois assez large pour couvrir tous les sièges + la marge de glisser.
-  const tableWidth = SEAT_SPACING * totalSeats + BOARD_SIZE * BOARD_SCALE * 2;
-  const tableHeight = BOARD_SIZE * BOARD_SCALE * 2.4;
+  // Table en bois assez large/haute pour couvrir tout le champ visible à
+  // n'importe quelle position de glisser — hauteur fixe basée sur le champ
+  // vertical réel (indépendant de l'aspect ratio, voir visibleHalfHeightAt),
+  // pas seulement la taille des 2 rangées, pour ne jamais laisser voir le
+  // fond sombre de la scène ("il faut retirer le fond déjà présent").
+  const tableWidth = (panMax - panMin) + visibleHalfHeightAt(TABLE_Z) * camera.aspect * 2.6;
+  const tableHeight = visibleHalfHeightAt(TABLE_Z) * 2.6;
+  tableMesh.position.y = (MY_ROW_Y + OPPONENT_ROW_Y) / 2;
   tableMesh.scale.set(tableWidth, tableHeight, 1);
-  tableMesh.material.map.repeat.set(tableWidth / 2, tableHeight / 2);
+  if (tableMesh.material.map) tableMesh.material.map.repeat.set(tableWidth / 2.2, tableHeight / 2.2);
 
-  // Pioche/défausse "au milieu de la table" (X=0, fixe) — sous les plateaux
-  // plutôt qu'à la même hauteur qu'eux, pour ne jamais chevaucher un siège
-  // qui tomberait pile sur X=0 (cas d'un nombre impair de sièges).
-  const pileY = TABLE_Y - BOARD_HALF - 0.35;
+  // Pioche/défausse au milieu de la table, dans l'espace entre les 2 rangées.
+  const pileY = (MY_ROW_Y + OPPONENT_ROW_Y) / 2;
   const pileZ = TABLE_Z + 0.15;
+
+  // Centrée sur la zone de défausse (0.55, voir plus bas), pas sur tout
+  // l'espace pioche+défausse — demande explicite : l'assiette est pour les
+  // jetons de défausse, pas la pioche.
+  const plateSize = TOKEN_RADIUS * 5.2;
+  plateMesh.position.set(0.55, pileY, pileZ - 0.08);
+  plateMesh.scale.set(plateSize, plateSize, 1);
 
   ensureDiscardMeshCount(discardTiles.length);
   discardTiles.forEach((tile, i) => {
@@ -761,7 +822,7 @@ export function getMyBoardCellRect(index) {
   const { dx, dy } = cellLocalOffset(index);
   const half = TOKEN_RADIUS * 1.15 * BOARD_SCALE;
   const x = myCurrentSeatX + dx * BOARD_SCALE;
-  const y = TABLE_Y + dy * BOARD_SCALE;
+  const y = MY_ROW_Y + dy * BOARD_SCALE;
   const z = TABLE_Z + (BOARD_THICKNESS / 2 + 0.02) * BOARD_SCALE;
   return projectPointsRect([
     [x - half, y + half, z],
