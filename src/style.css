@@ -3360,6 +3360,40 @@ body.is-card-dragging * {
   font-size: 11px;
   color: rgba(247, 241, 225, 0.7);
 }
+
+/* Écran 3D de Lucky Numbers (voir renderLuckyNumbersTable3D dans
+   src/ui/games/luckynumbers.js) : une seule scène (mon plateau en bas,
+   ceux des adversaires au loin en haut, pioche/défausse au milieu — voir
+   src/three/luckyNumbersScene.js) plutôt que les zones 2D séparées. */
+.lucky-screen--3d { align-items: stretch; }
+.lucky-3d-status {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: rgba(247, 241, 225, 0.7);
+  margin: 0;
+}
+/* Le canvas WebGL persistant est positionné par-dessus cette zone en JS —
+   `aspect-ratio` (plutôt que `flex:1`, qui laisserait sa hauteur — et donc
+   l'aspect ratio de la caméra — fluctuer avec la taille des éléments
+   voisins) fixe sa taille uniquement à partir de sa propre largeur,
+   indépendamment du contenu autour : sans ça la pioche/défausse (position
+   3D fixe) semblerait légèrement se déplacer d'un rendu à l'autre — même
+   piège déjà rencontré et corrigé côté Uno. */
+.lucky-3d-table { width: 100%; aspect-ratio: 3 / 4; max-height: 68vh; min-height: 340px; position: relative; }
+.lucky-3d-cell,
+.lucky-3d-discard-tile,
+.lucky-3d-draw {
+  position: absolute;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+  touch-action: none;
+}
+.lucky-3d-cell:disabled,
+.lucky-3d-discard-tile:disabled,
+.lucky-3d-draw:disabled { cursor: default; }
+
 .lucky-cell {
   width: 48px;
   height: 48px;
