@@ -32,17 +32,42 @@ import {
 
 let lastRenderedState = null;
 
+// Pendant qu'une révélation de tirage est affichée (overlay 2D ou
+// retournement 3D, voir renderDrawReveal2D/3D), un timestamp (performance.now())
+// jusqu'auquel ignorer tout nouveau rendu externe — sinon un coup de bot
+// planifié ~1-1.7s après ce tirage (voir schedule() dans pouilleux.bot.js),
+// ou un doublon temps réel/relais WebRTC du même état, arrive PENDANT les
+// ~1.4-1.9s d'affichage et reconstruit tout le stage 3D (ou remplace l'overlay
+// 2D) en plein milieu : la carte qui se retourne se fige à 90°, le canvas est
+// caché par hide3D() puis réapparaît déjà entièrement retournée. On patiente
+// donc jusqu'à la fin de CETTE révélation avant d'appliquer le rendu suivant
+// (voir renderTable et flushPendingRender ci-dessous).
+let revealActiveUntil = 0;
+let pendingRenderArgs = null;
+
 // Hook générique lu par src/ui/game.js (hideAllThreeDScenes) — c'est CE
 // fichier qui "s'inscrit" à la 3D, les fichiers communs n'ont besoin de
 // connaître aucun jeu en particulier pour savoir masquer sa scène au bon moment.
 export function hide3D() {
+  if (performance.now() < revealActiveUntil) return;
   hideAllFans();
 }
 
 /** Réinitialise l'état local propre à ce jeu — appelé au retour en salle d'attente. */
 export function resetSelection() {
   lastRenderedState = null;
+  revealActiveUntil = 0;
+  pendingRenderArgs = null;
   resetHandOrder('pouilleux');
+}
+
+/** Applique le rendu resté en attente pendant la révélation qui vient de se terminer, s'il y en a un. */
+function flushPendingRender() {
+  revealActiveUntil = 0;
+  if (!pendingRenderArgs) return;
+  const { container, args } = pendingRenderArgs;
+  pendingRenderArgs = null;
+  renderTable(container, args);
 }
 
 /** Mode 3D actif pour CET état : jamais en même temps que "mains dévoilées" (showFaces, texte/faces réelles que la 3D ne sait pas dessiner pour un adversaire) — cas volontairement laissé en 2D. */
@@ -53,7 +78,18 @@ function shouldUse3D(state, player) {
   return is3DEnabled('pouilleux') && !showFaces;
 }
 
-export function renderTable(container, { room, player, state, onLeave }) {
+export function renderTable(container, args) {
+  // Une révélation de tirage est encore affichée : ne pas la couper en la
+  // remplaçant tout de suite, on rejoue ce rendu (avec son état le plus
+  // récent) une fois qu'elle se termine — voir flushPendingRender.
+  if (performance.now() < revealActiveUntil) {
+    pendingRenderArgs = { container, args };
+    return;
+  }
+  renderTableImpl(container, args);
+}
+
+function renderTableImpl(container, { room, player, state, onLeave }) {
   const previous = lastRenderedState;
   const isNewDraw = previous && state.lastDraw && (!previous.lastDraw || previous.lastDraw.id !== state.lastDraw.id);
   const use3D = shouldUse3D(state, player);
@@ -115,13 +151,16 @@ function renderDrawReveal2D(container, { previousState, newState, player, room, 
   }
 
   const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const duration = reduceMotion ? 500 : isOddCard || safeNames.length ? 1900 : 1400;
+  revealActiveUntil = performance.now() + duration;
   window.setTimeout(() => {
     if (newState.status === 'finished') {
       renderEndScreen(container, { room, player, onLeave });
     } else {
       renderTableNow2D(container, { room, player, state: newState, onLeave });
     }
-  }, reduceMotion ? 500 : isOddCard || safeNames.length ? 1900 : 1400);
+    flushPendingRender();
+  }, duration);
 }
 
 /**
@@ -166,13 +205,16 @@ function renderDrawReveal3D(container, { previousState, newState, player, room, 
   }
 
   const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const duration = reduceMotion ? 500 : isOddCard || safeNames.length ? 1900 : 1400;
+  revealActiveUntil = performance.now() + duration;
   window.setTimeout(() => {
     if (newState.status === 'finished') {
       renderEndScreen(container, { room, player, onLeave });
     } else {
       renderTableNow3D(container, { room, player, state: newState, onLeave });
     }
-  }, reduceMotion ? 500 : isOddCard || safeNames.length ? 1900 : 1400);
+    flushPendingRender();
+  }, duration);
 }
 
 function renderTableNow2D(container, { room, player, state, onLeave }) {
