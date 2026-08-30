@@ -3380,7 +3380,7 @@ body.is-card-dragging * {
    indépendamment du contenu autour : sans ça la pioche/défausse (position
    3D fixe) semblerait légèrement se déplacer d'un rendu à l'autre — même
    piège déjà rencontré et corrigé côté Uno. */
-.lucky-3d-table { width: 100%; aspect-ratio: 3 / 4; max-height: 68vh; min-height: 340px; position: relative; }
+.lucky-3d-table { width: 100%; aspect-ratio: 3 / 4; max-height: 68vh; min-height: 340px; position: relative; touch-action: none; }
 .lucky-3d-cell,
 .lucky-3d-discard-tile,
 .lucky-3d-draw {

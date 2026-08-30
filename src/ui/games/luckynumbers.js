@@ -21,7 +21,23 @@ import {
   threeDToggleHtml,
   wireThreeDToggle
 } from '../gameShared.js';
-import { mountBoard, positionBoard, updateScene, showBoard, hideBoard, getMyBoardCellRects, getDiscardTileRects, getDrawPileRect } from '../../three/luckyNumbersScene.js';
+import {
+  mountBoard,
+  positionBoard,
+  updateScene,
+  showBoard,
+  hideBoard,
+  getMyBoardCellRects,
+  getDiscardTileRects,
+  getDrawPileRect,
+  panCameraByScreenDelta,
+  panCameraToMySeat
+} from '../../three/luckyNumbersScene.js';
+
+// Centre la caméra sur MON siège seulement au tout premier rendu 3D de la
+// partie — sinon chaque re-rendu (après un coup, y compris d'un bot) ferait
+// sauter la caméra et annulerait le glisser manuel de l'utilisateur.
+let hasAutoCenteredCamera = false;
 
 export function resetSelection() {}
 
@@ -355,18 +371,18 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
     discardTiles: state.discard,
     stockCount: state.stock.length
   });
+  if (!hasAutoCenteredCamera) {
+    panCameraToMySeat();
+    hasAutoCenteredCamera = true;
+  }
   showBoard();
 
   // Boutons invisibles superposés aux VRAIES positions des cases/jetons
   // dessinés en 3D — même technique que Pouilleux/Uno (voir getMyBoardCellRects).
-  if (tableEl) {
-    const cellButtonsHtml = Array.from({ length: me?.board.length || 16 }, (_, i) => `<button type="button" class="lucky-3d-cell" data-board-index="${i}"></button>`).join('');
-    const discardButtonsHtml = state.discard.map((t) => `<button type="button" class="lucky-3d-discard-tile" data-tile-id="${t.id}"></button>`).join('');
-    const canDraw = isMyTurn && !hasDrawn && state.stock.length > 0;
-    const drawRect = canDraw ? getDrawPileRect() : null;
-    const drawButtonHtml = drawRect ? `<button type="button" class="lucky-3d-draw" id="btn-lucky-draw"></button>` : '';
-    tableEl.insertAdjacentHTML('beforeend', cellButtonsHtml + discardButtonsHtml + drawButtonHtml);
-
+  // Doivent être REPOSITIONNÉS pendant le glisser de caméra (voir plus bas),
+  // pas seulement une fois au rendu initial — la caméra peut désormais bouger.
+  const repositionOverlayButtons = () => {
+    if (!tableEl) return;
     getMyBoardCellRects().forEach((r, i) => {
       const btn = tableEl.querySelectorAll('.lucky-3d-cell')[i];
       if (!btn || !r) return;
@@ -383,13 +399,74 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
       btn.style.width = `${r.width}px`;
       btn.style.height = `${r.height}px`;
     });
-    if (drawRect) {
-      const drawBtn = tableEl.querySelector('#btn-lucky-draw');
-      drawBtn.style.left = `${drawRect.left}px`;
-      drawBtn.style.top = `${drawRect.top}px`;
-      drawBtn.style.width = `${drawRect.width}px`;
-      drawBtn.style.height = `${drawRect.height}px`;
+    const drawBtn = tableEl.querySelector('#btn-lucky-draw');
+    if (drawBtn) {
+      const drawRect = getDrawPileRect();
+      if (drawRect) {
+        drawBtn.style.left = `${drawRect.left}px`;
+        drawBtn.style.top = `${drawRect.top}px`;
+        drawBtn.style.width = `${drawRect.width}px`;
+        drawBtn.style.height = `${drawRect.height}px`;
+      }
     }
+  };
+
+  if (tableEl) {
+    const cellButtonsHtml = Array.from({ length: me?.board.length || 16 }, (_, i) => `<button type="button" class="lucky-3d-cell" data-board-index="${i}"></button>`).join('');
+    const discardButtonsHtml = state.discard.map((t) => `<button type="button" class="lucky-3d-discard-tile" data-tile-id="${t.id}"></button>`).join('');
+    const canDraw = isMyTurn && !hasDrawn && state.stock.length > 0;
+    const drawButtonHtml = canDraw ? `<button type="button" class="lucky-3d-draw" id="btn-lucky-draw"></button>` : '';
+    tableEl.insertAdjacentHTML('beforeend', cellButtonsHtml + discardButtonsHtml + drawButtonHtml);
+    repositionOverlayButtons();
+
+    // Glisser pour faire défiler la caméra d'un plateau à l'autre (demande
+    // explicite) : suit le pointeur en continu, puis empêche le clic-fantôme
+    // qui suivrait sur le bouton sous le doigt/curseur si un vrai glisser a
+    // eu lieu (sinon un simple tap serait interprété comme un glisser raté).
+    let dragging = false;
+    let dragLastX = 0;
+    let dragMoved = false;
+    const DRAG_THRESHOLD = 6;
+
+    tableEl.addEventListener(
+      'pointerdown',
+      (e) => {
+        dragging = true;
+        dragMoved = false;
+        dragLastX = e.clientX;
+      },
+      true
+    );
+    tableEl.addEventListener(
+      'pointermove',
+      (e) => {
+        if (!dragging) return;
+        const dx = e.clientX - dragLastX;
+        if (Math.abs(dx) > DRAG_THRESHOLD) dragMoved = true;
+        if (dragMoved) {
+          panCameraByScreenDelta(dx);
+          dragLastX = e.clientX;
+          repositionOverlayButtons();
+        }
+      },
+      true
+    );
+    const endDrag = () => {
+      dragging = false;
+    };
+    tableEl.addEventListener('pointerup', endDrag, true);
+    tableEl.addEventListener('pointercancel', endDrag, true);
+    tableEl.addEventListener(
+      'click',
+      (e) => {
+        if (dragMoved) {
+          e.stopPropagation();
+          e.preventDefault();
+          dragMoved = false;
+        }
+      },
+      true
+    );
   }
 
   wireEndGameActions(container, room);

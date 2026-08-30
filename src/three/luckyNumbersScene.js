@@ -1,30 +1,32 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import boardPlateUrl from '../assets/games/luckynumbers/board-plate.jpg';
 
 /**
  * Scène 3D persistante pour Lucky Numbers — une seule scène/caméra (comme
- * unoScene.js). Thème "jardin en trèfle" (référence visuelle + exemple de
- * code fournis par l'utilisateur) : plateau vert aux coins arrondis avec de
- * vraies encoches en relief (anneau TorusGeometry + puits sombre), jetons en
- * forme de trèfle à 4 pétales, coccinelle décorative, fond sombre + brouillard
- * pour donner de la profondeur — matériaux PBR standards plutôt qu'une
- * texture peinte (le rendu peint précédent ne rendait pas assez "vraie 3D").
+ * unoScene.js). Tous les plateaux (le mien + ceux des adversaires) sont à
+ * la MÊME taille, alignés côte à côte sur une "table" (plan texturé bois) ;
+ * la caméra ne fait que TRANSLATER horizontalement (glisser pour faire
+ * défiler, voir panCameraByScreenDelta) — jamais de rotation/inclinaison,
+ * donc toujours la même leçon que pouilleuxScene.js/unoScene.js : une
+ * translation pure ne déforme rien, contrairement à une rotation.
  *
- * Caméra volontairement JAMAIS inclinée/élevée (même leçon que
- * pouilleuxScene.js/unoScene.js) : la profondeur de table (mon plateau
- * proche/grand/bas, ceux des adversaires loin/petits/haut) vient
- * uniquement du placement Y/Z des plateaux, jamais de l'angle de caméra.
+ * Le plateau utilise une VRAIE photo (voir boardPlateUrl) comme texture —
+ * demande explicite de l'utilisateur — avec un remplacement "blanc → vert"
+ * au chargement (voir loadBoardPlateTexture) pour que le fond blanc de la
+ * photo (hors de la forme octogonale du plateau) ne laisse pas de taches
+ * blanches aux 4 coins de notre géométrie rectangulaire. Les encoches
+ * (anneau + puits + halo) restent une VRAIE géométrie/dégradé par-dessus
+ * cette texture, pour garder la surbrillance dynamique des cases jouables.
  *
  * ATTENTION — piège rencontré avec un puits en vrai relief (cône peu
- * profond) : même caméra non inclinée, mon plateau est positionné loin de
- * l'axe optique (MY_BOARD_Y très négatif) donc chaque case est quand même
- * VUE avec un angle de biais non nul (pure perspective, rien à voir avec
- * une rotation de caméra). Un cône À PEINE creusé est extrêmement sensible
- * à cet angle : la moindre bascule fait disparaître la moitié du dégradé et
- * assombrit l'autre, donnant un "croissant" au lieu d'un creux net. D'où le
- * choix d'un puits en disque plat + DÉGRADÉ PEINT (texture radiale, non
- * éclairé) : indépendant de l'angle de vue et de la lumière, contrairement
- * à une vraie géométrie en relief à cette échelle de profondeur.
+ * profond) : même caméra non inclinée, un plateau loin de l'axe optique
+ * est quand même VU avec un angle de biais non nul (pure perspective,
+ * rien à voir avec une rotation de caméra). Un cône À PEINE creusé est
+ * extrêmement sensible à cet angle : la moindre bascule fait disparaître
+ * la moitié du dégradé, donnant un "croissant" au lieu d'un creux net.
+ * D'où le choix d'un puits en disque plat + DÉGRADÉ PEINT (texture
+ * radiale, non éclairé) : indépendant de l'angle de vue et de la lumière.
  *
  * Montée UNE SEULE FOIS, ajoutée à `document.body` (donc en dehors de
  * `#app`) — un canvas WebGL recréé à chaque coup perdrait son contexte GL
@@ -32,7 +34,9 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
  *
  * Volontairement décoratif : les clics réels restent sur des boutons DOM
  * invisibles superposés (voir getMyBoardCellRects/getDiscardTileRects/
- * getDrawPileRect, utilisés par src/ui/games/luckynumbers.js).
+ * getDrawPileRect, utilisés par src/ui/games/luckynumbers.js) — et comme
+ * la caméra peut désormais bouger, ces boutons doivent être repositionnés
+ * pendant le glisser, pas seulement au rendu initial (voir positionBoard).
  */
 
 const GRID_DIM = 4;
@@ -51,12 +55,13 @@ const BOARD_THICKNESS = 0.14;
 const CAMERA_DISTANCE = 8.5;
 const CAMERA_FOV = 45;
 
-const MY_BOARD_Z = 1.6;
-// < 1 : un plateau à taille pleine (scale 1) est si grand que le remonter
-// pour éviter le clipping (voir MY_BOARD_Y) laisse son bord haut presque
-// coller aux plateaux adversaires — plus de place pour la pioche/défausse
-// entre les deux (bug constaté : plateau "trop haut", piles invisibles).
-const MY_BOARD_SCALE = 0.82;
+// Taille UNIQUE pour tous les plateaux (moi + adversaires) — demande
+// explicite de l'utilisateur, remplace l'ancien système "le mien proche/
+// grand, ceux des adversaires loin/petits".
+const TABLE_Z = 1.6;
+const BOARD_SCALE = 0.75;
+const BOARD_HALF = (BOARD_SIZE / 2) * BOARD_SCALE;
+const SEAT_SPACING = BOARD_SIZE * BOARD_SCALE * 1.65;
 
 /**
  * Le FOV d'une PerspectiveCamera est TOUJOURS vertical (indépendant de
@@ -70,12 +75,20 @@ function visibleHalfHeightAt(z) {
   return (CAMERA_DISTANCE - z) * Math.tan(halfVFov);
 }
 
-const MY_BOARD_HALF = (BOARD_SIZE / 2) * MY_BOARD_SCALE;
-// Centre le plus bas possible tout en gardant le plateau entier dans le frustum (petite marge de sécurité).
-const MY_BOARD_Y = -(visibleHalfHeightAt(MY_BOARD_Z) - MY_BOARD_HALF - 0.1);
+// Légèrement sous le centre optique pour laisser de la place au texte de
+// statut en haut d'écran, tout en gardant une bonne marge de sécurité
+// verticale (BOARD_HALF est petit maintenant que tous les plateaux
+// partagent la même échelle réduite — plus besoin du calcul au plus près
+// du bord comme à l'époque du plateau "plein cadre").
+const TABLE_Y = -0.35;
 
-// Thème "jardin en trèfle" (référence de l'utilisateur) — plateau vert uni
-// (matériau PBR, plus de texture peinte) + jetons trèfle pastel par couleur.
+/** Position X du siège `index` parmi `total` sièges, centrée sur X=0 (le "milieu de la table"). */
+function seatX(index, total) {
+  return (index - (total - 1) / 2) * SEAT_SPACING;
+}
+
+// Thème "jardin en trèfle" (référence de l'utilisateur) — plateau texturé
+// (vraie photo, voir boardPlateUrl) + jetons trèfle pastel par couleur.
 const SCENE_BG = '#0f1f0f';
 const BOARD_GREEN = '#3a8a42';
 const WELL_DARK = '#1a4a22';
@@ -85,6 +98,8 @@ const GOLD_EMISSIVE = '#ffaa00';
 const CENTER_CREAM = '#fffaf0';
 const CENTER_RIM = '#d8c9a8';
 const NUMBER_DARK = '#2a1e10';
+const WOOD_TABLE = '#8a5a34';
+const WOOD_TABLE_DARK = '#6b3f22';
 
 /** Couleur du pétale par couleur réelle de la tuile (yellow/red/violet/green du jeu) — assez saturée pour rester lisible sous l'éclairage/tone mapping de la scène. */
 const TILE_COLOR_MAP = {
@@ -101,13 +116,16 @@ let scene = null;
 let camera = null;
 let mounted = false;
 
-let myBoard = null; // { board, wellMeshes, notchMeshes, glowMeshes, tokenMeshes: THREE.Mesh/Group[16] }
-let opponentBoardGroups = []; // Array<même forme que myBoard>
+let boardGroups = []; // [0] = moi, [1..] = adversaires dans l'ordre des sièges déjà calculé par l'appelant
 let discardMeshes = [];
 let drawPileMeshes = [];
+let tableMesh = null;
 
-let ladybug = null;
-let ladybugBaseZ = 0;
+let myCurrentSeatX = 0; // recalculé à chaque updateScene selon le nombre de sièges — voir getMyBoardCellRect
+
+let cameraPanX = 0;
+let panMin = 0;
+let panMax = 0;
 
 const tokenFaceTextures = new Map(); // value -> THREE.Texture (fond crème + nombre, indépendant de la couleur)
 let wellGeometry = null;
@@ -116,6 +134,60 @@ let glowGeometry = null;
 let glowMaterial = null;
 let petalGeometry = null;
 let centerGeometry = null;
+let woodTexture = null;
+let boardPlateTexture = null;
+let boardPlateLoadPromise = null;
+
+function hexToRgbTuple(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/**
+ * Charge la photo du plateau (voir boardPlateUrl, demande explicite) et
+ * remplace son fond blanc par le vert du plateau : la photo montre un
+ * plateau aux coins coupés (octogone) posé sur fond blanc, alors que notre
+ * géométrie est un simple rectangle — sans ce remplacement, les 4 coins de
+ * notre plateau 3D montreraient des taches blanches issues de la photo.
+ * Recadre aussi légèrement (cropFrac) pour réduire cette marge blanche.
+ */
+function loadBoardPlateTexture() {
+  if (boardPlateTexture) return Promise.resolve(boardPlateTexture);
+  if (boardPlateLoadPromise) return boardPlateLoadPromise;
+  boardPlateLoadPromise = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const size = 768;
+      const c = document.createElement('canvas');
+      c.width = size;
+      c.height = size;
+      const ctx = c.getContext('2d');
+      const cropFrac = 0.92;
+      const sx = img.width * (1 - cropFrac) * 0.5;
+      const sy = img.height * (1 - cropFrac) * 0.35;
+      const sw = img.width * cropFrac;
+      const sh = img.height * cropFrac;
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
+      const imageData = ctx.getImageData(0, 0, size, size);
+      const px = imageData.data;
+      const [gr, gg, gb] = hexToRgbTuple(BOARD_GREEN);
+      for (let i = 0; i < px.length; i += 4) {
+        if (px[i] > 233 && px[i + 1] > 233 && px[i + 2] > 233) {
+          px[i] = gr;
+          px[i + 1] = gg;
+          px[i + 2] = gb;
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+      const texture = new THREE.CanvasTexture(c);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      boardPlateTexture = texture;
+      resolve(texture);
+    };
+    img.src = boardPlateUrl;
+  });
+  return boardPlateLoadPromise;
+}
 
 function buildTokenFaceTexture(value) {
   const size = 200;
@@ -226,19 +298,14 @@ function setTokenBlank(group) {
  * PAS de rotation : un TorusGeometry est DÉJÀ face à la caméra par défaut
  * (anneau dans le plan XY, trou le long de Z) — contrairement au Cylindre/
  * Cercle/Sphère de ce fichier qui, eux, ont besoin d'une rotation.x pour ça.
- * La rotation.x=90° appliquée par erreur ici (copiée du reste du fichier
- * sans vérifier) mettait le tore de PROFIL, l'écrasant en ellipse plate au
- * lieu d'un cercle net — cause réelle du "bandeau vert qui traverse
- * chaque trou" (confirmé en comparant un tore pivoté et un non pivoté côte
- * à côte). MeshBasicMaterial (non éclairé) : un tube assez épais peut
- * quand même attraper la lumière directionnelle de façon inégale ; une
- * couleur fixe reste prévisible quel que soit l'angle.
+ * MeshBasicMaterial (non éclairé) : une couleur fixe reste prévisible quel
+ * que soit l'angle de vue, contrairement à un matériau éclairé qui peut
+ * attraper la lumière directionnelle de façon inégale sur un tube épais.
  */
 function createNotchMesh() {
   const geometry = new THREE.TorusGeometry(NOTCH_RADIUS, NOTCH_TUBE, 12, 28);
   const material = new THREE.MeshBasicMaterial({ color: RIM_GREEN, side: THREE.DoubleSide });
-  const mesh = new THREE.Mesh(geometry, material);
-  return mesh;
+  return new THREE.Mesh(geometry, material);
 }
 
 /** Dégradé radial peint (sombre au centre, halo léger avant le bord) — voir le commentaire d'en-tête sur pourquoi un vrai relief ne marche pas ici. */
@@ -272,8 +339,6 @@ function getWellGeometry() {
 
 function getWellMaterial() {
   if (!wellMaterial) {
-    // MeshBasicMaterial (non éclairé) : le dégradé peint doit rester identique
-    // quel que soit l'angle de vue/lumière, pas dépendre d'une normale 3D.
     wellMaterial = new THREE.MeshBasicMaterial({ map: buildWellTexture(), transparent: true });
     wellMaterial.userData.shared = true;
   }
@@ -295,9 +360,6 @@ function getGlowGeometry() {
 
 function getGlowMaterial() {
   if (!glowMaterial) {
-    // metalness/roughness bas (glossy+métallique) créait un reflet spéculaire
-    // localisé au lieu d'un halo uniforme — un "glow" doit rester plat/mat,
-    // sa luminosité vient de `emissive`, pas d'une réflexion de la lumière.
     glowMaterial = new THREE.MeshStandardMaterial({
       color: GOLD,
       emissive: GOLD_EMISSIVE,
@@ -319,46 +381,58 @@ function createGlowMesh() {
   return mesh;
 }
 
+/** Matériau du plateau : vert uni au départ, remplacé par la vraie photo dès qu'elle est chargée (async, voir loadBoardPlateTexture). */
 function createBoardMesh() {
   const radius = Math.min(BOARD_THICKNESS / 2, BOARD_SIZE * 0.02);
   const geometry = new RoundedBoxGeometry(BOARD_SIZE, BOARD_SIZE, BOARD_THICKNESS, 3, radius);
   const material = new THREE.MeshStandardMaterial({ color: BOARD_GREEN, roughness: 0.85 });
-  return new THREE.Mesh(geometry, material);
+  const mesh = new THREE.Mesh(geometry, material);
+  loadBoardPlateTexture().then((texture) => {
+    material.map = texture;
+    material.color.set(0xffffff);
+    material.needsUpdate = true;
+  });
+  return mesh;
 }
 
-/** Petite coccinelle décorative posée sur MON plateau (référence de l'utilisateur) — purement esthétique. */
-function buildLadybug() {
-  const group = new THREE.Group();
+function buildWoodTableTexture() {
+  const size = 512;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = WOOD_TABLE;
+  ctx.fillRect(0, 0, size, size);
+  ctx.strokeStyle = WOOD_TABLE_DARK;
+  for (let y = 6; y < size; y += 16) {
+    ctx.globalAlpha = 0.12 + ((y * 5) % 20) / 100;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    for (let x = 0; x <= size; x += 40) {
+      ctx.lineTo(x, y + Math.sin((x + y) * 0.04) * 5);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  const texture = new THREE.CanvasTexture(c);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
 
-  const body = new THREE.Mesh(
-    new THREE.SphereGeometry(TOKEN_RADIUS * 0.5, 20, 16),
-    new THREE.MeshStandardMaterial({ color: '#d81e1e', roughness: 0.35, metalness: 0.1 })
-  );
-  body.scale.set(1.15, 0.95, 0.55);
-  group.add(body);
+function getWoodTexture() {
+  if (!woodTexture) woodTexture = buildWoodTableTexture();
+  return woodTexture;
+}
 
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(TOKEN_RADIUS * 0.28, 16, 12),
-    new THREE.MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.4 })
-  );
-  head.position.set(TOKEN_RADIUS * 0.62, 0, TOKEN_RADIUS * 0.1);
-  group.add(head);
-
-  const spotMat = new THREE.MeshStandardMaterial({ color: '#151515', roughness: 0.4 });
-  const spotGeo = new THREE.SphereGeometry(TOKEN_RADIUS * 0.09, 10, 8);
-  [
-    [-0.15, 0.18, 0.16],
-    [-0.15, -0.18, 0.16],
-    [0.1, 0.24, 0.18],
-    [0.1, -0.24, 0.18],
-    [0.28, 0, 0.2]
-  ].forEach(([sx, sy, sz]) => {
-    const spot = new THREE.Mesh(spotGeo, spotMat);
-    spot.position.set(sx, sy, sz);
-    body.add(spot);
-  });
-
-  return group;
+/** Grande table en bois derrière tous les plateaux — demande explicite de l'utilisateur. Redimensionnée dynamiquement selon le nombre de sièges (voir updateScene). */
+function createTableMesh() {
+  const geometry = new THREE.PlaneGeometry(1, 1);
+  const texture = getWoodTexture();
+  const material = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.92 });
+  const mesh = new THREE.Mesh(geometry, material);
+  return mesh;
 }
 
 function disposeMesh(obj) {
@@ -401,9 +475,10 @@ function disposeBoardGroup(group) {
 
 /**
  * Place/actualise un plateau complet à (centerX, centerY, centerZ), mis à
- * l'échelle `scale` (plateaux adversaires plus petits — voir updateScene).
- * `placeableIndexes` (miennes uniquement) éclaircit l'encoche en doré (rebord
- * + halo), même intention que le contraste jouable/grisé des autres jeux.
+ * l'échelle `scale` (désormais IDENTIQUE pour tout le monde — voir
+ * BOARD_SCALE). `placeableIndexes` (miennes uniquement) éclaircit
+ * l'encoche en doré (rebord + halo), même intention que le contraste
+ * jouable/grisé des autres jeux.
  */
 function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, placeableIndexes = [] }) {
   group.board.position.set(centerX, centerY, centerZ);
@@ -485,9 +560,6 @@ function ensureScene() {
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(SCENE_BG);
-  // near au-delà de la distance des plateaux adversaires (~10.9) : le
-  // brouillard ne doit pas les rendre flous/délavés, juste teinter le vide
-  // derrière eux — bug constaté avec near=7.5 (déjà ~50% de brouillard là-bas).
   scene.fog = new THREE.Fog(SCENE_BG, 11.5, 20);
 
   camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 100);
@@ -507,22 +579,14 @@ function ensureScene() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
-  myBoard = createBoardGroup();
-  scene.add(myBoard.board);
-
-  ladybug = buildLadybug();
-  // Réduite et casée dans le coin, à l'écart du rayon extérieur de la case
-  // voisine (NOTCH_RADIUS + NOTCH_TUBE) — sinon elle mange une partie du trou.
-  ladybug.scale.setScalar(0.55);
-  ladybug.position.set(1.634, MY_BOARD_Y + 1.634, MY_BOARD_Z + BOARD_THICKNESS / 2 + 0.06);
-  ladybugBaseZ = ladybug.position.z;
-  scene.add(ladybug);
+  tableMesh = createTableMesh();
+  tableMesh.position.set(0, TABLE_Y, TABLE_Z - (BOARD_THICKNESS / 2) * BOARD_SCALE - 0.05);
+  scene.add(tableMesh);
 
   const tick = () => {
     requestAnimationFrame(tick);
     const t = performance.now() * 0.001;
     if (glowMaterial) glowMaterial.emissiveIntensity = 0.55 + 0.35 * Math.sin(t * 3);
-    if (ladybug) ladybug.position.z = ladybugBaseZ + Math.sin(t * 2) * 0.01;
     renderer.render(scene, camera);
   };
   tick();
@@ -553,6 +617,29 @@ export function hideBoard() {
 }
 
 /**
+ * Fait glisser la caméra horizontalement (translation pure, jamais de
+ * rotation) d'une quantité exprimée en pixels écran — convertit en unités
+ * monde à la profondeur de la table (même distance pour tous les plateaux
+ * maintenant qu'ils partagent tous TABLE_Z). Bornée à `panMin`/`panMax`,
+ * recalculés à chaque updateScene selon le nombre de sièges réels.
+ */
+export function panCameraByScreenDelta(pixelDeltaX) {
+  if (!mounted) return;
+  const w = parseFloat(canvas.style.width) || canvas.clientWidth || 1;
+  const visibleHalfW = visibleHalfHeightAt(TABLE_Z) * camera.aspect;
+  const worldPerPixel = (visibleHalfW * 2) / w;
+  cameraPanX = Math.max(panMin, Math.min(panMax, cameraPanX - pixelDeltaX * worldPerPixel));
+  camera.position.x = cameraPanX;
+}
+
+/** Recentre la caméra sur mon propre siège (voir myCurrentSeatX) — utile après un rendu complet. */
+export function panCameraToMySeat() {
+  if (!mounted) return;
+  cameraPanX = Math.max(panMin, Math.min(panMax, myCurrentSeatX));
+  camera.position.x = cameraPanX;
+}
+
+/**
  * Reconstruit toute la scène à partir de l'état nécessaire au rendu :
  * - `myBoardTiles` : `Array<{value,color}|null>` de longueur 16 (mon jardin).
  * - `placeableIndexes` : indices de MON plateau où la tuile en cours (piochée
@@ -566,30 +653,39 @@ export function hideBoard() {
 export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponents = [], discardTiles = [], stockCount = 0 }) {
   if (!mounted) return;
 
-  layoutBoardGroup(myBoard, myBoardTiles, { centerX: 0, centerY: MY_BOARD_Y, centerZ: MY_BOARD_Z, scale: MY_BOARD_SCALE, placeableIndexes });
+  const totalSeats = 1 + opponents.length;
+  myCurrentSeatX = seatX(0, totalSeats);
 
-  while (opponentBoardGroups.length > opponents.length) disposeBoardGroup(opponentBoardGroups.pop());
-  while (opponentBoardGroups.length < opponents.length) {
+  while (boardGroups.length > totalSeats) disposeBoardGroup(boardGroups.pop());
+  while (boardGroups.length < totalSeats) {
     const group = createBoardGroup();
     scene.add(group.board);
-    opponentBoardGroups.push(group);
+    boardGroups.push(group);
   }
-  const n = opponents.length;
-  const oppScale = 0.42;
+
+  layoutBoardGroup(boardGroups[0], myBoardTiles, { centerX: myCurrentSeatX, centerY: TABLE_Y, centerZ: TABLE_Z, scale: BOARD_SCALE, placeableIndexes });
   opponents.forEach((opp, i) => {
-    const seatX = n > 1 ? (i - (n - 1) / 2) * BOARD_SIZE * oppScale * 1.35 : 0;
-    layoutBoardGroup(opponentBoardGroups[i], opp.board, { centerX: seatX, centerY: 1.9, centerZ: -2.4, scale: oppScale });
+    layoutBoardGroup(boardGroups[i + 1], opp.board, { centerX: seatX(i + 1, totalSeats), centerY: TABLE_Y, centerZ: TABLE_Z, scale: BOARD_SCALE });
   });
 
-  // Zone neutre entre le haut de mon plateau et le bas de ceux des adversaires — évite que
-  // les piles soient masquées par mon plateau (bug constaté après avoir remonté MY_BOARD_Y).
-  const myBoardTopEdge = MY_BOARD_Y + MY_BOARD_HALF;
-  const opponentBottomEdge = 1.9 - (BOARD_SIZE / 2) * oppScale;
-  const NEUTRAL_ZONE_Y = (myBoardTopEdge + opponentBottomEdge) / 2;
+  // Un peu de marge de part et d'autre du premier/dernier siège pour ne pas
+  // stopper le glisser pile sur le bord du plateau extrême.
+  panMin = seatX(0, totalSeats) - SEAT_SPACING * 0.6;
+  panMax = seatX(totalSeats - 1, totalSeats) + SEAT_SPACING * 0.6;
+  cameraPanX = Math.max(panMin, Math.min(panMax, cameraPanX));
+  camera.position.x = cameraPanX;
 
-  // Z rapproché de la caméra (mais toujours derrière mon plateau à MY_BOARD_Z)
-  // pour que la pioche/défausse restent bien visibles, pas minuscules au loin.
-  const PILE_Z = 0.9;
+  // Table en bois assez large pour couvrir tous les sièges + la marge de glisser.
+  const tableWidth = SEAT_SPACING * totalSeats + BOARD_SIZE * BOARD_SCALE * 2;
+  const tableHeight = BOARD_SIZE * BOARD_SCALE * 2.4;
+  tableMesh.scale.set(tableWidth, tableHeight, 1);
+  tableMesh.material.map.repeat.set(tableWidth / 2, tableHeight / 2);
+
+  // Pioche/défausse "au milieu de la table" (X=0, fixe) — sous les plateaux
+  // plutôt qu'à la même hauteur qu'eux, pour ne jamais chevaucher un siège
+  // qui tomberait pile sur X=0 (cas d'un nombre impair de sièges).
+  const pileY = TABLE_Y - BOARD_HALF - 0.35;
+  const pileZ = TABLE_Z + 0.15;
 
   ensureDiscardMeshCount(discardTiles.length);
   discardTiles.forEach((tile, i) => {
@@ -597,12 +693,12 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
     mesh.visible = true;
     setTokenValue(mesh, tile);
     const spread = (i - (discardTiles.length - 1) / 2) * (TOKEN_RADIUS * 2.1);
-    mesh.position.set(0.65 + spread, NEUTRAL_ZONE_Y, PILE_Z);
+    mesh.position.set(0.55 + spread, pileY, pileZ);
   });
 
   ensureDrawPileMeshCount(stockCount > 0 ? 4 : 0);
   drawPileMeshes.forEach((mesh, i) => {
-    mesh.position.set(-0.65, NEUTRAL_ZONE_Y + i * 0.02, PILE_Z - 0.05 + i * 0.01);
+    mesh.position.set(-0.65, pileY + i * 0.02, pileZ - 0.05 + i * 0.01);
   });
 }
 
@@ -631,8 +727,11 @@ function ensureDrawPileMeshCount(count) {
  * src/ui/games/luckynumbers.js). `camera.updateMatrixWorld()` est
  * nécessaire : cette caméra n'est ajoutée à aucune scène, son matrixWorld
  * n'est donc normalement recalculé qu'au prochain rendu WebGL — sans cet
- * appel explicite, la projection utiliserait encore la distance de caméra
- * du rendu précédent (bug direct constaté et corrigé côté Pouilleux/Uno).
+ * appel explicite, la projection utiliserait encore la position de caméra
+ * du rendu précédent (bug direct constaté et corrigé côté Pouilleux/Uno) —
+ * d'autant plus important maintenant que la caméra peut glisser : ces
+ * fonctions doivent être rappelées à CHAQUE mouvement, pas juste au rendu
+ * initial (voir la boucle de glisser dans src/ui/games/luckynumbers.js).
  */
 function projectPointsRect(points) {
   if (!mounted) return null;
@@ -655,10 +754,10 @@ function projectPointsRect(points) {
 /** Rectangle de la case `index` de MON plateau (case vide ou occupée — pure géométrie de grille, indépendante d'un éventuel jeton dessus). */
 export function getMyBoardCellRect(index) {
   const { dx, dy } = cellLocalOffset(index);
-  const half = TOKEN_RADIUS * 1.15 * MY_BOARD_SCALE;
-  const x = dx * MY_BOARD_SCALE;
-  const y = MY_BOARD_Y + dy * MY_BOARD_SCALE;
-  const z = MY_BOARD_Z + (BOARD_THICKNESS / 2 + 0.02) * MY_BOARD_SCALE;
+  const half = TOKEN_RADIUS * 1.15 * BOARD_SCALE;
+  const x = myCurrentSeatX + dx * BOARD_SCALE;
+  const y = TABLE_Y + dy * BOARD_SCALE;
+  const z = TABLE_Z + (BOARD_THICKNESS / 2 + 0.02) * BOARD_SCALE;
   return projectPointsRect([
     [x - half, y + half, z],
     [x + half, y + half, z],
