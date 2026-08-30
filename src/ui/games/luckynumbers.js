@@ -419,12 +419,15 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
     tableEl.insertAdjacentHTML('beforeend', cellButtonsHtml + discardButtonsHtml + drawButtonHtml);
     repositionOverlayButtons();
 
-    // Glisser pour faire défiler la caméra d'un plateau à l'autre (demande
-    // explicite) : suit le pointeur en continu, puis empêche le clic-fantôme
-    // qui suivrait sur le bouton sous le doigt/curseur si un vrai glisser a
-    // eu lieu (sinon un simple tap serait interprété comme un glisser raté).
+    // Glisser pour faire défiler la caméra d'un plateau à l'autre, dans les
+    // 2 axes (demande explicite : "que la caméra puisse bouger de haut en
+    // bas et gauche droite pour voir tous les plateaux") : suit le pointeur
+    // en continu, puis empêche le clic-fantôme qui suivrait sur le bouton
+    // sous le doigt/curseur si un vrai glisser a eu lieu (sinon un simple
+    // tap serait interprété comme un glisser raté).
     let dragging = false;
     let dragLastX = 0;
+    let dragLastY = 0;
     let dragMoved = false;
     const DRAG_THRESHOLD = 6;
 
@@ -434,6 +437,7 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
         dragging = true;
         dragMoved = false;
         dragLastX = e.clientX;
+        dragLastY = e.clientY;
       },
       true
     );
@@ -442,10 +446,12 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
       (e) => {
         if (!dragging) return;
         const dx = e.clientX - dragLastX;
-        if (Math.abs(dx) > DRAG_THRESHOLD) dragMoved = true;
+        const dy = e.clientY - dragLastY;
+        if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) dragMoved = true;
         if (dragMoved) {
-          panCameraByScreenDelta(dx);
+          panCameraByScreenDelta(dx, dy);
           dragLastX = e.clientX;
+          dragLastY = e.clientY;
           repositionOverlayButtons();
         }
       },

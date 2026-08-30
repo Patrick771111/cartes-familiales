@@ -149,6 +149,9 @@ let myCurrentSeatX = 0; // recalculé à chaque updateScene selon le nombre de s
 let cameraPanX = 0;
 let panMin = 0;
 let panMax = 0;
+let cameraPanY = 0;
+let panMinY = 0;
+let panMaxY = 0;
 
 const tokenFaceTextures = new Map(); // value -> THREE.Texture (fond crème + nombre, indépendant de la couleur)
 let glowGeometry = null;
@@ -652,26 +655,38 @@ export function hideBoard() {
 }
 
 /**
- * Fait glisser la caméra horizontalement (translation pure, jamais de
- * rotation) d'une quantité exprimée en pixels écran — convertit en unités
- * monde à la profondeur de la table (même distance pour tous les plateaux
- * maintenant qu'ils partagent tous TABLE_Z). Bornée à `panMin`/`panMax`,
- * recalculés à chaque updateScene selon le nombre de sièges réels.
+ * Fait glisser la caméra horizontalement ET verticalement (translation pure,
+ * jamais de rotation — la caméra garde exactement la même orientation que
+ * `camera.lookAt(0,0,0)` au montage, seule sa position bouge) d'une quantité
+ * exprimée en pixels écran — convertit en unités monde à la profondeur de la
+ * table (même distance pour tous les plateaux maintenant qu'ils partagent
+ * tous TABLE_Z). Bornée à panMin/panMax (X) et panMinY/panMaxY (Y),
+ * recalculés à chaque updateScene — demande explicite : pouvoir se déplacer
+ * de haut en bas ET de gauche à droite pour voir tous les plateaux (avant,
+ * seul le glissement horizontal existait, les adversaires — au-dessus —
+ * n'étaient pas atteignables verticalement).
  */
-export function panCameraByScreenDelta(pixelDeltaX) {
+export function panCameraByScreenDelta(pixelDeltaX, pixelDeltaY = 0) {
   if (!mounted) return;
   const w = parseFloat(canvas.style.width) || canvas.clientWidth || 1;
+  const h = parseFloat(canvas.style.height) || canvas.clientHeight || 1;
   const visibleHalfW = visibleHalfHeightAt(TABLE_Z) * camera.aspect;
-  const worldPerPixel = (visibleHalfW * 2) / w;
-  cameraPanX = Math.max(panMin, Math.min(panMax, cameraPanX - pixelDeltaX * worldPerPixel));
+  const visibleHalfH = visibleHalfHeightAt(TABLE_Z);
+  const worldPerPixelX = (visibleHalfW * 2) / w;
+  const worldPerPixelY = (visibleHalfH * 2) / h;
+  cameraPanX = Math.max(panMin, Math.min(panMax, cameraPanX - pixelDeltaX * worldPerPixelX));
+  cameraPanY = Math.max(panMinY, Math.min(panMaxY, cameraPanY + pixelDeltaY * worldPerPixelY));
   camera.position.x = cameraPanX;
+  camera.position.y = cameraPanY;
 }
 
-/** Recentre la caméra sur mon propre siège (voir myCurrentSeatX) — utile après un rendu complet. */
+/** Recentre la caméra sur mon propre siège (voir myCurrentSeatX/MY_ROW_Y) — utile après un rendu complet. */
 export function panCameraToMySeat() {
   if (!mounted) return;
   cameraPanX = Math.max(panMin, Math.min(panMax, myCurrentSeatX));
+  cameraPanY = Math.max(panMinY, Math.min(panMaxY, MY_ROW_Y));
   camera.position.x = cameraPanX;
+  camera.position.y = cameraPanY;
 }
 
 /**
@@ -707,9 +722,9 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
     layoutBoardGroup(boardGroups[i + 1], opp.board, { centerX: seatX(i, opponents.length), centerY: OPPONENT_ROW_Y, centerZ: TABLE_Z, scale: BOARD_SCALE });
   });
 
-  // Le glisser ne sert qu'à parcourir la rangée des adversaires (la mienne
-  // n'a qu'un seul siège, toujours à X=0) — un peu de marge de part et
-  // d'autre pour ne pas stopper le glisser pile sur le bord extrême.
+  // Le glisser horizontal sert à parcourir la rangée des adversaires (la
+  // mienne n'a qu'un seul siège, toujours à X=0) — un peu de marge de part
+  // et d'autre pour ne pas stopper le glisser pile sur le bord extrême.
   if (opponents.length > 0) {
     panMin = seatX(0, opponents.length) - SEAT_SPACING * 0.6;
     panMax = seatX(opponents.length - 1, opponents.length) + SEAT_SPACING * 0.6;
@@ -720,14 +735,22 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   cameraPanX = Math.max(panMin, Math.min(panMax, cameraPanX));
   camera.position.x = cameraPanX;
 
+  // Le glisser vertical va de ma rangée à celle des adversaires — demande
+  // explicite : pouvoir voir TOUS les plateaux, pas seulement en glissant
+  // horizontalement (les adversaires, au-dessus, n'étaient sinon jamais
+  // atteignables verticalement).
+  panMinY = MY_ROW_Y - BOARD_HALF_Y * 0.6;
+  panMaxY = OPPONENT_ROW_Y + BOARD_HALF_Y * 0.6;
+  cameraPanY = Math.max(panMinY, Math.min(panMaxY, cameraPanY));
+  camera.position.y = cameraPanY;
+
   // Table en bois assez large/haute pour couvrir tout le champ visible à
-  // n'importe quelle position de glisser — hauteur fixe basée sur le champ
-  // vertical réel (indépendant de l'aspect ratio, voir visibleHalfHeightAt),
-  // pas seulement la taille des 2 rangées, pour ne jamais laisser voir le
-  // fond sombre de la scène ("il faut retirer le fond déjà présent").
+  // n'importe quelle position de glisser (horizontal ET vertical) — pas
+  // seulement la taille des 2 rangées, pour ne jamais laisser voir le fond
+  // sombre de la scène ("il faut retirer le fond déjà présent").
   const tableWidth = (panMax - panMin) + visibleHalfHeightAt(TABLE_Z) * camera.aspect * 2.6;
-  const tableHeight = visibleHalfHeightAt(TABLE_Z) * 2.6;
-  tableMesh.position.y = (MY_ROW_Y + OPPONENT_ROW_Y) / 2;
+  const tableHeight = (panMaxY - panMinY) + visibleHalfHeightAt(TABLE_Z) * 2.6;
+  tableMesh.position.y = (panMinY + panMaxY) / 2;
   tableMesh.scale.set(tableWidth, tableHeight, 1);
   if (tableMesh.material.map) tableMesh.material.map.repeat.set(tableWidth / 2.2, tableHeight / 2.2);
 
@@ -736,13 +759,11 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   const pileZ = TABLE_Z + 0.15;
 
   // Assez grande pour une quinzaine de jetons À LA TAILLE DU PLATEAU (voir
-  // DISCARD_GRID_COLS/DISCARD_SPACING ci-dessous) — demande explicite,
-  // centrée sur X=0 ("au milieu de la table") plutôt que décalée vers la
-  // défausse, pour laisser toute la place nécessaire de chaque côté. Taille
-  // calée sur ROW_GAP (voir plus haut) pour garder une marge confortable
-  // entre le bord de l'assiette et les plateaux voisins.
+  // DISCARD_GRID_COLS/DISCARD_SPACING ci-dessous) — demande explicite. Décalée
+  // vers la droite (0 → 0.85, la pioche restant à gauche) pour bien séparer
+  // les deux — demande explicite : "éloigne l'assiette vers la droite".
   const plateDiameter = 1.5;
-  const plateCenterX = 0;
+  const plateCenterX = 0.85;
   plateMesh.position.set(plateCenterX, pileY, pileZ - 0.08);
   plateMesh.scale.set(plateDiameter, plateDiameter, 1);
 
