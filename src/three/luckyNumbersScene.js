@@ -187,8 +187,13 @@ function loadBoardPlateTexture() {
       c.width = size;
       c.height = size;
       const ctx = c.getContext('2d');
-      const sx = 79.4;
-      const sy = 126.9;
+      // Décalage de +30px natifs (droite) / -30px natifs (haut) trouvé par
+      // calibrage visuel : page de test avec un jeton par trou, décalé de
+      // façon croissante (incrément de 6px) trou par trou — l'utilisateur a
+      // confirmé que le 6ᵉ trou (index 5, donc 5×6=30px) tombait pile au
+      // centre. Pure translation du recadrage (sw/sh inchangés).
+      const sx = 79.4 + 30;
+      const sy = 126.9 - 30;
       const sw = 1210.2;
       const sh = 1260.7;
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
