@@ -59,8 +59,16 @@ const WOOD_MID = '#A9762E';
 const WOOD_DARK = '#6E4B22';
 const WOOD_SIDE = '#8A5F2C';
 const NUMBER_DARK = '#3B2712';
-const NOTCH_DARK = '#4A2F14';
+const NOTCH_DARK = '#3B4A22';
 const NOTCH_HIGHLIGHT = '#D4AF37';
+
+// Thème "jardin en trèfle" du plateau (référence fournie par l'utilisateur) —
+// séparé des couleurs bois des jetons, qui restent inchangés.
+const GRASS_MID = '#5C8A3A';
+const GRASS_LIGHT = '#719C4A';
+const GRASS_DARK = '#3F6428';
+const LEAF_GREEN = '#7CB342';
+const LEAF_DARK = '#4E7A2C';
 
 let canvas = null;
 let renderer = null;
@@ -78,6 +86,36 @@ const tokenFaceTextures = new Map(); // value -> THREE.Texture
 let tokenSideMaterial = null;
 let tokenBottomMaterial = null;
 
+/** Dessine un petit trèfle à 3 folioles (cercles superposés + tige) — décor du plateau "jardin". */
+function drawClover(ctx, x, y, size, color) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(Math.random() * Math.PI * 2);
+  const r = size * 0.32;
+  ctx.fillStyle = color;
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 - Math.PI / 2;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * r, Math.sin(a) * r, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = color;
+  ctx.lineWidth = size * 0.12;
+  ctx.beginPath();
+  ctx.moveTo(0, r * 0.5);
+  ctx.lineTo(0, size * 0.85);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * Plateau "jardin en trèfle" (référence visuelle fournie par l'utilisateur) :
+ * fond herbe moucheté + trèfles éparpillés, avec un puits sombre peint
+ * directement sous chaque case pour simuler le creux d'une vraie encoche —
+ * l'anneau TorusGeometry (voir createNotchMesh) reste la seule géométrie
+ * réelle en relief, mais ce puits peint donne l'illusion de profondeur que
+ * l'anneau seul (posé à plat sur une texture unie) ne donnait pas.
+ */
 function buildBoardTexture() {
   const size = 512;
   const c = document.createElement('canvas');
@@ -85,25 +123,51 @@ function buildBoardTexture() {
   c.height = size;
   const ctx = c.getContext('2d');
 
-  ctx.fillStyle = WOOD_MID;
+  ctx.fillStyle = GRASS_MID;
   ctx.fillRect(0, 0, size, size);
 
-  // Grain : traits horizontaux légèrement ondulés, opacité variable.
-  ctx.strokeStyle = WOOD_DARK;
-  for (let y = 8; y < size; y += 14) {
-    ctx.globalAlpha = 0.12 + ((y * 7) % 20) / 100;
+  // Mouchetures d'herbe : brins courts, orientation et teinte aléatoires.
+  for (let i = 0; i < 900; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const len = 4 + Math.random() * 7;
+    const angle = Math.random() * Math.PI * 2;
+    ctx.strokeStyle = Math.random() > 0.5 ? GRASS_LIGHT : GRASS_DARK;
+    ctx.globalAlpha = 0.25 + Math.random() * 0.35;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(0, y);
-    for (let x = 0; x <= size; x += 32) {
-      ctx.lineTo(x, y + Math.sin((x + y) * 0.05) * 4);
-    }
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len);
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
 
-  ctx.strokeStyle = WOOD_DARK;
+  // Trèfles décoratifs éparpillés sur toute la surface.
+  for (let i = 0; i < 30; i++) {
+    drawClover(ctx, Math.random() * size, Math.random() * size, 10 + Math.random() * 11, Math.random() > 0.5 ? LEAF_GREEN : LEAF_DARK);
+  }
+
+  ctx.strokeStyle = GRASS_DARK;
   ctx.lineWidth = 10;
   ctx.strokeRect(5, 5, size - 10, size - 10);
+
+  // Puits sombres peints à l'emplacement exact des 16 encoches (voir cellLocalOffset).
+  for (let i = 0; i < GRID_SIZE; i++) {
+    const { dx, dy } = cellLocalOffset(i);
+    const u = 0.5 + dx / BOARD_SIZE;
+    const v = 0.5 + dy / BOARD_SIZE;
+    const cx = u * size;
+    const cy = (1 - v) * size; // Y du monde vers le haut, Y du canvas vers le bas.
+    const r = (NOTCH_RADIUS / BOARD_SIZE) * size * 1.05;
+    const grad = ctx.createRadialGradient(cx, cy, r * 0.15, cx, cy, r);
+    grad.addColorStop(0, 'rgba(18,26,10,0.85)');
+    grad.addColorStop(0.7, 'rgba(18,26,10,0.55)');
+    grad.addColorStop(1, 'rgba(18,26,10,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   const texture = new THREE.CanvasTexture(c);
   texture.colorSpace = THREE.SRGBColorSpace;
