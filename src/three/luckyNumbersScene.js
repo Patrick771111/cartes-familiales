@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import boardPlateUrl from '../assets/games/luckynumbers/board-plate.jpg';
+import boardPlateUrl from '../assets/games/luckynumbers/board-plate.png';
 import tableWoodUrl from '../assets/games/luckynumbers/table-wood.jpg';
 import discardPlateUrl from '../assets/games/luckynumbers/discard-plate.png';
 
@@ -37,8 +37,7 @@ import discardPlateUrl from '../assets/games/luckynumbers/discard-plate.png';
 
 const GRID_DIM = 4;
 const GRID_SIZE = GRID_DIM * GRID_DIM;
-// Grille agrandie de 20% (0.85 → 1.02) à BOARD_SIZE inchangé (donc bordure
-// réduite d'autant, voir BOARD_MARGIN) — demande explicite : "l'illustration
+// Grille agrandie de 20% (0.85 → 1.02) — demande explicite : "l'illustration
 // est trop petite", pas la taille/position globale du plateau (déjà bonne).
 const CELL_SPACING = 1.02;
 const TOKEN_RADIUS = 0.432;
@@ -46,10 +45,20 @@ const TOKEN_RADIUS = 0.432;
 // elles-mêmes sont déjà peintes dans la photo du plateau, plus de rebord/
 // puits 3D dessinés par-dessus (demande explicite).
 const NOTCH_RADIUS = 0.42;
-// Réduit (0.45 → 0.195) pour compenser CELL_SPACING et garder BOARD_SIZE
-// identique — voir le recadrage recalculé dans loadBoardPlateTexture.
-const BOARD_MARGIN = 0.195;
-const BOARD_SIZE = (GRID_DIM - 1) * CELL_SPACING + BOARD_MARGIN * 2;
+// Marges ASYMÉTRIQUES (gauche/droite/haut/bas) autour de la grille 4×4 —
+// demande explicite : garder les 2 coccinelles décoratives de la photo
+// visibles sur le plateau (voir board-plate.png), pas seulement la grille de
+// trous. Ces coccinelles ne sont PAS centrées par rapport à la grille (celle
+// du bas-droit déborde bien plus loin que celle du haut-gauche), donc une
+// marge unique symétrique ne peut pas les contenir toutes les deux sans
+// gâcher énormément d'espace transparent inutile — chaque marge est calée
+// individuellement sur la vraie photo (mesure pixel, voir loadBoardPlateTexture).
+const BOARD_MARGIN_LEFT = 1.091;
+const BOARD_MARGIN_RIGHT = 1.2154;
+const BOARD_MARGIN_TOP = 0.8358;
+const BOARD_MARGIN_BOTTOM = 2.0733;
+const BOARD_WIDTH = (GRID_DIM - 1) * CELL_SPACING + BOARD_MARGIN_LEFT + BOARD_MARGIN_RIGHT;
+const BOARD_HEIGHT = (GRID_DIM - 1) * CELL_SPACING + BOARD_MARGIN_TOP + BOARD_MARGIN_BOTTOM;
 const BOARD_THICKNESS = 0.14;
 
 const CAMERA_DISTANCE = 8.5;
@@ -57,27 +66,17 @@ const CAMERA_FOV = 45;
 
 // Taille UNIQUE pour tous les plateaux (moi + adversaires) — demande
 // explicite de l'utilisateur, remplace l'ancien système "le mien proche/
-// grand, ceux des adversaires loin/petits". Réduite (0.75 → 0.47) pour que
-// DEUX rangées + l'écart entre elles tiennent dans le champ vertical RÉEL de
-// la caméra à la profondeur TABLE_Z (voir visibleHalfHeightAt) — à 0.5 le
-// bord de mon plateau (le plus proche du bord de l'écran) dépassait
-// légèrement ce champ et se retrouvait coupé en bas sur mobile (bug
-// constaté : "le plateau de jeu est coupé").
+// grand, ceux des adversaires loin/petits". Inchangée (0.47) malgré le
+// plateau agrandi (BOARD_WIDTH/BOARD_HEIGHT, voir plus haut) — demande
+// explicite : seuls MON plateau et la pioche doivent tenir dans l'écran, pas
+// forcément les plateaux adverses (déjà accessibles en glissant la caméra,
+// voir panCameraByScreenDelta) : voir MY_ROW_Y/OPPONENT_ROW_Y ci-dessous,
+// disposition volontairement ASYMÉTRIQUE plutôt que centrée sur la table.
 const TABLE_Z = 1.6;
 const BOARD_SCALE = 0.47;
-const BOARD_HALF = (BOARD_SIZE / 2) * BOARD_SCALE;
-const SEAT_SPACING = BOARD_SIZE * BOARD_SCALE * 1.6;
-// Écart entre les 2 rangées : assez grand pour que l'assiette de défausse
-// (voir plateDiameter dans updateScene) ne déborde jamais sur les plateaux
-// voisins, mais assez petit pour que `2*BOARD_HALF + ROW_GAP/2` (distance du
-// centre de la table au bord le plus éloigné de mon plateau) reste sous
-// `visibleHalfHeightAt(TABLE_Z)` — sinon ce bord sort du champ de la caméra
-// et le plateau apparaît coupé, quelle que soit la taille du conteneur CSS
-// (un conteneur plus grand agrandit le rendu mais ne change pas la portion
-// du MONDE 3D visible à cette profondeur).
-const ROW_GAP = 2.2;
-const MY_ROW_Y = -(BOARD_HALF + ROW_GAP / 2);
-const OPPONENT_ROW_Y = BOARD_HALF + ROW_GAP / 2;
+const BOARD_HALF_X = (BOARD_WIDTH / 2) * BOARD_SCALE;
+const BOARD_HALF_Y = (BOARD_HEIGHT / 2) * BOARD_SCALE;
+const SEAT_SPACING = BOARD_WIDTH * BOARD_SCALE * 1.6;
 
 /**
  * Le FOV d'une PerspectiveCamera est TOUJOURS vertical (indépendant de
@@ -90,6 +89,23 @@ function visibleHalfHeightAt(z) {
   const halfVFov = (CAMERA_FOV * Math.PI) / 360;
   return (CAMERA_DISTANCE - z) * Math.tan(halfVFov);
 }
+
+// Mon plateau est PLAQUÉ près du bas du champ visible (petite marge de
+// sécurité 3%) plutôt que centré symétriquement avec les adversaires — à
+// cette taille de plateau (BOARD_SCALE inchangé), le centrer avec un écart
+// symétrique ne laisserait presque plus de place pour la rangée adverse de
+// toute façon, et seul MON plateau + la pioche doivent tenir dans l'écran
+// (demande explicite). Les adversaires, plus haut, peuvent dépasser le haut
+// du champ — ils restent accessibles en glissant la caméra horizontalement,
+// leur visibilité verticale complète n'est pas requise.
+const MY_ROW_Y = -(visibleHalfHeightAt(TABLE_Z) * 0.97 - BOARD_HALF_Y);
+// Écart généreux entre ma rangée et celle des adversaires — sert surtout à
+// donner à l'assiette de défausse (voir plateDiameter dans updateScene) la
+// place de contenir une quinzaine de jetons ; n'a plus besoin de rester sous
+// `visibleHalfHeightAt` puisque la rangée adverse n'a plus à tenir dans le
+// champ (voir commentaire ci-dessus).
+const ROW_GAP = 1.6;
+const OPPONENT_ROW_Y = MY_ROW_Y + 2 * BOARD_HALF_Y + ROW_GAP;
 
 /** Position X du siège `index` parmi `total` sièges, centrée sur X=0 (le "milieu de la table"). */
 function seatX(index, total) {
@@ -146,18 +162,15 @@ let boardPlateLoadPromise = null;
 let discardPlateTexture = null;
 let discardPlateLoadPromise = null;
 
-function hexToRgbTuple(hex) {
-  const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
 /**
- * Charge la photo du plateau (voir boardPlateUrl, demande explicite) et
- * remplace son fond blanc par le vert du plateau : la photo montre un
- * plateau aux coins coupés (octogone) posé sur fond blanc, alors que notre
- * géométrie est un simple rectangle — sans ce remplacement, les 4 coins de
- * notre plateau 3D montreraient des taches blanches issues de la photo.
- * Recadre aussi légèrement (cropFrac) pour réduire cette marge blanche.
+ * Charge la photo du plateau (voir boardPlateUrl, demande explicite) — un
+ * PNG à fond RÉELLEMENT transparent (pas de fond blanc à remplacer ici,
+ * contrairement à l'ancienne photo). Recadré sur les 16 trous ET les 2
+ * coccinelles décoratives (voir BOARD_MARGIN_LEFT/RIGHT/TOP/BOTTOM) —
+ * demande explicite de l'utilisateur, quitte à agrandir le plateau pour les
+ * englober. sx/sy/sw/sh calculés à partir des 16 coordonnées de trous
+ * fournies par l'utilisateur (régression linéaire colonne→x / ligne→y),
+ * cohérents avec ces mêmes marges (voir leurs commentaires plus haut).
  */
 function loadBoardPlateTexture() {
   if (boardPlateTexture) return Promise.resolve(boardPlateTexture);
@@ -170,31 +183,11 @@ function loadBoardPlateTexture() {
       c.width = size;
       c.height = size;
       const ctx = c.getContext('2d');
-      // Recadrage calé sur la vraie grille de la photo (mesuré une fois par
-      // analyse de pixels sur les 2 coins HORS diagonale dorée — index 3 et
-      // 12 — pour qu'ils tombent exactement aux fractions BOARD_MARGIN/
-      // BOARD_SIZE = 0.0565/0.9435, comme nos propres cases). Recalculé pour
-      // la grille agrandie de 20% (voir CELL_SPACING/BOARD_MARGIN) : mêmes
-      // centres de coin mesurés (1094.07,231.03) et (300.88,1023.67), crop
-      // resserré de 1/1.2 autour du même centre pour matcher les nouvelles
-      // fractions. Sans ce calage, les jetons ne tombent pas sur les trous
-      // peints de la photo (bug constaté : "cale les trous sur les trous").
-      const sx = 250;
-      const sy = 180;
-      const sw = 894;
-      const sh = 894;
+      const sx = 79.4;
+      const sy = 126.9;
+      const sw = 1210.2;
+      const sh = 1260.7;
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
-      const imageData = ctx.getImageData(0, 0, size, size);
-      const px = imageData.data;
-      const [gr, gg, gb] = hexToRgbTuple(BOARD_GREEN);
-      for (let i = 0; i < px.length; i += 4) {
-        if (px[i] > 233 && px[i + 1] > 233 && px[i + 2] > 233) {
-          px[i] = gr;
-          px[i + 1] = gg;
-          px[i + 2] = gb;
-        }
-      }
-      ctx.putImageData(imageData, 0, 0);
       const texture = new THREE.CanvasTexture(c);
       texture.colorSpace = THREE.SRGBColorSpace;
       boardPlateTexture = texture;
@@ -388,11 +381,18 @@ function createGlowMesh() {
   return mesh;
 }
 
-/** Matériau du plateau : vert uni au départ, remplacé par la vraie photo dès qu'elle est chargée (async, voir loadBoardPlateTexture). */
+/**
+ * Matériau du plateau : vert uni au départ, remplacé par la vraie photo dès
+ * qu'elle est chargée (async, voir loadBoardPlateTexture). `transparent:true`
+ * — la photo a un vrai fond alpha (pas de fond blanc à camoufler ici,
+ * contrairement à l'ancienne) : les coins de ce mesh rectangulaire, en dehors
+ * de l'octogone du plateau et des coccinelles, laissent voir la table en
+ * bois derrière plutôt qu'un aplat de couleur.
+ */
 function createBoardMesh() {
-  const radius = Math.min(BOARD_THICKNESS / 2, BOARD_SIZE * 0.02);
-  const geometry = new RoundedBoxGeometry(BOARD_SIZE, BOARD_SIZE, BOARD_THICKNESS, 3, radius);
-  const material = new THREE.MeshStandardMaterial({ color: BOARD_GREEN, roughness: 0.85 });
+  const radius = Math.min(BOARD_THICKNESS / 2, Math.min(BOARD_WIDTH, BOARD_HEIGHT) * 0.02);
+  const geometry = new RoundedBoxGeometry(BOARD_WIDTH, BOARD_HEIGHT, BOARD_THICKNESS, 3, radius);
+  const material = new THREE.MeshStandardMaterial({ color: BOARD_GREEN, roughness: 0.85, transparent: true });
   const mesh = new THREE.Mesh(geometry, material);
   loadBoardPlateTexture().then((texture) => {
     material.map = texture;
@@ -452,12 +452,21 @@ function disposeMesh(obj) {
   });
 }
 
-/** Décalage local (avant mise à l'échelle) d'une case dans la grille 4×4 — ligne 0 = haut, colonne 0 = gauche. */
+/**
+ * Décalage local (avant mise à l'échelle) d'une case dans la grille 4×4 —
+ * ligne 0 = haut, colonne 0 = gauche, relatif au CENTRE du plateau (voir
+ * BOARD_WIDTH/BOARD_HEIGHT). Marges asymétriques (voir BOARD_MARGIN_LEFT/
+ * RIGHT/TOP/BOTTOM) : la grille n'est donc PAS centrée sur le plateau —
+ * décalée vers le haut-gauche, pour laisser la place aux 2 coccinelles
+ * décoratives de la photo (surtout celle du bas-droit, plus excentrée).
+ */
 function cellLocalOffset(index) {
   const row = Math.floor(index / GRID_DIM);
   const col = index % GRID_DIM;
-  const mid = (GRID_DIM - 1) / 2;
-  return { dx: (col - mid) * CELL_SPACING, dy: (mid - row) * CELL_SPACING };
+  return {
+    dx: BOARD_MARGIN_LEFT + col * CELL_SPACING - BOARD_WIDTH / 2,
+    dy: BOARD_HEIGHT / 2 - (BOARD_MARGIN_TOP + row * CELL_SPACING)
+  };
 }
 
 function createBoardGroup() {
@@ -691,10 +700,10 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   // Assez grande pour une quinzaine de jetons À LA TAILLE DU PLATEAU (voir
   // DISCARD_GRID_COLS/DISCARD_SPACING ci-dessous) — demande explicite,
   // centrée sur X=0 ("au milieu de la table") plutôt que décalée vers la
-  // défausse, pour laisser toute la place nécessaire de chaque côté.
-  // Réduite (2.4 → 2.1) avec ROW_GAP (voir plus haut) pour garder une marge
-  // confortable entre le bord de l'assiette et les plateaux voisins.
-  const plateDiameter = 2.1;
+  // défausse, pour laisser toute la place nécessaire de chaque côté. Taille
+  // calée sur ROW_GAP (voir plus haut) pour garder une marge confortable
+  // entre le bord de l'assiette et les plateaux voisins.
+  const plateDiameter = 1.5;
   const plateCenterX = 0;
   plateMesh.position.set(plateCenterX, pileY, pileZ - 0.08);
   plateMesh.scale.set(plateDiameter, plateDiameter, 1);
@@ -708,7 +717,7 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   // colonnes fixe) — sinon 1 ou 2 jetons se retrouvent collés à gauche de
   // l'assiette au lieu d'être au milieu (bug constaté avec peu de jetons).
   const DISCARD_GRID_COLS = 4;
-  const DISCARD_SPACING = 0.25;
+  const DISCARD_SPACING = 0.17;
   const discardCount = discardTiles.length;
   const discardRows = Math.max(1, Math.ceil(discardCount / DISCARD_GRID_COLS));
   ensureDiscardMeshCount(discardCount);
@@ -725,13 +734,11 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
     mesh.position.set(x, y, pileZ);
   });
 
-  // Pioche décalée à gauche de l'assiette (désormais large) pour ne jamais
-  // s'y superposer, mais pas trop loin — au-delà de ~1.6 elle sort du champ
-  // visible sur un mobile normal (aspect 3/4), bug constaté à -1.8.
+  // Pioche décalée à gauche de l'assiette pour ne jamais s'y superposer.
   ensureDrawPileMeshCount(stockCount > 0 ? 4 : 0);
   drawPileMeshes.forEach((mesh, i) => {
     mesh.scale.setScalar(BOARD_SCALE);
-    mesh.position.set(-1.5, pileY + i * 0.02, pileZ - 0.05 + i * 0.01);
+    mesh.position.set(-1.0, pileY + i * 0.02, pileZ - 0.05 + i * 0.01);
   });
 }
 
