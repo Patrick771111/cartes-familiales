@@ -32,6 +32,31 @@ const SUIT_COLOR = { S: DARK_SUIT, H: RED_SUIT, D: RED_SUIT, C: DARK_SUIT };
 const SUIT_SYMBOL = { S: '♠', H: '♥', D: '♦', C: '♣' };
 const BASE_CAMERA_DISTANCE = 3.2; // distance mini (mains courtes) — voir fitCameraToExtent pour les mains plus grandes
 
+// Rang -> lettre française affichée (cohérent avec rankLabel dans src/ui/cards.js).
+const COURT_LABEL = { J: 'V', Q: 'D', K: 'R' };
+// Disposition des pips par nombre (façon Bicycle), [gauche%, haut%] dans un
+// cadre centré sur la carte — mêmes coordonnées que .card__pips--N dans
+// style.css (2D), pour un rendu 3D cohérent avec le reste de l'appli.
+const PIP_LAYOUTS = {
+  1: [[50, 50]],
+  2: [[50, 18], [50, 82]],
+  3: [[50, 18], [50, 50], [50, 82]],
+  4: [[28, 18], [72, 18], [28, 82], [72, 82]],
+  5: [[28, 18], [72, 18], [50, 50], [28, 82], [72, 82]],
+  6: [[28, 18], [72, 18], [28, 50], [72, 50], [28, 82], [72, 82]],
+  7: [[28, 18], [72, 18], [50, 34], [28, 50], [72, 50], [28, 82], [72, 82]],
+  8: [[28, 18], [72, 18], [50, 34], [28, 50], [72, 50], [50, 66], [28, 82], [72, 82]],
+  9: [[28, 13], [72, 13], [28, 37], [72, 37], [50, 50], [28, 63], [72, 63], [28, 87], [72, 87]],
+  10: [[28, 13], [72, 13], [50, 25], [28, 37], [72, 37], [28, 63], [72, 63], [50, 75], [28, 87], [72, 87]]
+};
+const PIP_COUNT = { A: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10 };
+// Axes réutilisés pour composer tilt (éventail) et retournement par
+// quaternions plutôt que par angles d'Euler — voir layoutFan/advanceFlips.
+const AXIS_Y = new THREE.Vector3(0, 1, 0);
+const AXIS_Z = new THREE.Vector3(0, 0, 1);
+const flipTiltQuat = new THREE.Quaternion();
+const flipRotateQuat = new THREE.Quaternion();
+
 const scenes = new Map(); // key -> { canvas, renderer, scene, camera, meshes: [] }
 let cardBackTexture = null;
 const cardFaceTextures = new Map(); // `${rank}${suit}` -> THREE.CanvasTexture
@@ -81,7 +106,63 @@ function buildCardBackTexture() {
   return texture;
 }
 
-/** Rendu simplifié (pas les pips exacts ni les figures illustrées de cardFaceHtml) — assez lisible à l'échelle d'une carte 3D. */
+/** Pips (cartes numérales, voir PIP_LAYOUTS) — disposition à l'identique de .card__pips en 2D : cadre centré, inset 10% de la largeur des 4 côtés. */
+function drawPips(ctx, c, rank, symbol, color) {
+  const layout = PIP_LAYOUTS[PIP_COUNT[rank]] || PIP_LAYOUTS[1];
+  const inset = c.width * 0.1;
+  const areaW = c.width - inset * 2;
+  const areaH = c.height - inset * 2;
+  const single = layout.length === 1;
+
+  ctx.fillStyle = color;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${Math.round(c.width * (single ? 0.46 : 0.26))}px Georgia, serif`;
+  layout.forEach(([leftPct, topPct]) => {
+    ctx.fillText(symbol, inset + (leftPct / 100) * areaW, inset + (topPct / 100) * areaH);
+  });
+}
+
+/** Figure (Valet/Dame/Roi) — cadre + ornements + monogramme, même vocabulaire que le repli non illustré de courtHtml en 2D (src/ui/cards.js). */
+function drawCourtFigure(ctx, c, rank, symbol, color) {
+  const cqw = c.width / 100; // unité "% de la largeur", cohérente avec les cqw utilisés en 2D
+  const label = COURT_LABEL[rank] || rank;
+
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1, cqw * 0.6);
+  const frameInset = 13 * cqw;
+  const radius = 6 * cqw;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(frameInset, frameInset, c.width - frameInset * 2, c.height - frameInset * 2, radius);
+  else ctx.rect(frameInset, frameInset, c.width - frameInset * 2, c.height - frameInset * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = color;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${Math.round(19 * cqw)}px Georgia, serif`;
+  const ornamentText = `${symbol}  ${symbol}  ${symbol}`;
+  const ornamentOffset = 22 * cqw;
+  ctx.fillText(ornamentText, c.width / 2, ornamentOffset);
+  ctx.save();
+  ctx.translate(c.width / 2, c.height - ornamentOffset);
+  ctx.rotate(Math.PI);
+  ctx.fillText(ornamentText, 0, 0);
+  ctx.restore();
+  ctx.restore();
+
+  ctx.fillStyle = color;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `600 ${Math.round(38 * cqw)}px Georgia, serif`;
+  ctx.fillText(label, c.width / 2, c.height / 2);
+}
+
 function buildCardFaceTexture(rank, suit) {
   const size = 256;
   const c = document.createElement('canvas');
@@ -100,11 +181,13 @@ function buildCardFaceTexture(rank, suit) {
   ctx.fillStyle = color;
   ctx.textAlign = 'center';
 
-  // Coins (haut-gauche, bas-droite retourné) : rang + symbole empilés.
+  // Coins (haut-gauche, bas-droite retourné) : rang (lettre française pour
+  // une figure, voir COURT_LABEL) + symbole empilés.
+  const cornerLabel = COURT_LABEL[rank] || rank;
   const cornerFont = Math.round(c.width * 0.17);
   ctx.font = `700 ${cornerFont}px Georgia, serif`;
   ctx.textBaseline = 'top';
-  ctx.fillText(rank, c.width * 0.16, c.height * 0.05);
+  ctx.fillText(cornerLabel, c.width * 0.16, c.height * 0.05);
   ctx.font = `${Math.round(cornerFont * 0.7)}px Georgia, serif`;
   ctx.fillText(symbol, c.width * 0.16, c.height * 0.05 + cornerFont * 1.05);
 
@@ -113,15 +196,15 @@ function buildCardFaceTexture(rank, suit) {
   ctx.rotate(Math.PI);
   ctx.font = `700 ${cornerFont}px Georgia, serif`;
   ctx.textBaseline = 'top';
-  ctx.fillText(rank, c.width * 0.16, c.height * 0.05);
+  ctx.fillText(cornerLabel, c.width * 0.16, c.height * 0.05);
   ctx.font = `${Math.round(cornerFont * 0.7)}px Georgia, serif`;
   ctx.fillText(symbol, c.width * 0.16, c.height * 0.05 + cornerFont * 1.05);
   ctx.restore();
 
-  // Symbole de famille en grand au centre.
-  ctx.font = `${Math.round(c.width * 0.4)}px Georgia, serif`;
-  ctx.textBaseline = 'middle';
-  ctx.fillText(symbol, c.width / 2, c.height * 0.52);
+  // Pips pour une carte numérale (dont l'As, pip unique en grand), monogramme
+  // encadré pour une figure (Valet/Dame/Roi) — voir drawPips/drawCourtFigure.
+  if (COURT_LABEL[rank]) drawCourtFigure(ctx, c, rank, symbol, color);
+  else drawPips(ctx, c, rank, symbol, color);
 
   const texture = new THREE.CanvasTexture(c);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -211,7 +294,15 @@ function advanceFlips(entry, now) {
       mesh.material.needsUpdate = true;
       flip.swapped = true;
     }
-    mesh.rotation.y = t * Math.PI;
+    // Tilt de l'éventail (voir layoutFan) appliqué EN PREMIER (intrinsèque à
+    // la carte), puis retournement composé PAR-DESSUS autour de l'axe Y du
+    // MONDE (flipRotateQuat en multiplicande de gauche) — sans cette
+    // composition en deux temps, régler rotation.y et rotation.z ensemble
+    // (angles d'Euler) fait tourner la carte inclinée autour de sa propre
+    // diagonale au lieu d'un axe vertical qui passe par son centre.
+    flipTiltQuat.setFromAxisAngle(AXIS_Z, mesh.userData.tiltAngle || 0);
+    flipRotateQuat.setFromAxisAngle(AXIS_Y, t * Math.PI);
+    mesh.quaternion.copy(flipRotateQuat).multiply(flipTiltQuat);
     if (t >= 1) entry.flips.delete(index);
   }
 }
@@ -347,7 +438,14 @@ function layoutFan(meshes) {
     const angle = (i - (n - 1) / 2) * anglePerCard;
     const x = Math.sin(angle) * radius;
     mesh.position.set(x, (Math.cos(angle) - 1) * radius * 0.15, i * 0.01);
-    mesh.rotation.z = -angle;
+    // Stocké à part (pas juste rotation.z) : pendant un retournement,
+    // advanceFlips recompose ce tilt avec la rotation de la carte autour
+    // d'un axe vertical MONDE (voir AXIS_Y/AXIS_Z plus haut) — mélanger les
+    // deux directement en rotation.y/.z (angles d'Euler) fait tourner la
+    // carte autour de sa propre diagonale une fois inclinée dans l'éventail,
+    // au lieu d'un axe vertical qui passe par son centre.
+    mesh.userData.tiltAngle = -angle;
+    mesh.quaternion.setFromAxisAngle(AXIS_Z, -angle);
     maxExtent = Math.max(maxExtent, Math.abs(x) + halfDiagonal);
   });
   return maxExtent;
@@ -394,7 +492,8 @@ export function updateFan(key, cards = [], { pickable = false } = {}) {
     mesh.material.opacity = 1;
     mesh.scale.set(1, 1, 1);
     mesh.visible = true;
-    mesh.rotation.y = 0; // efface un retournement précédent déjà terminé
+    // L'orientation (tilt + éventuel retournement terminé) est réécrite juste
+    // après par layoutFan (mesh.quaternion), pas la peine de la réinitialiser ici.
     mesh.userData.frame.visible = false; // efface une mise en valeur précédente déjà terminée
   });
 
