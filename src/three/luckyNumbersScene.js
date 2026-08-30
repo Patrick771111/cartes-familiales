@@ -1,16 +1,23 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
 /**
  * Scène 3D persistante pour Lucky Numbers — une seule scène/caméra (comme
- * unoScene.js), mais avec une VRAIE géométrie 3D plutôt que de simples
- * plans texturés : les jetons sont des cylindres plats (galets de bois),
- * les plateaux ont de vraies encoches en relief (anneaux TorusGeometry),
- * pas juste une texture peinte — demande explicite de l'utilisateur.
+ * unoScene.js). Thème "jardin en trèfle" (référence visuelle + exemple de
+ * code fournis par l'utilisateur) : plateau vert aux coins arrondis avec de
+ * vraies encoches en relief (anneau TorusGeometry + puits sombre), jetons en
+ * forme de trèfle à 4 pétales, coccinelle décorative, fond sombre + brouillard
+ * pour donner de la profondeur — matériaux PBR standards plutôt qu'une
+ * texture peinte (le rendu peint précédent ne rendait pas assez "vraie 3D").
  *
  * Caméra volontairement JAMAIS inclinée/élevée (même leçon que
  * pouilleuxScene.js/unoScene.js) : la profondeur de table (mon plateau
  * proche/grand/bas, ceux des adversaires loin/petits/haut) vient
- * uniquement du placement Y/Z des plateaux, jamais de l'angle de caméra.
+ * uniquement du placement Y/Z des plateaux, jamais de l'angle de caméra —
+ * en conséquence les puits d'encoche sont de simples disques plats (pas des
+ * cylindres creusés) : de face, un cylindre creusé et un disque plat sont
+ * indiscernables puisqu'on ne voit jamais la paroi latérale, donc autant
+ * garder la géométrie la plus simple et la moins risquée côté z-fighting.
  *
  * Montée UNE SEULE FOIS, ajoutée à `document.body` (donc en dehors de
  * `#app`) — un canvas WebGL recréé à chaque coup perdrait son contexte GL
@@ -25,7 +32,6 @@ const GRID_DIM = 4;
 const GRID_SIZE = GRID_DIM * GRID_DIM;
 const CELL_SPACING = 0.85;
 const TOKEN_RADIUS = 0.36;
-const TOKEN_HEIGHT = 0.12;
 const NOTCH_RADIUS = 0.4;
 const NOTCH_TUBE = 0.045;
 const BOARD_MARGIN = 0.45;
@@ -54,21 +60,26 @@ const MY_BOARD_HALF = (BOARD_SIZE / 2) * MY_BOARD_SCALE;
 // Centre le plus bas possible tout en gardant le plateau entier dans le frustum (petite marge de sécurité).
 const MY_BOARD_Y = -(visibleHalfHeightAt(MY_BOARD_Z) - MY_BOARD_HALF - 0.1);
 
-const WOOD_LIGHT = '#C9A066';
-const WOOD_MID = '#A9762E';
-const WOOD_DARK = '#6E4B22';
-const WOOD_SIDE = '#8A5F2C';
-const NUMBER_DARK = '#3B2712';
-const NOTCH_DARK = '#3B4A22';
-const NOTCH_HIGHLIGHT = '#D4AF37';
+// Thème "jardin en trèfle" (référence de l'utilisateur) — plateau vert uni
+// (matériau PBR, plus de texture peinte) + jetons trèfle pastel par couleur.
+const SCENE_BG = '#0f1f0f';
+const BOARD_GREEN = '#3a8a42';
+const WELL_DARK = '#1a4a22';
+const RIM_GREEN = '#2a6a32';
+const GOLD = '#ffd700';
+const GOLD_EMISSIVE = '#ffaa00';
+const CENTER_CREAM = '#fffaf0';
+const CENTER_RIM = '#d8c9a8';
+const NUMBER_DARK = '#2a1e10';
 
-// Thème "jardin en trèfle" du plateau (référence fournie par l'utilisateur) —
-// séparé des couleurs bois des jetons, qui restent inchangés.
-const GRASS_MID = '#5C8A3A';
-const GRASS_LIGHT = '#719C4A';
-const GRASS_DARK = '#3F6428';
-const LEAF_GREEN = '#7CB342';
-const LEAF_DARK = '#4E7A2C';
+/** Couleur du pétale par couleur réelle de la tuile (yellow/red/violet/green du jeu) — assez saturée pour rester lisible sous l'éclairage/tone mapping de la scène. */
+const TILE_COLOR_MAP = {
+  yellow: '#f5c945',
+  red: '#e2645f',
+  violet: '#9b7fd4',
+  green: '#7cc36a'
+};
+const TILE_COLOR_FALLBACK = '#cccccc';
 
 let canvas = null;
 let renderer = null;
@@ -76,108 +87,21 @@ let scene = null;
 let camera = null;
 let mounted = false;
 
-let myBoard = null; // { group, notchMeshes: THREE.Mesh[16], tokenMeshes: (THREE.Mesh|null)[16] }
+let myBoard = null; // { board, wellMeshes, notchMeshes, glowMeshes, tokenMeshes: THREE.Mesh/Group[16] }
 let opponentBoardGroups = []; // Array<même forme que myBoard>
 let discardMeshes = [];
 let drawPileMeshes = [];
 
-let boardTexture = null;
-const tokenFaceTextures = new Map(); // value -> THREE.Texture
-let tokenSideMaterial = null;
-let tokenBottomMaterial = null;
+let ladybug = null;
+let ladybugBaseZ = 0;
 
-/** Dessine un petit trèfle à 3 folioles (cercles superposés + tige) — décor du plateau "jardin". */
-function drawClover(ctx, x, y, size, color) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(Math.random() * Math.PI * 2);
-  const r = size * 0.32;
-  ctx.fillStyle = color;
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2 - Math.PI / 2;
-    ctx.beginPath();
-    ctx.arc(Math.cos(a) * r, Math.sin(a) * r, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.strokeStyle = color;
-  ctx.lineWidth = size * 0.12;
-  ctx.beginPath();
-  ctx.moveTo(0, r * 0.5);
-  ctx.lineTo(0, size * 0.85);
-  ctx.stroke();
-  ctx.restore();
-}
-
-/**
- * Plateau "jardin en trèfle" (référence visuelle fournie par l'utilisateur) :
- * fond herbe moucheté + trèfles éparpillés, avec un puits sombre peint
- * directement sous chaque case pour simuler le creux d'une vraie encoche —
- * l'anneau TorusGeometry (voir createNotchMesh) reste la seule géométrie
- * réelle en relief, mais ce puits peint donne l'illusion de profondeur que
- * l'anneau seul (posé à plat sur une texture unie) ne donnait pas.
- */
-function buildBoardTexture() {
-  const size = 512;
-  const c = document.createElement('canvas');
-  c.width = size;
-  c.height = size;
-  const ctx = c.getContext('2d');
-
-  ctx.fillStyle = GRASS_MID;
-  ctx.fillRect(0, 0, size, size);
-
-  // Mouchetures d'herbe : brins courts, orientation et teinte aléatoires.
-  for (let i = 0; i < 900; i++) {
-    const x = Math.random() * size;
-    const y = Math.random() * size;
-    const len = 4 + Math.random() * 7;
-    const angle = Math.random() * Math.PI * 2;
-    ctx.strokeStyle = Math.random() > 0.5 ? GRASS_LIGHT : GRASS_DARK;
-    ctx.globalAlpha = 0.25 + Math.random() * 0.35;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len);
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-
-  // Trèfles décoratifs éparpillés sur toute la surface.
-  for (let i = 0; i < 30; i++) {
-    drawClover(ctx, Math.random() * size, Math.random() * size, 10 + Math.random() * 11, Math.random() > 0.5 ? LEAF_GREEN : LEAF_DARK);
-  }
-
-  ctx.strokeStyle = GRASS_DARK;
-  ctx.lineWidth = 10;
-  ctx.strokeRect(5, 5, size - 10, size - 10);
-
-  // Puits sombres peints à l'emplacement exact des 16 encoches (voir cellLocalOffset).
-  for (let i = 0; i < GRID_SIZE; i++) {
-    const { dx, dy } = cellLocalOffset(i);
-    const u = 0.5 + dx / BOARD_SIZE;
-    const v = 0.5 + dy / BOARD_SIZE;
-    const cx = u * size;
-    const cy = (1 - v) * size; // Y du monde vers le haut, Y du canvas vers le bas.
-    const r = (NOTCH_RADIUS / BOARD_SIZE) * size * 1.05;
-    const grad = ctx.createRadialGradient(cx, cy, r * 0.15, cx, cy, r);
-    grad.addColorStop(0, 'rgba(18,26,10,0.85)');
-    grad.addColorStop(0.7, 'rgba(18,26,10,0.55)');
-    grad.addColorStop(1, 'rgba(18,26,10,0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  const texture = new THREE.CanvasTexture(c);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
-function getBoardTexture() {
-  if (!boardTexture) boardTexture = buildBoardTexture();
-  return boardTexture;
-}
+const tokenFaceTextures = new Map(); // value -> THREE.Texture (fond crème + nombre, indépendant de la couleur)
+let wellGeometry = null;
+let wellMaterial = null;
+let glowGeometry = null;
+let glowMaterial = null;
+let petalGeometry = null;
+let centerGeometry = null;
 
 function buildTokenFaceTexture(value) {
   const size = 200;
@@ -188,14 +112,11 @@ function buildTokenFaceTexture(value) {
   const cx = size / 2;
   const cy = size / 2;
 
-  const grad = ctx.createRadialGradient(cx * 0.7, cy * 0.6, size * 0.05, cx, cy, size * 0.55);
-  grad.addColorStop(0, WOOD_LIGHT);
-  grad.addColorStop(1, WOOD_MID);
-  ctx.fillStyle = grad;
+  ctx.fillStyle = CENTER_CREAM;
   ctx.beginPath();
   ctx.arc(cx, cy, size * 0.48, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = WOOD_DARK;
+  ctx.strokeStyle = CENTER_RIM;
   ctx.lineWidth = 4;
   ctx.stroke();
 
@@ -219,60 +140,185 @@ function getTokenFaceTexture(value) {
   return texture;
 }
 
-function getTokenSideMaterial() {
-  if (!tokenSideMaterial) tokenSideMaterial = new THREE.MeshStandardMaterial({ color: WOOD_SIDE });
-  return tokenSideMaterial;
+function getPetalGeometry() {
+  if (!petalGeometry) {
+    petalGeometry = new THREE.SphereGeometry(TOKEN_RADIUS * 0.42, 14, 10);
+    petalGeometry.userData.shared = true;
+  }
+  return petalGeometry;
 }
 
-function getTokenBottomMaterial() {
-  if (!tokenBottomMaterial) tokenBottomMaterial = new THREE.MeshStandardMaterial({ color: WOOD_DARK });
-  return tokenBottomMaterial;
+function getCenterGeometry() {
+  if (!centerGeometry) {
+    centerGeometry = new THREE.CircleGeometry(TOKEN_RADIUS * 0.5, 24);
+    centerGeometry.userData.shared = true;
+  }
+  return centerGeometry;
 }
 
 /**
- * Jeton = cylindre plat (galet de bois), pas un simple plan comme les
- * cartes des autres jeux — "billes de bois aplaties" (demande explicite).
- * 3 groupes de matériaux natifs à CylinderGeometry (flanc / dessus /
- * dessous) : le dessus reçoit la texture avec le nombre (voir
- * setTokenValue), flanc et dessous restent en bois uni (jamais vus de
- * face). Tourné de 90° sur X pour que les faces plates (dessus/dessous)
- * regardent la caméra, comme le reste des plans de cette appli.
+ * Jeton = trèfle à 4 pétales (sphères aplaties) + disque central numéroté,
+ * pas un simple galet — cohérent avec le thème "jardin en trèfle" et
+ * l'exemple de rendu fourni par l'utilisateur. Pétales à plat dans le plan
+ * XY (aplaties sur Z, l'axe caméra), comme tout le reste de cette scène.
  */
 function createTokenMesh() {
-  const geometry = new THREE.CylinderGeometry(TOKEN_RADIUS, TOKEN_RADIUS, TOKEN_HEIGHT, 32);
-  const material = [getTokenSideMaterial(), new THREE.MeshStandardMaterial({ transparent: true }), getTokenBottomMaterial()];
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.rotation.x = Math.PI / 2;
-  return mesh;
+  const group = new THREE.Group();
+  const petals = [];
+  for (let i = 0; i < 4; i++) {
+    const material = new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.08 });
+    const petal = new THREE.Mesh(getPetalGeometry(), material);
+    const angle = (i * 90 + 45) * (Math.PI / 180);
+    petal.position.set(Math.cos(angle) * TOKEN_RADIUS * 0.4, Math.sin(angle) * TOKEN_RADIUS * 0.4, 0);
+    petal.scale.z = 0.35;
+    group.add(petal);
+    petals.push(petal);
+  }
+  const center = new THREE.Mesh(getCenterGeometry(), new THREE.MeshStandardMaterial({ transparent: true, roughness: 0.5 }));
+  center.position.z = TOKEN_RADIUS * 0.42 * 0.35 + 0.008;
+  group.add(center);
+  group.userData.petals = petals;
+  group.userData.center = center;
+  return group;
 }
 
-function setTokenValue(mesh, value) {
-  mesh.material[1].map = getTokenFaceTexture(value);
-  mesh.material[1].color.set(0xffffff);
-  mesh.material[1].needsUpdate = true;
+function setTokenValue(group, tile) {
+  const color = TILE_COLOR_MAP[tile.color] || TILE_COLOR_FALLBACK;
+  group.userData.petals.forEach((p) => {
+    p.material.color.set(color);
+    p.material.emissive.set(color);
+    p.material.emissiveIntensity = 0.08;
+  });
+  group.userData.center.material.map = getTokenFaceTexture(tile.value);
+  group.userData.center.material.color.set(0xffffff);
+  group.userData.center.material.needsUpdate = true;
+}
+
+/** Apparence "dos" (pioche non retournée) — pétales ternes, disque central vide. */
+function setTokenBlank(group) {
+  group.userData.petals.forEach((p) => {
+    p.material.color.set(RIM_GREEN);
+    p.material.emissive.set(0x000000);
+    p.material.emissiveIntensity = 0;
+  });
+  group.userData.center.material.map = null;
+  group.userData.center.material.color.set(WELL_DARK);
+  group.userData.center.material.needsUpdate = true;
 }
 
 /** Rebord d'encoche — vrai anneau en relief (TorusGeometry), pas une texture peinte : "le plateau doit avoir des encoches" (demande explicite). */
 function createNotchMesh() {
   const geometry = new THREE.TorusGeometry(NOTCH_RADIUS, NOTCH_TUBE, 12, 28);
-  const material = new THREE.MeshStandardMaterial({ color: NOTCH_DARK });
+  const material = new THREE.MeshStandardMaterial({ color: RIM_GREEN });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.rotation.x = Math.PI / 2;
   return mesh;
 }
 
+function getWellGeometry() {
+  if (!wellGeometry) {
+    wellGeometry = new THREE.CircleGeometry(NOTCH_RADIUS * 0.95, 28);
+    wellGeometry.userData.shared = true;
+  }
+  return wellGeometry;
+}
+
+function getWellMaterial() {
+  if (!wellMaterial) {
+    wellMaterial = new THREE.MeshStandardMaterial({ color: WELL_DARK, roughness: 0.95 });
+    wellMaterial.userData.shared = true;
+  }
+  return wellMaterial;
+}
+
+/** Puits sombre d'une encoche vide — géométrie et matériau partagés (jamais recolorés individuellement). */
+function createWellMesh() {
+  return new THREE.Mesh(getWellGeometry(), getWellMaterial());
+}
+
+function getGlowGeometry() {
+  if (!glowGeometry) {
+    glowGeometry = new THREE.CircleGeometry(NOTCH_RADIUS * 1.12, 32);
+    glowGeometry.userData.shared = true;
+  }
+  return glowGeometry;
+}
+
+function getGlowMaterial() {
+  if (!glowMaterial) {
+    glowMaterial = new THREE.MeshStandardMaterial({
+      color: GOLD,
+      emissive: GOLD_EMISSIVE,
+      emissiveIntensity: 0.85,
+      roughness: 0.3,
+      metalness: 0.4,
+      transparent: true,
+      opacity: 0.7
+    });
+    glowMaterial.userData.shared = true;
+  }
+  return glowMaterial;
+}
+
+/** Halo doré pulsant d'une case jouable — vient s'ajouter au rebord doré, ne le remplace pas. */
+function createGlowMesh() {
+  const mesh = new THREE.Mesh(getGlowGeometry(), getGlowMaterial());
+  mesh.visible = false;
+  return mesh;
+}
+
 function createBoardMesh() {
-  const geometry = new THREE.BoxGeometry(BOARD_SIZE, BOARD_SIZE, BOARD_THICKNESS);
-  const material = new THREE.MeshStandardMaterial({ map: getBoardTexture() });
+  const radius = Math.min(BOARD_THICKNESS / 2, BOARD_SIZE * 0.02);
+  const geometry = new RoundedBoxGeometry(BOARD_SIZE, BOARD_SIZE, BOARD_THICKNESS, 3, radius);
+  const material = new THREE.MeshStandardMaterial({ color: BOARD_GREEN, roughness: 0.85 });
   return new THREE.Mesh(geometry, material);
 }
 
-function disposeMesh(mesh) {
-  if (!mesh) return;
-  scene.remove(mesh);
-  mesh.geometry.dispose();
-  if (Array.isArray(mesh.material)) mesh.material.forEach((m) => m.dispose());
-  else mesh.material.dispose();
+/** Petite coccinelle décorative posée sur MON plateau (référence de l'utilisateur) — purement esthétique. */
+function buildLadybug() {
+  const group = new THREE.Group();
+
+  const body = new THREE.Mesh(
+    new THREE.SphereGeometry(TOKEN_RADIUS * 0.5, 20, 16),
+    new THREE.MeshStandardMaterial({ color: '#d81e1e', roughness: 0.35, metalness: 0.1 })
+  );
+  body.scale.set(1.15, 0.95, 0.55);
+  group.add(body);
+
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(TOKEN_RADIUS * 0.28, 16, 12),
+    new THREE.MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.4 })
+  );
+  head.position.set(TOKEN_RADIUS * 0.62, 0, TOKEN_RADIUS * 0.1);
+  group.add(head);
+
+  const spotMat = new THREE.MeshStandardMaterial({ color: '#151515', roughness: 0.4 });
+  const spotGeo = new THREE.SphereGeometry(TOKEN_RADIUS * 0.09, 10, 8);
+  [
+    [-0.15, 0.18, 0.16],
+    [-0.15, -0.18, 0.16],
+    [0.1, 0.24, 0.18],
+    [0.1, -0.24, 0.18],
+    [0.28, 0, 0.2]
+  ].forEach(([sx, sy, sz]) => {
+    const spot = new THREE.Mesh(spotGeo, spotMat);
+    spot.position.set(sx, sy, sz);
+    body.add(spot);
+  });
+
+  return group;
+}
+
+function disposeMesh(obj) {
+  if (!obj) return;
+  scene.remove(obj);
+  obj.traverse((child) => {
+    if (child.geometry && !child.geometry.userData.shared) child.geometry.dispose();
+    const materials = Array.isArray(child.material) ? child.material : child.material ? [child.material] : [];
+    materials.forEach((m) => {
+      if (!m.userData.shared) m.dispose();
+    });
+  });
 }
 
 /** Décalage local (avant mise à l'échelle) d'une case dans la grille 4×4 — ligne 0 = haut, colonne 0 = gauche. */
@@ -284,29 +330,48 @@ function cellLocalOffset(index) {
 }
 
 function createBoardGroup() {
-  return { board: createBoardMesh(), notchMeshes: Array(GRID_SIZE).fill(null), tokenMeshes: Array(GRID_SIZE).fill(null) };
+  return {
+    board: createBoardMesh(),
+    wellMeshes: Array(GRID_SIZE).fill(null),
+    notchMeshes: Array(GRID_SIZE).fill(null),
+    glowMeshes: Array(GRID_SIZE).fill(null),
+    tokenMeshes: Array(GRID_SIZE).fill(null)
+  };
 }
 
 function disposeBoardGroup(group) {
   disposeMesh(group.board);
+  group.wellMeshes.forEach(disposeMesh);
   group.notchMeshes.forEach(disposeMesh);
+  group.glowMeshes.forEach(disposeMesh);
   group.tokenMeshes.forEach(disposeMesh);
 }
 
 /**
  * Place/actualise un plateau complet à (centerX, centerY, centerZ), mis à
  * l'échelle `scale` (plateaux adversaires plus petits — voir updateScene).
- * `placeableIndexes` (miennes uniquement) éclaircit l'anneau de la case en
- * doré, même intention que le contraste jouable/grisé des autres jeux.
+ * `placeableIndexes` (miennes uniquement) éclaircit l'encoche en doré (rebord
+ * + halo), même intention que le contraste jouable/grisé des autres jeux.
  */
 function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, placeableIndexes = [] }) {
   group.board.position.set(centerX, centerY, centerZ);
   group.board.scale.setScalar(scale);
+  const surfaceZ = centerZ + (BOARD_THICKNESS / 2) * scale;
 
   for (let i = 0; i < GRID_SIZE; i++) {
     const { dx, dy } = cellLocalOffset(i);
     const x = centerX + dx * scale;
     const y = centerY + dy * scale;
+    const highlighted = placeableIndexes.includes(i);
+
+    if (!group.wellMeshes[i]) {
+      const well = createWellMesh();
+      scene.add(well);
+      group.wellMeshes[i] = well;
+    }
+    const well = group.wellMeshes[i];
+    well.position.set(x, y, surfaceZ + 0.001 * scale);
+    well.scale.setScalar(scale);
 
     if (!group.notchMeshes[i]) {
       const notch = createNotchMesh();
@@ -314,9 +379,21 @@ function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, plac
       group.notchMeshes[i] = notch;
     }
     const notch = group.notchMeshes[i];
-    notch.position.set(x, y, centerZ + (BOARD_THICKNESS / 2) * scale + 0.005);
+    notch.position.set(x, y, surfaceZ + 0.005 * scale);
     notch.scale.setScalar(scale);
-    notch.material.color.set(placeableIndexes.includes(i) ? NOTCH_HIGHLIGHT : NOTCH_DARK);
+    notch.material.color.set(highlighted ? GOLD : RIM_GREEN);
+    notch.material.emissive.set(highlighted ? GOLD_EMISSIVE : 0x000000);
+    notch.material.emissiveIntensity = highlighted ? 0.5 : 0;
+
+    if (!group.glowMeshes[i]) {
+      const glow = createGlowMesh();
+      scene.add(glow);
+      group.glowMeshes[i] = glow;
+    }
+    const glow = group.glowMeshes[i];
+    glow.position.set(x, y, surfaceZ + 0.004 * scale);
+    glow.scale.setScalar(scale);
+    glow.visible = highlighted;
 
     const tile = board[i];
     if (tile) {
@@ -327,9 +404,9 @@ function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, plac
       }
       const token = group.tokenMeshes[i];
       token.visible = true;
-      token.position.set(x, y, centerZ + (BOARD_THICKNESS / 2) * scale + 0.02);
+      token.position.set(x, y, surfaceZ + 0.02 * scale);
       token.scale.setScalar(scale);
-      setTokenValue(token, tile.value);
+      setTokenValue(token, tile);
     } else if (group.tokenMeshes[i]) {
       group.tokenMeshes[i].visible = false;
     }
@@ -349,24 +426,39 @@ function ensureScene() {
   document.body.appendChild(canvas);
 
   scene = new THREE.Scene();
+  scene.background = new THREE.Color(SCENE_BG);
+  scene.fog = new THREE.Fog(SCENE_BG, 7.5, 14);
+
   camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 100);
   camera.position.set(0, 0, CAMERA_DISTANCE);
   camera.lookAt(0, 0, 0);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
-  dirLight.position.set(1, 2, 3);
-  scene.add(dirLight);
+  scene.add(new THREE.HemisphereLight(0xbfe8c8, 0x14210f, 0.5));
+  const keyLight = new THREE.DirectionalLight(0xfff4e0, 0.7);
+  keyLight.position.set(2, 3, 6);
+  scene.add(keyLight);
+  const fillLight = new THREE.DirectionalLight(0x88aaff, 0.2);
+  fillLight.position.set(-3, 2, -2);
+  scene.add(fillLight);
 
-  renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-  renderer.setClearColor(0x000000, 0);
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
 
   myBoard = createBoardGroup();
   scene.add(myBoard.board);
 
+  ladybug = buildLadybug();
+  ladybug.position.set(MY_BOARD_HALF - 0.32, MY_BOARD_Y + MY_BOARD_HALF - 0.32, MY_BOARD_Z + BOARD_THICKNESS / 2 + 0.06);
+  ladybugBaseZ = ladybug.position.z;
+  scene.add(ladybug);
+
   const tick = () => {
     requestAnimationFrame(tick);
+    const t = performance.now() * 0.001;
+    if (glowMaterial) glowMaterial.emissiveIntensity = 0.55 + 0.35 * Math.sin(t * 3);
+    if (ladybug) ladybug.position.z = ladybugBaseZ + Math.sin(t * 2) * 0.01;
     renderer.render(scene, camera);
   };
   tick();
@@ -398,12 +490,12 @@ export function hideBoard() {
 
 /**
  * Reconstruit toute la scène à partir de l'état nécessaire au rendu :
- * - `myBoardTiles` : `Array<{value}|null>` de longueur 16 (mon jardin).
+ * - `myBoardTiles` : `Array<{value,color}|null>` de longueur 16 (mon jardin).
  * - `placeableIndexes` : indices de MON plateau où la tuile en cours (piochée
  *   ou de défausse sélectionnée) peut être posée — surligne l'encoche.
- * - `opponents` : `Array<{ board: Array<{value}|null> }>`, un par adversaire
- *   dans l'ordre des sièges déjà calculé par l'appelant (orderedOpponents).
- * - `discardTiles` : `Array<{value}>` — tuiles visibles de la défausse commune.
+ * - `opponents` : `Array<{ board: Array<{value,color}|null> }>`, un par
+ *   adversaire dans l'ordre des sièges déjà calculé par l'appelant.
+ * - `discardTiles` : `Array<{value,color}>` — tuiles visibles de la défausse commune.
  * - `stockCount` : nombre de tuiles restantes dans la pioche (juste pour
  *   décider si la pioche doit apparaître "pleine" ou non, purement décoratif).
  */
@@ -435,7 +527,7 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   discardTiles.forEach((tile, i) => {
     const mesh = discardMeshes[i];
     mesh.visible = true;
-    setTokenValue(mesh, tile.value);
+    setTokenValue(mesh, tile);
     const spread = (i - (discardTiles.length - 1) / 2) * (TOKEN_RADIUS * 2.1);
     mesh.position.set(0.65 + spread, NEUTRAL_ZONE_Y, 0.15);
   });
@@ -459,9 +551,7 @@ function ensureDrawPileMeshCount(count) {
   while (drawPileMeshes.length > count) disposeMesh(drawPileMeshes.pop());
   while (drawPileMeshes.length < count) {
     const mesh = createTokenMesh();
-    mesh.material[1].map = null;
-    mesh.material[1].color.set(WOOD_DARK);
-    mesh.material[1].needsUpdate = true;
+    setTokenBlank(mesh);
     scene.add(mesh);
     drawPileMeshes.push(mesh);
   }
