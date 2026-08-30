@@ -318,7 +318,9 @@ function buildTokenFaceTexture(value) {
   ctx.stroke();
 
   ctx.fillStyle = NUMBER_DARK;
-  ctx.font = `700 ${Math.round(size * 0.42)}px Georgia, serif`;
+  // Agrandi (0.42 → 0.55, demande explicite) — encore de la marge avant de
+  // toucher le bord du disque crème (rayon 0.48×size) même pour "20".
+  ctx.font = `700 ${Math.round(size * 0.55)}px Georgia, serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(String(value), cx, cy + size * 0.02);
