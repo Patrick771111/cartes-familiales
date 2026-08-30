@@ -1306,8 +1306,14 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 /* position:absolute avec left/top/width/height posés en JS (voir
    getCardScreenRects dans pouilleuxScene.js) pour recouvrir exactement la
    carte 3D correspondante — sans ça les boutons restent dans le flux HTML
-   normal du stage (empilés en haut à gauche), loin de l'éventail affiché. */
-.pouilleux-3d-stage .target-card--pickable { position: absolute; opacity: 0; margin: 0; }
+   normal du stage (empilés en haut à gauche), loin de l'éventail affiché.
+   La variante :disabled est nécessaire séparément (même spécificité que
+   `.target-card--pickable:disabled` plus bas dans ce fichier, qui la
+   remplacerait sinon dès le clic — tous les boutons passent `disabled`
+   immédiatement — révélant un "quadrillage" de rectangles alignés
+   correspondant aux vraies cartes tournées de l'éventail). */
+.pouilleux-3d-stage .target-card--pickable,
+.pouilleux-3d-stage .target-card--pickable:disabled { position: absolute; opacity: 0; margin: 0; }
 
 .settings-overlay {
   position: fixed;
