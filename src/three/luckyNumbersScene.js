@@ -13,11 +13,18 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
  * Caméra volontairement JAMAIS inclinée/élevée (même leçon que
  * pouilleuxScene.js/unoScene.js) : la profondeur de table (mon plateau
  * proche/grand/bas, ceux des adversaires loin/petits/haut) vient
- * uniquement du placement Y/Z des plateaux, jamais de l'angle de caméra —
- * en conséquence les puits d'encoche sont de simples disques plats (pas des
- * cylindres creusés) : de face, un cylindre creusé et un disque plat sont
- * indiscernables puisqu'on ne voit jamais la paroi latérale, donc autant
- * garder la géométrie la plus simple et la moins risquée côté z-fighting.
+ * uniquement du placement Y/Z des plateaux, jamais de l'angle de caméra.
+ *
+ * ATTENTION — piège rencontré avec un puits en vrai relief (cône peu
+ * profond) : même caméra non inclinée, mon plateau est positionné loin de
+ * l'axe optique (MY_BOARD_Y très négatif) donc chaque case est quand même
+ * VUE avec un angle de biais non nul (pure perspective, rien à voir avec
+ * une rotation de caméra). Un cône À PEINE creusé est extrêmement sensible
+ * à cet angle : la moindre bascule fait disparaître la moitié du dégradé et
+ * assombrit l'autre, donnant un "croissant" au lieu d'un creux net. D'où le
+ * choix d'un puits en disque plat + DÉGRADÉ PEINT (texture radiale, non
+ * éclairé) : indépendant de l'angle de vue et de la lumière, contrairement
+ * à une vraie géométrie en relief à cette échelle de profondeur.
  *
  * Montée UNE SEULE FOIS, ajoutée à `document.body` (donc en dehors de
  * `#app`) — un canvas WebGL recréé à chaque coup perdrait son contexte GL
@@ -32,8 +39,11 @@ const GRID_DIM = 4;
 const GRID_SIZE = GRID_DIM * GRID_DIM;
 const CELL_SPACING = 0.85;
 const TOKEN_RADIUS = 0.36;
-const NOTCH_RADIUS = 0.4;
-const NOTCH_TUBE = 0.045;
+// Rayon extérieur (NOTCH_RADIUS + NOTCH_TUBE) volontairement < CELL_SPACING/2
+// pour que deux anneaux voisins ne se touchent/chevauchent jamais — sinon
+// leurs bords fusionnent en une bande continue entre les cases (bug constaté).
+const NOTCH_RADIUS = 0.35;
+const NOTCH_TUBE = 0.035;
 const BOARD_MARGIN = 0.45;
 const BOARD_SIZE = (GRID_DIM - 1) * CELL_SPACING + BOARD_MARGIN * 2;
 const BOARD_THICKNESS = 0.14;
@@ -206,18 +216,51 @@ function setTokenBlank(group) {
   group.userData.center.material.needsUpdate = true;
 }
 
-/** Rebord d'encoche — vrai anneau en relief (TorusGeometry), pas une texture peinte : "le plateau doit avoir des encoches" (demande explicite). */
+/**
+ * Rebord d'encoche — vrai anneau en relief (TorusGeometry), pas une texture
+ * peinte : "le plateau doit avoir des encoches" (demande explicite).
+ * PAS de rotation : un TorusGeometry est DÉJÀ face à la caméra par défaut
+ * (anneau dans le plan XY, trou le long de Z) — contrairement au Cylindre/
+ * Cercle/Sphère de ce fichier qui, eux, ont besoin d'une rotation.x pour ça.
+ * La rotation.x=90° appliquée par erreur ici (copiée du reste du fichier
+ * sans vérifier) mettait le tore de PROFIL, l'écrasant en ellipse plate au
+ * lieu d'un cercle net — cause réelle du "bandeau vert qui traverse
+ * chaque trou" (confirmé en comparant un tore pivoté et un non pivoté côte
+ * à côte). MeshBasicMaterial (non éclairé) : un tube assez épais peut
+ * quand même attraper la lumière directionnelle de façon inégale ; une
+ * couleur fixe reste prévisible quel que soit l'angle.
+ */
 function createNotchMesh() {
   const geometry = new THREE.TorusGeometry(NOTCH_RADIUS, NOTCH_TUBE, 12, 28);
-  const material = new THREE.MeshStandardMaterial({ color: RIM_GREEN });
+  const material = new THREE.MeshBasicMaterial({ color: RIM_GREEN, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.rotation.x = Math.PI / 2;
   return mesh;
+}
+
+/** Dégradé radial peint (sombre au centre, halo léger avant le bord) — voir le commentaire d'en-tête sur pourquoi un vrai relief ne marche pas ici. */
+function buildWellTexture() {
+  const size = 128;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d');
+  const cx = size / 2;
+  const cy = size / 2;
+  const grad = ctx.createRadialGradient(cx, cy, size * 0.04, cx, cy, size * 0.5);
+  grad.addColorStop(0, '#0d2610');
+  grad.addColorStop(0.55, WELL_DARK);
+  grad.addColorStop(0.85, '#2e5a34');
+  grad.addColorStop(1, 'rgba(46,90,52,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const texture = new THREE.CanvasTexture(c);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
 }
 
 function getWellGeometry() {
   if (!wellGeometry) {
-    wellGeometry = new THREE.CircleGeometry(NOTCH_RADIUS * 0.95, 28);
+    wellGeometry = new THREE.CircleGeometry(NOTCH_RADIUS * 0.98, 28);
     wellGeometry.userData.shared = true;
   }
   return wellGeometry;
@@ -225,7 +268,9 @@ function getWellGeometry() {
 
 function getWellMaterial() {
   if (!wellMaterial) {
-    wellMaterial = new THREE.MeshStandardMaterial({ color: WELL_DARK, roughness: 0.95 });
+    // MeshBasicMaterial (non éclairé) : le dégradé peint doit rester identique
+    // quel que soit l'angle de vue/lumière, pas dépendre d'une normale 3D.
+    wellMaterial = new THREE.MeshBasicMaterial({ map: buildWellTexture(), transparent: true });
     wellMaterial.userData.shared = true;
   }
   return wellMaterial;
@@ -246,12 +291,15 @@ function getGlowGeometry() {
 
 function getGlowMaterial() {
   if (!glowMaterial) {
+    // metalness/roughness bas (glossy+métallique) créait un reflet spéculaire
+    // localisé au lieu d'un halo uniforme — un "glow" doit rester plat/mat,
+    // sa luminosité vient de `emissive`, pas d'une réflexion de la lumière.
     glowMaterial = new THREE.MeshStandardMaterial({
       color: GOLD,
       emissive: GOLD_EMISSIVE,
       emissiveIntensity: 0.85,
-      roughness: 0.3,
-      metalness: 0.4,
+      roughness: 1,
+      metalness: 0,
       transparent: true,
       opacity: 0.7
     });
@@ -364,17 +412,23 @@ function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, plac
     const y = centerY + dy * scale;
     const highlighted = placeableIndexes.includes(i);
 
+    // renderOrder explicite : ces meshes sont si proches en Z (quelques
+    // millièmes) que le tri par distance-caméra par défaut de Three.js pour
+    // les objets transparents peut les intercaler dans le mauvais ordre
+    // (bug constaté : bande visible traversant les cases en surbrillance).
     if (!group.wellMeshes[i]) {
       const well = createWellMesh();
+      well.renderOrder = 1;
       scene.add(well);
       group.wellMeshes[i] = well;
     }
     const well = group.wellMeshes[i];
-    well.position.set(x, y, surfaceZ + 0.001 * scale);
+    well.position.set(x, y, surfaceZ + 0.002 * scale);
     well.scale.setScalar(scale);
 
     if (!group.notchMeshes[i]) {
       const notch = createNotchMesh();
+      notch.renderOrder = 2;
       scene.add(notch);
       group.notchMeshes[i] = notch;
     }
@@ -382,11 +436,10 @@ function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, plac
     notch.position.set(x, y, surfaceZ + 0.005 * scale);
     notch.scale.setScalar(scale);
     notch.material.color.set(highlighted ? GOLD : RIM_GREEN);
-    notch.material.emissive.set(highlighted ? GOLD_EMISSIVE : 0x000000);
-    notch.material.emissiveIntensity = highlighted ? 0.5 : 0;
 
     if (!group.glowMeshes[i]) {
       const glow = createGlowMesh();
+      glow.renderOrder = 3;
       scene.add(glow);
       group.glowMeshes[i] = glow;
     }
@@ -399,6 +452,7 @@ function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, plac
     if (tile) {
       if (!group.tokenMeshes[i]) {
         const token = createTokenMesh();
+        token.renderOrder = 4;
         scene.add(token);
         group.tokenMeshes[i] = token;
       }
@@ -441,7 +495,7 @@ function ensureScene() {
   fillLight.position.set(-3, 2, -2);
   scene.add(fillLight);
 
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -450,7 +504,10 @@ function ensureScene() {
   scene.add(myBoard.board);
 
   ladybug = buildLadybug();
-  ladybug.position.set(MY_BOARD_HALF - 0.32, MY_BOARD_Y + MY_BOARD_HALF - 0.32, MY_BOARD_Z + BOARD_THICKNESS / 2 + 0.06);
+  // Réduite et casée dans le coin, à l'écart du rayon extérieur de la case
+  // voisine (NOTCH_RADIUS + NOTCH_TUBE) — sinon elle mange une partie du trou.
+  ladybug.scale.setScalar(0.55);
+  ladybug.position.set(1.634, MY_BOARD_Y + 1.634, MY_BOARD_Z + BOARD_THICKNESS / 2 + 0.06);
   ladybugBaseZ = ladybug.position.z;
   scene.add(ladybug);
 
