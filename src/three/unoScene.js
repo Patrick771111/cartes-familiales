@@ -129,12 +129,26 @@ function ensureMeshCount(list, count) {
   }
 }
 
-/** Dérive un nombre stable dans [0,1) à partir d'un id de carte — pour un décalage "en vrac" qui ne saute pas d'un rendu à l'autre (voir layoutDiscard), contrairement à Math.random(). */
+/**
+ * Dérive un nombre stable dans [0,1) à partir d'un id de carte — pour un
+ * décalage "en vrac" qui ne saute pas d'un rendu à l'autre (voir
+ * layoutDiscardPile), contrairement à Math.random(). FNV-1a plutôt qu'un
+ * simple hash polynomial : les ids de carte du moteur sont du type
+ * `uno-45`/`uno-46` (suffixe numérique séquentiel) — un hash plus naïf
+ * (accumulateur initialisé à `salt`, `hash*31+char`) donne des sorties
+ * quasi identiques pour des ids aussi proches, faisant ressembler le tas
+ * "en vrac" à un rangement bien net. Le salt est concaténé DANS la chaîne
+ * hachée (pas juste utilisé comme seed initial) pour bien décorréler les 3
+ * appels (x/y/rotation) d'une même carte.
+ */
 function stableJitter(id, salt) {
-  let hash = salt;
-  const s = String(id);
-  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
-  return (hash % 10000) / 10000;
+  let hash = 0x811c9dc5; // FNV offset basis
+  const s = `${id}#${salt}`;
+  for (let i = 0; i < s.length; i++) {
+    hash ^= s.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193); // FNV prime
+  }
+  return ((hash >>> 0) % 10000) / 10000;
 }
 
 /**
@@ -185,15 +199,39 @@ function fitHandDepth(maxExtent, baseZ) {
   return neededDistance <= baseDistance ? baseZ : CAMERA_DISTANCE - neededDistance;
 }
 
-/** Empile les dernières poses "en vrac" (décalage pseudo-aléatoire mais stable, voir stableJitter) plutôt qu'un éventail rangé. */
+/**
+ * Plus grande position Y (en valeur absolue) à laquelle ma main peut être
+ * centrée, à la profondeur `handZ`, sans que le bas des cartes ne dépasse
+ * le champ de vision VERTICAL de la caméra (fixe, indépendant de l'aspect
+ * ratio — seul le champ horizontal en dépend) — sans ça, le bas des
+ * cartes se retrouve rogné alors qu'il reste de la place à l'écran (le
+ * rognage vient du cadre de la caméra, pas d'un manque de place CSS).
+ */
+function maxHandCenterY(handZ) {
+  const halfVFov = (camera.fov * Math.PI) / 360;
+  const distance = CAMERA_DISTANCE - handZ;
+  const visibleHalfHeight = distance * Math.tan(halfVFov);
+  const cardHalfHeight = 0.5;
+  const dipMargin = 0.15; // creux de l'éventail (cartes aux extrémités, voir layoutFanGroup) + une petite respiration
+  return Math.max(0, visibleHalfHeight - cardHalfHeight - dipMargin);
+}
+
+/**
+ * Empile les dernières poses "en vrac" (décalage pseudo-aléatoire mais
+ * stable, voir stableJitter) plutôt qu'un éventail rangé — amplitude
+ * volontairement large (jusqu'à une pleine largeur de carte en X, une
+ * rotation quasi complète) : un tas de cartes jetées les unes sur les
+ * autres a des coins qui dépassent nettement, pas un chevauchement propre
+ * qui laisserait deviner un rangement.
+ */
 function layoutDiscardPile(meshes, cards, { centerX, centerY, centerZ }) {
   meshes.forEach((mesh, i) => {
     const card = cards[i];
     const jx = stableJitter(card.id, 17) - 0.5;
     const jy = stableJitter(card.id, 31) - 0.5;
     const jr = stableJitter(card.id, 53) - 0.5;
-    mesh.position.set(centerX + jx * 0.5, centerY + jy * 0.35, centerZ + i * 0.01);
-    mesh.rotation.z = jr * 1.1;
+    mesh.position.set(centerX + jx * CARD_ASPECT * 1.4, centerY + jy * 0.9, centerZ + i * 0.01);
+    mesh.rotation.z = jr * Math.PI * 0.9;
   });
 }
 
@@ -274,9 +312,13 @@ export function updateTable({ hand = [], handPlayable = [], opponents = [], disc
     mesh.material.color.set(handPlayable[i] ? 0xffffff : 0x8f8f8f);
     mesh.material.needsUpdate = true;
   });
-  const handExtent = layoutFanGroup(handMeshes, { centerX: 0, centerY: -1.55, centerZ: HAND_BASE_Z, radius: 2.6, maxSpanDeg: 80 });
+  const handDesiredY = -Math.min(1.55, maxHandCenterY(HAND_BASE_Z));
+  const handExtent = layoutFanGroup(handMeshes, { centerX: 0, centerY: handDesiredY, centerZ: HAND_BASE_Z, radius: 2.6, maxSpanDeg: 80 });
   const handZ = fitHandDepth(handExtent, HAND_BASE_Z);
-  if (handZ !== HAND_BASE_Z) layoutFanGroup(handMeshes, { centerX: 0, centerY: -1.55, centerZ: handZ, radius: 2.6, maxSpanDeg: 80 });
+  if (handZ !== HAND_BASE_Z) {
+    const handY = -Math.min(1.55, maxHandCenterY(handZ));
+    layoutFanGroup(handMeshes, { centerX: 0, centerY: handY, centerZ: handZ, radius: 2.6, maxSpanDeg: 80 });
+  }
 
   while (opponentMeshGroups.length > opponents.length) {
     const group = opponentMeshGroups.pop();

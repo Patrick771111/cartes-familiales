@@ -218,6 +218,13 @@ function renderUnoTable2D(container, { room, player, state, onLeave }) {
     </div>
   `;
 
+  // Nécessaire même si main.js masque déjà systématiquement les scènes 3D en
+  // tout début de draw() : ce rendu peut aussi être atteint directement par
+  // un clic sur la bascule 2D/3D (voir plus bas), sans repasser par draw()
+  // (même piège que renderTableNow2D au Pouilleux) — sans ça, le canvas 3D
+  // reste affiché par-dessus le DOM 2D fraîchement rendu.
+  hideTable();
+
   container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
   container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
   container.querySelector('#btn-invite-game')?.addEventListener('click', () => shareInviteLink(room));
@@ -528,6 +535,8 @@ function renderUnoTable3D(container, { room, player, state, onLeave }) {
 function renderUnoEnd(container, { room, player, state, onLeave }) {
   const winner = state.players.find((p) => p.id === state.winnerId);
   const youWon = state.winnerId === player.id;
+
+  hideTable();
 
   container.innerHTML = `
     <div class="screen screen--end">
