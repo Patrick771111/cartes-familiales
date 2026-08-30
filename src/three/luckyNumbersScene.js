@@ -194,6 +194,13 @@ function loadBoardPlateTexture() {
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
       const texture = new THREE.CanvasTexture(c);
       texture.colorSpace = THREE.SRGBColorSpace;
+      // Pas de mipmaps sur cette texture à découpe alpha (RGB=0 sous les
+      // pixels transparents) : à cette échelle réduite (BOARD_SCALE=0.47),
+      // le GPU génère des mipmaps qui mélangent ces texels noirs avec le
+      // bord opaque voisin, créant un liseré noir visible tout autour du
+      // plateau (bug constaté : "liseré noir autour de chaque plateau").
+      texture.generateMipmaps = false;
+      texture.minFilter = THREE.LinearFilter;
       boardPlateTexture = texture;
       resolve(texture);
     };
@@ -243,6 +250,8 @@ function loadDiscardPlateTexture() {
       ctx.putImageData(imageData, 0, 0);
       const texture = new THREE.CanvasTexture(c);
       texture.colorSpace = THREE.SRGBColorSpace;
+      texture.generateMipmaps = false;
+      texture.minFilter = THREE.LinearFilter;
       discardPlateTexture = texture;
       resolve(texture);
     };
@@ -276,6 +285,8 @@ function loadPiocheTexture() {
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
       const texture = new THREE.CanvasTexture(c);
       texture.colorSpace = THREE.SRGBColorSpace;
+      texture.generateMipmaps = false;
+      texture.minFilter = THREE.LinearFilter;
       piocheTexture = texture;
       resolve(texture);
     };
