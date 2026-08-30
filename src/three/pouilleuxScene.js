@@ -50,17 +50,11 @@ const PIP_LAYOUTS = {
   10: [[28, 13], [72, 13], [50, 25], [28, 37], [72, 37], [28, 63], [72, 63], [50, 75], [28, 87], [72, 87]]
 };
 const PIP_COUNT = { A: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10 };
-// Axes réutilisés pour composer tilt (éventail) et retournement par
-// quaternions plutôt que par angles d'Euler — voir layoutFan/advanceFlips.
-const AXIS_Y = new THREE.Vector3(0, 1, 0);
-const AXIS_Z = new THREE.Vector3(0, 0, 1);
-const flipTiltQuat = new THREE.Quaternion();
-const flipRotateQuat = new THREE.Quaternion();
+const AXIS_Z = new THREE.Vector3(0, 0, 1); // axe du tilt de l'éventail, voir layoutFan
 
 const scenes = new Map(); // key -> { canvas, renderer, scene, camera, meshes: [] }
 let cardBackTexture = null;
 const cardFaceTextures = new Map(); // `${rank}${suit}` -> THREE.CanvasTexture
-const cardFaceTexturesMirrored = new Map(); // idem, variante inversée horizontalement — voir getCardFaceTextureMirrored
 let animationHandle = null;
 
 function buildCardBackTexture() {
@@ -164,27 +158,12 @@ function drawCourtFigure(ctx, c, rank, symbol, color) {
   ctx.fillText(label, c.width / 2, c.height / 2);
 }
 
-/**
- * `mirrored` : variante utilisée UNIQUEMENT pendant la seconde moitié d'un
- * retournement (voir flipCardAt/advanceFlips). Le retournement pivote
- * autour d'un axe Y (vertical) — passé 90°, la caméra regarde la face
- * géométriquement "arrière" du plan (nécessaire en DoubleSide pour qu'elle
- * reste visible, voir plus bas), qui affiche le contenu de la texture
- * inversé HORIZONTALEMENT par rapport à la vue de face (pips/figure/coins
- * apparaîtraient en miroir — la carte semblerait basculer du mauvais côté).
- * Pré-inverser la texture ici annule cet effet, sans quoi la carte "de
- * repos" (jamais vue par l'arrière) n'a pas besoin de cette variante.
- */
-function buildCardFaceTexture(rank, suit, mirrored = false) {
+function buildCardFaceTexture(rank, suit) {
   const size = 256;
   const c = document.createElement('canvas');
   c.width = size;
   c.height = Math.round(size / CARD_ASPECT);
   const ctx = c.getContext('2d');
-  if (mirrored) {
-    ctx.translate(c.width, 0);
-    ctx.scale(-1, 1);
-  }
   const color = SUIT_COLOR[suit] || DARK_SUIT;
   const symbol = SUIT_SYMBOL[suit] || '?';
 
@@ -238,17 +217,6 @@ function getCardFaceTexture(rank, suit) {
   if (!texture) {
     texture = buildCardFaceTexture(rank, suit);
     cardFaceTextures.set(key, texture);
-  }
-  return texture;
-}
-
-/** Voir buildCardFaceTexture({mirrored:true}) — uniquement pour la 2ᵉ moitié d'un retournement (flipCardAt). */
-function getCardFaceTextureMirrored(rank, suit) {
-  const key = `${rank}${suit}`;
-  let texture = cardFaceTexturesMirrored.get(key);
-  if (!texture) {
-    texture = buildCardFaceTexture(rank, suit, true);
-    cardFaceTexturesMirrored.set(key, texture);
   }
   return texture;
 }
@@ -313,24 +281,29 @@ function advanceFlips(entry, now) {
       continue;
     }
     const t = Math.min(1, (now - flip.startTime) / flip.duration);
-    // À 90° la carte est de profil (invisible) : c'est le seul moment où
-    // changer la texture sans "voir" le dos se transformer en face.
+    // Pincement horizontal (scale.x : 1 -> 0 -> 1) le long de l'axe propre de
+    // la carte, PAS une rotation 3D : quel que soit l'axe choisi pour une
+    // vraie rotation (diagonale, vertical monde, vertical local...), un
+    // retournement à 180° déplace forcément au moins un coin — soit en
+    // inversant le sens de l'inclinaison (axe vertical monde), soit en
+    // faisant disparaître temporairement l'inclinaison (axe vertical local
+    // sans le tilt). Ici l'inclinaison de l'éventail (rotation.z, voir
+    // layoutFan) n'est JAMAIS touchée : chaque coin garde en permanence sa
+    // position angulaire exacte par rapport au centre de la carte, seule sa
+    // distance au centre varie (la carte "s'aplatit" sur sa tranche puis se
+    // redéploie). Change aussi la face affichée (dos -> face) au moment le
+    // plus fin, comme le ferait le passage par la tranche d'une vraie rotation.
     if (!flip.swapped && t >= 0.5) {
       mesh.material.map = flip.faceTexture;
       mesh.material.color.set(0xffffff);
       mesh.material.needsUpdate = true;
       flip.swapped = true;
     }
-    // Tilt de l'éventail (voir layoutFan) appliqué EN PREMIER (intrinsèque à
-    // la carte), puis retournement composé PAR-DESSUS autour de l'axe Y du
-    // MONDE (flipRotateQuat en multiplicande de gauche) — sans cette
-    // composition en deux temps, régler rotation.y et rotation.z ensemble
-    // (angles d'Euler) fait tourner la carte inclinée autour de sa propre
-    // diagonale au lieu d'un axe vertical qui passe par son centre.
-    flipTiltQuat.setFromAxisAngle(AXIS_Z, mesh.userData.tiltAngle || 0);
-    flipRotateQuat.setFromAxisAngle(AXIS_Y, t * Math.PI);
-    mesh.quaternion.copy(flipRotateQuat).multiply(flipTiltQuat);
-    if (t >= 1) entry.flips.delete(index);
+    mesh.scale.x = Math.max(0.02, Math.abs(1 - 2 * t));
+    if (t >= 1) {
+      mesh.scale.x = 1;
+      entry.flips.delete(index);
+    }
   }
 }
 
@@ -465,13 +438,6 @@ function layoutFan(meshes) {
     const angle = (i - (n - 1) / 2) * anglePerCard;
     const x = Math.sin(angle) * radius;
     mesh.position.set(x, (Math.cos(angle) - 1) * radius * 0.15, i * 0.01);
-    // Stocké à part (pas juste rotation.z) : pendant un retournement,
-    // advanceFlips recompose ce tilt avec la rotation de la carte autour
-    // d'un axe vertical MONDE (voir AXIS_Y/AXIS_Z plus haut) — mélanger les
-    // deux directement en rotation.y/.z (angles d'Euler) fait tourner la
-    // carte autour de sa propre diagonale une fois inclinée dans l'éventail,
-    // au lieu d'un axe vertical qui passe par son centre.
-    mesh.userData.tiltAngle = -angle;
     mesh.quaternion.setFromAxisAngle(AXIS_Z, -angle);
     maxExtent = Math.max(maxExtent, Math.abs(x) + halfDiagonal);
   });
@@ -492,12 +458,7 @@ export function updateFan(key, cards = [], { pickable = false } = {}) {
   while (meshes.length > cards.length) disposeMesh(scene, meshes.pop());
   while (meshes.length < cards.length) {
     const geometry = new THREE.PlaneGeometry(CARD_ASPECT, 1);
-    // side: DoubleSide — une fois la carte passé 90° (retournement, voir
-    // flipCardAt/advanceFlips), la caméra regarde la face géométriquement
-    // "arrière" du plan ; par défaut (FrontSide) Three.js ne la dessine pas
-    // du tout, donnant l'impression que l'animation s'arrête net à la
-    // tranche au lieu de terminer sur la face dévoilée.
-    const material = new THREE.MeshStandardMaterial({ transparent: true, side: THREE.DoubleSide });
+    const material = new THREE.MeshStandardMaterial({ transparent: true });
     const mesh = new THREE.Mesh(geometry, material);
     const frame = createHighlightFrame();
     mesh.add(frame);
@@ -574,9 +535,7 @@ export function flipCardAt(key, index, card, { duration = 700 } = {}) {
   entry.flips.set(index, {
     startTime: performance.now(),
     duration,
-    // Mirroir horizontal, pas la texture normale : passé 90° de rotation, la
-    // caméra regarde la face "arrière" du plan (voir buildCardFaceTexture).
-    faceTexture: getCardFaceTextureMirrored(card.rank, card.suit),
+    faceTexture: getCardFaceTexture(card.rank, card.suit),
     swapped: false
   });
 }
