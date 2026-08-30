@@ -261,6 +261,7 @@ function stopRoomListPolling() {
  * avec les battements de cœur déjà utilisés ailleurs dans ce fichier.
  */
 async function showRoomList(profile) {
+  hideAllThreeDScenes();
   currentPlayer = profile;
   document.title = 'Cartes en famille';
   stopRoomListPolling();
@@ -324,6 +325,7 @@ async function backToRoomList({ leaveFirst }) {
  * `leaveTable` chacun à leur façon avant d'arriver ici).
  */
 async function resetRoomSessionAndShowList() {
+  hideAllThreeDScenes();
   if (unsubscribe) {
     unsubscribe();
     unsubscribe = null;

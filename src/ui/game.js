@@ -2,7 +2,7 @@ import { cardFaceHtml, cardBackHtml } from './cards.js';
 import { AVAILABLE_GAMES, startGame, claimHost, addBot, HOST_STALE_MS, playerCountAllowed, replaceBotWithPlayer } from '../game/engine.js';
 import { rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { SEQUENCE_TARGET as SUITE_INFERNALE_TARGET } from '../game/suiteinfernale.js';
-import { connectionBadge, resetRevealHands, shareInviteLink } from './gameShared.js';
+import { connectionBadge, resetRevealHands, shareInviteLink, threeDToggleHtml, wireThreeDToggle } from './gameShared.js';
 import { trioCardHtml, trioRowHtml, trioTrophiesHtml, trioJitter } from './games/trio.js';
 import { suiteInfernaleSequenceHtml } from './games/suiteinfernale.js';
 import { flip7CardHtml } from './games/flip7.js';
@@ -291,6 +291,18 @@ function spectatorHandHtml(game, state, p, reveal) {
 }
 
 export function renderSpectatorGame(container, { room, player, gameLabel, onBackToRooms }) {
+  const spectatorArgs = { room, player, gameLabel, onBackToRooms };
+  const mod = GAME_UI[room.game];
+  // Hook optionnel (même esprit que hide3D) : un jeu 3D peut prendre la
+  // main pour une orbite libre autour de la table. `false`/absent = 2D.
+  if (
+    mod?.renderSpectator?.(container, {
+      ...spectatorArgs,
+      onRerender: () => renderSpectatorGame(container, spectatorArgs)
+    })
+  ) {
+    return;
+  }
   const state = room.state;
   const isTrouduc = room.game === 'trouduc';
   const currentName = state.players.find((p) => p.id === state.currentPlayerId)?.name;
@@ -387,6 +399,7 @@ export function renderSpectatorGame(container, { room, player, gameLabel, onBack
       <div class="table-felt">
         <p class="eyebrow">Tu regardes — ${gameLabel || 'partie'} en cours</p>
         <button class="btn btn--link btn--small" id="btn-back-to-rooms">← Retour aux salons</button>
+        ${mod?.renderSpectator ? threeDToggleHtml(room.game) : ''}
 
         ${luckyCenterHtml}
         ${trioCenterHtml}
@@ -432,6 +445,9 @@ export function renderSpectatorGame(container, { room, player, gameLabel, onBack
   container.querySelector('#btn-back-to-rooms')?.addEventListener('click', () => {
     onBackToRooms?.();
   });
+  if (mod?.renderSpectator) {
+    wireThreeDToggle(container, room.game, () => renderSpectatorGame(container, spectatorArgs));
+  }
 
   container.querySelectorAll('[data-replace-bot-id]').forEach((btn) => {
     btn.addEventListener('click', async () => {

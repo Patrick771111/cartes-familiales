@@ -2693,6 +2693,20 @@ body.is-card-dragging * {
     padding-right: 64px; /* réserve la colonne de bulles fixes, à droite en paysage */
     overflow-y: auto; /* la page peut défiler ici si les 3 zones dépassent malgré les plafonds ci-dessous */
   }
+  /* Le rendu 3D n'a plus les 3 zones 2D (adversaires / feutre / main) : une
+     seule table pleine largeur, comme .uno-screen--3d — sans ça la règle
+     `flex-direction:row` ci-dessus casserait le canvas. */
+  .screen--table.trio-screen.trio-screen--3d {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+  .trio-screen--3d .trio-3d-table {
+    flex: 1 1 auto;
+    aspect-ratio: 16 / 9;
+    max-height: 78vh;
+    min-height: 160px;
+  }
   /* 3 sections (adversaires / feutre / ma main) au lieu des 2 habituelles
      (feutre / main) — sans flex-basis explicite, la zone adversaires ne
      suit pas les proportions 52%/38% des deux autres et le tout se
@@ -3283,7 +3297,13 @@ body.is-card-dragging * {
    défilables verticalement comme en portrait si besoin ; pioche et jardin ne
    défilent jamais (mêmes contraintes qu'en portrait). */
 @media (orientation: landscape) and (max-height: 620px) {
-  .screen--table.lucky-screen {
+  /* :not(.lucky-screen--3d) — cette grille à 3 colonnes est taillée pour les
+     3 zones du rendu 2D (adversaires / pioche+défausse / mon plateau). Sans
+     cette exclusion, elle s'appliquait AUSSI à l'écran 3D (un seul enfant,
+     .lucky-3d-table) qui se retrouvait écrasé dans la 1ʳᵉ colonne (~130-190px
+     de large) au lieu de toute la largeur — bug constaté : plateau minuscule
+     avec les coccinelles/jetons tronqués sur un écran large/bas (paysage). */
+  .screen--table.lucky-screen:not(.lucky-screen--3d) {
     display: grid;
     grid-template-columns: minmax(130px, 1fr) minmax(150px, 1fr) minmax(200px, 1.2fr);
     align-items: start;
@@ -3751,6 +3771,63 @@ body.is-card-dragging * {
   margin: 0 0 8px;
   font-size: 13px;
   color: rgba(247, 241, 225, 0.8);
+}
+
+/* Écran 3D de Trio (voir renderTrioTable3D dans src/ui/games/trio.js) : une
+   seule scène de table (rangées adverses au loin, centre en vrac, sa main
+   en bas — voir src/three/trioScene.js) plutôt que les zones 2D séparées.
+   `aspect-ratio` plutôt que `flex:1` : même piège que .uno-3d-table /
+   .pouilleux-3d-stage (hauteur — donc FOV caméra — qui fluctuerait avec le
+   bandeau de tour sur 1 ou 2 lignes). */
+.trio-screen--3d { align-items: stretch; overflow: hidden; }
+.trio-3d-table {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  max-height: 68vh;
+  min-height: 320px;
+  position: relative;
+  touch-action: none;
+  cursor: grab;
+}
+.trio-3d-table:active { cursor: grabbing; }
+.trio-3d-card {
+  position: absolute;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+  touch-action: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  z-index: 7;
+  pointer-events: auto;
+}
+.trio-3d-card:disabled { cursor: default; }
+.trio-3d-label {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  margin: 0;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(247, 241, 225, 0.9);
+  white-space: nowrap;
+  z-index: 6; /* au-dessus du canvas 3D opaque (z-index 5), sans capter les clics */
+}
+.trio-3d-label--turn {
+  box-shadow: 0 0 0 1.5px var(--brass-soft);
+  color: var(--cream);
+}
+.trio-3d-label--mine { font-size: 13px; }
+.spectator-join {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  padding: 8px 12px 0;
 }
 
 /* Cinq Rois — dos de cartes adverses : une seule ligne (empilés) */
