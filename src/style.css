@@ -1315,6 +1315,20 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 .pouilleux-3d-stage .target-card--pickable,
 .pouilleux-3d-stage .target-card--pickable:disabled { position: absolute; opacity: 0; margin: 0; }
 
+/* Boutons invisibles superposés à SA PROPRE main quand elle est affichée en
+   3D (stage si on est la cible, "mine" si on pioche — voir renderTableNow3D)
+   pour permettre le glisser-déposer (voir enableHandDrag) : même principe de
+   superposition que .target-card--pickable ci-dessus, cursor/touch-action en
+   plus pour le geste de glisser (cohérent avec .my-hand__cards .card en 2D). */
+.pouilleux-3d-stage .mine-card--draggable,
+.pouilleux-3d-mine-stage .mine-card--draggable {
+  position: absolute;
+  opacity: 0;
+  margin: 0;
+  cursor: grab;
+  touch-action: none;
+}
+
 /* Quand ma propre main est aussi affichée en dessous (voir showMineFan dans
    renderTableNow3D) : le stage principal cède un peu de hauteur. */
 .pouilleux-3d-stage--compact { max-height: 38vh; }

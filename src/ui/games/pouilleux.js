@@ -423,6 +423,15 @@ function renderTableNow3D(container, { room, player, state, onLeave }) {
         .join('')
     : '';
 
+  // Boutons invisibles pour le glisser-déposer de SA PROPRE main (voir plus
+  // bas myHandKey/enableHandDrag) — seulement pertinent quand elle est
+  // affichée face visible : soit dans "stage" (targetIsMe), soit dans "mine"
+  // (iAmDrawing, calculé plus bas). `draggableButtonsHtml` est injecté dans
+  // le conteneur du bon éventail au moment de construire le gabarit HTML.
+  const draggableButtonsHtml = orderedHand
+    .map((c) => `<button type="button" class="card mine-card--draggable" data-card-id="${c.id}"></button>`)
+    .join('');
+
   const statusText = !target
     ? ''
     : targetIsMe
@@ -447,14 +456,21 @@ function renderTableNow3D(container, { room, player, state, onLeave }) {
       ? `${drawer.name}${connectionBadge(state, drawer.id)} · ${drawer.hand.length} carte${drawer.hand.length > 1 ? 's' : ''}`
       : '';
 
+  // Clé de l'éventail qui montre ACTUELLEMENT ma propre main face visible
+  // (jamais les deux à la fois) — sert à la fois à placer les boutons de
+  // glisser-déposer ci-dessus dans le bon conteneur et à brancher
+  // enableHandDrag plus bas. `null` quand ma main n'est affichée nulle part
+  // ce rendu-ci (ex. pur spectateur d'un tour entre deux autres joueurs).
+  const myHandKey = targetIsMe ? 'stage' : iAmDrawing ? 'mine' : null;
+
   container.innerHTML = `
     <div class="screen screen--table pouilleux-screen pouilleux-screen--3d">
       <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
         ${targetIsMe ? 'On pioche chez toi !' : isMyTurn ? `Touche une carte chez ${target?.name || ''}` : `Tour de ${currentPlayerName}`}
       </div>
       ${statusText ? `<p class="pouilleux-3d-status">${statusText}</p>` : ''}
-      <div class="pouilleux-3d-stage ${showSecondFan ? 'pouilleux-3d-stage--compact' : ''}">${pickableButtonsHtml}</div>
-      ${showSecondFan ? `<p class="pouilleux-3d-mine-label">${secondFanLabel}</p><div class="pouilleux-3d-mine-stage"></div>` : ''}
+      <div class="pouilleux-3d-stage ${showSecondFan ? 'pouilleux-3d-stage--compact' : ''}">${pickableButtonsHtml}${myHandKey === 'stage' ? draggableButtonsHtml : ''}</div>
+      ${showSecondFan ? `<p class="pouilleux-3d-mine-label">${secondFanLabel}</p><div class="pouilleux-3d-mine-stage">${myHandKey === 'mine' ? draggableButtonsHtml : ''}</div>` : ''}
 
       <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
       <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
@@ -502,6 +518,45 @@ function renderTableNow3D(container, { room, player, state, onLeave }) {
       btn.style.width = `${r.width}px`;
       btn.style.height = `${r.height}px`;
     });
+  }
+
+  // Glisser-déposer de sa propre main affichée en 3D (voir myHandKey) — même
+  // superposition de boutons invisibles sur les cartes réellement dessinées
+  // que ci-dessus pour la pioche, et même moveCard('pouilleux', ...) que le
+  // glisser-déposer 2D (src/ui/dragReorder.js) : les deux vues partagent le
+  // même ordre persisté (handOrder.js), rien de spécifique à la 3D côté tri.
+  if (myHandKey) {
+    const rects = getCardScreenRects(myHandKey);
+    container.querySelectorAll('.mine-card--draggable').forEach((btn, i) => {
+      const r = rects[i];
+      if (!r) return;
+      btn.style.left = `${r.left}px`;
+      btn.style.top = `${r.top}px`;
+      btn.style.width = `${r.width}px`;
+      btn.style.height = `${r.height}px`;
+    });
+
+    const handEl = container.querySelector(myHandKey === 'stage' ? '.pouilleux-3d-stage' : '.pouilleux-3d-mine-stage');
+    if (handEl) {
+      enableHandDrag(handEl, {
+        // Le `transform` posé par enableHandDrag sur le bouton lui-même
+        // (invisible, opacity:0) n'a aucun effet visible : la carte 3D
+        // correspondante reçoit à la place un contour doré pendant la prise
+        // en main (voir setCardHighlight, déjà utilisé pour la paire).
+        onDragStart: (cardId) => {
+          const idx = orderedHand.findIndex((c) => c.id === cardId);
+          if (idx !== -1) setCardHighlight(myHandKey, idx, true);
+        },
+        onDragEnd: (cardId) => {
+          const idx = orderedHand.findIndex((c) => c.id === cardId);
+          if (idx !== -1) setCardHighlight(myHandKey, idx, false);
+        },
+        onDrop: (cardId, index) => {
+          moveCard('pouilleux', cardId, index);
+          renderTableNow3D(container, { room, player, state, onLeave });
+        }
+      });
+    }
   }
 
   wireThreeDToggle(container, 'pouilleux', () => renderTable(container, { room, player, state, onLeave }));

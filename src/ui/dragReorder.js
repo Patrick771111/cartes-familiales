@@ -71,7 +71,16 @@ export function applyDynamicHandOverlap(handEl, { maxOverlapRatio = 0.72, minMar
   }
 }
 
-export function enableHandDrag(handEl, { onDrop, onTap } = {}) {
+/**
+ * `onDragStart`/`onDragEnd` (optionnels) : déclenchés au franchissement du
+ * seuil de déplacement / à la fin d'un vrai glisser — utile pour un appelant
+ * qui a besoin d'un retour visuel propre (ex. mettre en valeur la carte
+ * "prise en main" dans le rendu 3D du Pouilleux, où les éléments réels
+ * `[data-card-id]` sont des boutons invisibles superposés au canvas, donc le
+ * `transform` appliqué ici sur l'élément lui-même n'a aucun effet visible —
+ * voir setCardHighlight dans src/three/pouilleuxScene.js).
+ */
+export function enableHandDrag(handEl, { onDrop, onTap, onDragStart, onDragEnd } = {}) {
   let dragging = null; // { el, id, startX, startY, moved }
 
   handEl.querySelectorAll('[data-card-id]').forEach((el) => {
@@ -85,8 +94,10 @@ export function enableHandDrag(handEl, { onDrop, onTap } = {}) {
       if (!dragging || dragging.el !== el) return;
       const dx = e.clientX - dragging.startX;
       const dy = e.clientY - dragging.startY;
+      const wasMoved = dragging.moved;
       if (Math.abs(dx) > TAP_THRESHOLD_PX || Math.abs(dy) > TAP_THRESHOLD_PX) dragging.moved = true;
       if (dragging.moved) {
+        if (!wasMoved) onDragStart?.(dragging.id);
         el.classList.add('is-dragging');
         el.style.transform = `translate(${dx}px, -14px) scale(1.06)`;
         el.style.zIndex = '10';
@@ -106,6 +117,7 @@ export function enableHandDrag(handEl, { onDrop, onTap } = {}) {
         onTap?.(id);
         return;
       }
+      onDragEnd?.(id);
 
       const dropX = dragging.lastX;
       const siblings = [...handEl.querySelectorAll('[data-card-id]')].filter((s) => s !== el);
