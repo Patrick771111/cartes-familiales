@@ -60,6 +60,7 @@ const flipRotateQuat = new THREE.Quaternion();
 const scenes = new Map(); // key -> { canvas, renderer, scene, camera, meshes: [] }
 let cardBackTexture = null;
 const cardFaceTextures = new Map(); // `${rank}${suit}` -> THREE.CanvasTexture
+const cardFaceTexturesMirrored = new Map(); // idem, variante inversée horizontalement — voir getCardFaceTextureMirrored
 let animationHandle = null;
 
 function buildCardBackTexture() {
@@ -163,12 +164,27 @@ function drawCourtFigure(ctx, c, rank, symbol, color) {
   ctx.fillText(label, c.width / 2, c.height / 2);
 }
 
-function buildCardFaceTexture(rank, suit) {
+/**
+ * `mirrored` : variante utilisée UNIQUEMENT pendant la seconde moitié d'un
+ * retournement (voir flipCardAt/advanceFlips). Le retournement pivote
+ * autour d'un axe Y (vertical) — passé 90°, la caméra regarde la face
+ * géométriquement "arrière" du plan (nécessaire en DoubleSide pour qu'elle
+ * reste visible, voir plus bas), qui affiche le contenu de la texture
+ * inversé HORIZONTALEMENT par rapport à la vue de face (pips/figure/coins
+ * apparaîtraient en miroir — la carte semblerait basculer du mauvais côté).
+ * Pré-inverser la texture ici annule cet effet, sans quoi la carte "de
+ * repos" (jamais vue par l'arrière) n'a pas besoin de cette variante.
+ */
+function buildCardFaceTexture(rank, suit, mirrored = false) {
   const size = 256;
   const c = document.createElement('canvas');
   c.width = size;
   c.height = Math.round(size / CARD_ASPECT);
   const ctx = c.getContext('2d');
+  if (mirrored) {
+    ctx.translate(c.width, 0);
+    ctx.scale(-1, 1);
+  }
   const color = SUIT_COLOR[suit] || DARK_SUIT;
   const symbol = SUIT_SYMBOL[suit] || '?';
 
@@ -222,6 +238,17 @@ function getCardFaceTexture(rank, suit) {
   if (!texture) {
     texture = buildCardFaceTexture(rank, suit);
     cardFaceTextures.set(key, texture);
+  }
+  return texture;
+}
+
+/** Voir buildCardFaceTexture({mirrored:true}) — uniquement pour la 2ᵉ moitié d'un retournement (flipCardAt). */
+function getCardFaceTextureMirrored(rank, suit) {
+  const key = `${rank}${suit}`;
+  let texture = cardFaceTexturesMirrored.get(key);
+  if (!texture) {
+    texture = buildCardFaceTexture(rank, suit, true);
+    cardFaceTexturesMirrored.set(key, texture);
   }
   return texture;
 }
@@ -547,7 +574,9 @@ export function flipCardAt(key, index, card, { duration = 700 } = {}) {
   entry.flips.set(index, {
     startTime: performance.now(),
     duration,
-    faceTexture: getCardFaceTexture(card.rank, card.suit),
+    // Mirroir horizontal, pas la texture normale : passé 90° de rotation, la
+    // caméra regarde la face "arrière" du plan (voir buildCardFaceTexture).
+    faceTexture: getCardFaceTextureMirrored(card.rank, card.suit),
     swapped: false
   });
 }
