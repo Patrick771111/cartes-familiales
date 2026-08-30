@@ -25,10 +25,19 @@ import {
   positionFan,
   updateFan,
   showFan,
+  hideFan,
   hideAllFans,
   flipCardAt,
+  setCardHighlight,
+  fadeOutCard,
+  descendCard,
   getCardScreenRects
 } from '../../three/pouilleuxScene.js';
+
+// Durée du retournement 3D (voir flipCardAt) — nommée ici plutôt que de
+// compter sur sa valeur par défaut, pour caler dessus le déclenchement à
+// 80% de rotation de la chorégraphie paire/descente (renderDrawReveal3D).
+const FLIP_DURATION = 700;
 
 let lastRenderedState = null;
 
@@ -164,6 +173,34 @@ function renderDrawReveal2D(container, { previousState, newState, player, room, 
 }
 
 /**
+ * Chorégraphie de fin de retournement pour la carte `idx` de "stage",
+ * partagée entre "je viens de piocher" (ma propre main visible dans "mine")
+ * et "je regarde deux autres joueurs s'affronter" (main cachée du tireur
+ * dans "mine", voir renderDrawReveal3D). `secondHandBefore` est la main du
+ * joueur qui reçoit la carte, dans le même ordre que ses cartes affichées
+ * dans "mine", AVANT le tirage. "À partir de 80% de rotation" (voir demande
+ * utilisateur) : paire détectée -> contour doré puis disparition des 2
+ * cartes ; sinon la carte descend, direction visuelle vers l'éventail "mine"
+ * affiché juste en dessous (pas de déplacement littéral entre les deux
+ * canvas indépendants — simplification assumée).
+ */
+function scheduleFlipConclusion(idx, draw, secondHandBefore) {
+  const pairIdx = draw.paired ? secondHandBefore.findIndex((c) => c.rank === draw.card.rank) : -1;
+  window.setTimeout(() => {
+    if (draw.paired && pairIdx !== -1) {
+      setCardHighlight('stage', idx, true);
+      setCardHighlight('mine', pairIdx, true);
+      window.setTimeout(() => {
+        fadeOutCard('stage', idx);
+        fadeOutCard('mine', pairIdx);
+      }, 250);
+    } else {
+      descendCard('stage', idx, { duration: 450, distance: 1.2 });
+    }
+  }, FLIP_DURATION * 0.8);
+}
+
+/**
  * Version 3D de la révélation d'un tirage : la carte piochée pivote sur
  * elle-même pour dévoiler sa face (voir flipCardAt) au lieu du grand
  * médaillon 2D — seulement si la main d'où l'on a piocher n'était pas déjà
@@ -180,7 +217,23 @@ function renderDrawReveal3D(container, { previousState, newState, player, room, 
 
   if (!targetWasMe && target) {
     const idx = target.hand.findIndex((c) => c.id === draw.card.id);
-    if (idx !== -1) flipCardAt('stage', idx, { rank: draw.card.rank, suit: draw.card.suit });
+    if (idx !== -1) {
+      flipCardAt('stage', idx, { rank: draw.card.rank, suit: draw.card.suit }, { duration: FLIP_DURATION });
+
+      // Chorégraphie de fin de retournement (voir scheduleFlipConclusion) :
+      // soit c'est MOI qui viens de piocher (draw.by === player.id, ma main
+      // face visible est dans "mine" via renderTableNow3D), soit — à 3
+      // joueurs ou plus — je regarde deux AUTRES joueurs s'affronter et
+      // "mine" montre alors la main cachée du tireur (spectatingOthers dans
+      // renderTableNow3D, exactement les mêmes conditions que ce `else`).
+      if (draw.by === player.id) {
+        const me = previousState.players.find((p) => p.id === player.id);
+        const myHandBefore = getOrderedHand('pouilleux', me.hand, sortedHand);
+        scheduleFlipConclusion(idx, draw, myHandBefore);
+      } else if (drawer) {
+        scheduleFlipConclusion(idx, draw, drawer.hand);
+      }
+    }
   }
 
   const isOddCard = draw.card.id === newState.oddCardId;
@@ -376,13 +429,32 @@ function renderTableNow3D(container, { room, player, state, onLeave }) {
       ? `Ta main (${orderedHand.length})`
       : `${target.name}${connectionBadge(state, target.id)} · ${target.hand.length} carte${target.hand.length > 1 ? 's' : ''}`;
 
+  // Second éventail sous celui du joueur ciblé (toujours "stage" ci-dessus) :
+  // soit ma propre main (face visible) pendant que JE pioche chez quelqu'un
+  // d'autre, soit — à 3 joueurs ou plus — la main cachée (dos) de celui qui
+  // est EN TRAIN de piocher, quand je ne suis ni lui ni sa cible (pur
+  // spectateur d'un tour entre deux autres joueurs). Dans les deux cas ce
+  // rendu sert aussi d'état initial à renderDrawReveal3D, donc reste actif
+  // pendant la révélation qui suit. Quand je suis moi-même la cible, ma main
+  // occupe déjà le grand éventail "stage" ci-dessus, pas de second nécessaire.
+  const drawer = state.players.find((p) => p.id === state.currentPlayerId) || null;
+  const iAmDrawing = Boolean(isMyTurn && target && !targetIsMe);
+  const spectatingOthers = Boolean(!isMyTurn && !targetIsMe && target && drawer);
+  const showSecondFan = iAmDrawing || spectatingOthers;
+  const secondFanLabel = iAmDrawing
+    ? `Ta main (${orderedHand.length})`
+    : spectatingOthers
+      ? `${drawer.name}${connectionBadge(state, drawer.id)} · ${drawer.hand.length} carte${drawer.hand.length > 1 ? 's' : ''}`
+      : '';
+
   container.innerHTML = `
     <div class="screen screen--table pouilleux-screen pouilleux-screen--3d">
       <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
         ${targetIsMe ? 'On pioche chez toi !' : isMyTurn ? `Touche une carte chez ${target?.name || ''}` : `Tour de ${currentPlayerName}`}
       </div>
       ${statusText ? `<p class="pouilleux-3d-status">${statusText}</p>` : ''}
-      <div class="pouilleux-3d-stage">${pickableButtonsHtml}</div>
+      <div class="pouilleux-3d-stage ${showSecondFan ? 'pouilleux-3d-stage--compact' : ''}">${pickableButtonsHtml}</div>
+      ${showSecondFan ? `<p class="pouilleux-3d-mine-label">${secondFanLabel}</p><div class="pouilleux-3d-mine-stage"></div>` : ''}
 
       <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
       <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
@@ -400,6 +472,21 @@ function renderTableNow3D(container, { room, player, state, onLeave }) {
     : Array(target ? target.hand.length : 0).fill(null);
   updateFan('stage', stageCards, { pickable: stagePickable });
   showFan('stage');
+
+  if (showSecondFan) {
+    mountFan('mine');
+    const mineEl = container.querySelector('.pouilleux-3d-mine-stage');
+    if (mineEl) positionFan('mine', mineEl.getBoundingClientRect());
+    const secondFanCards = iAmDrawing ? orderedHand.map((c) => ({ rank: c.rank, suit: c.suit })) : Array(drawer.hand.length).fill(null);
+    updateFan('mine', secondFanCards);
+    showFan('mine');
+  } else {
+    // Ce rendu peut être atteint sans repasser par hideAllThreeDScenes() (ex.
+    // rendu final du setTimeout de révélation, voir renderDrawReveal3D) : un
+    // "mine" resté affiché d'un tour précédent ne se cacherait pas tout seul
+    // sinon (hideAllFans() cacherait aussi "stage", qu'on veut garder).
+    hideFan('mine');
+  }
 
   // Les boutons de clic invisibles doivent recouvrir les VRAIES positions des
   // cartes dessinées en 3D (éventail, pas un simple alignement) — sans ça ils

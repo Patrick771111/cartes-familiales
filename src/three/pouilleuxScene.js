@@ -175,7 +175,7 @@ function ensureScene(key) {
   renderer.setClearColor(0x000000, 0);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
-  entry = { canvas, renderer, scene, camera, meshes: [], flips: new Map() };
+  entry = { canvas, renderer, scene, camera, meshes: [], flips: new Map(), fades: new Map() };
   scenes.set(key, entry);
 
   if (!animationHandle) {
@@ -184,6 +184,7 @@ function ensureScene(key) {
       const now = performance.now();
       for (const s of scenes.values()) {
         advanceFlips(s, now);
+        advanceFades(s, now);
         s.renderer.render(s.scene, s.camera);
       }
     };
@@ -215,6 +216,35 @@ function advanceFlips(entry, now) {
   }
 }
 
+/**
+ * Avance les animations transitoires de disparition (`fadeOutCard`, paire
+ * défaussée) ou de descente (`descendCard`, carte qui rejoint la main) en
+ * cours pour cette scène. Purement décoratif comme `advanceFlips` : le
+ * prochain `updateFan` fait autorité et remplace ce rendu.
+ */
+function advanceFades(entry, now) {
+  for (const [index, fade] of entry.fades) {
+    const mesh = entry.meshes[index];
+    if (!mesh) {
+      entry.fades.delete(index);
+      continue;
+    }
+    const t = Math.min(1, (now - fade.startTime) / fade.duration);
+    if (fade.kind === 'fadeOut') {
+      const s = 1 - t;
+      mesh.scale.set(s, s, s);
+      mesh.material.opacity = s;
+    } else {
+      mesh.position.y = fade.startY - fade.distance * t;
+      mesh.material.opacity = 1 - t;
+    }
+    if (t >= 1) {
+      mesh.visible = false;
+      entry.fades.delete(index);
+    }
+  }
+}
+
 /** Idempotent par clé : ne recrée rien si déjà montée. */
 export function mountFan(key) {
   ensureScene(key);
@@ -232,6 +262,7 @@ export function positionFan(key, rect) {
   renderer.setSize(rect.width, rect.height, false);
   camera.aspect = rect.width / rect.height;
   camera.updateProjectionMatrix();
+  entry.canvasHeightPx = rect.height; // voir fitCameraToExtent — calibre la distance de caméra sur la hauteur RÉELLE du canvas
 }
 
 /**
@@ -270,10 +301,25 @@ export function getCardScreenRects(key) {
   });
 }
 
+/** Cadre doré enfant, discret par défaut (voir setCardHighlight) — hérite automatiquement de la position/rotation de la carte porteuse. */
+function createHighlightFrame() {
+  const geometry = new THREE.PlaneGeometry(CARD_ASPECT + 0.06, 1.06);
+  const material = new THREE.MeshBasicMaterial({ color: BRASS, side: THREE.DoubleSide, transparent: true });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.z = -0.005;
+  mesh.visible = false;
+  return mesh;
+}
+
 function disposeMesh(scene, mesh) {
   scene.remove(mesh);
   mesh.geometry.dispose();
   mesh.material.dispose();
+  const frame = mesh.userData.frame;
+  if (frame) {
+    frame.geometry.dispose();
+    frame.material.dispose();
+  }
 }
 
 /**
@@ -321,27 +367,45 @@ export function updateFan(key, cards = [], { pickable = false } = {}) {
   while (meshes.length > cards.length) disposeMesh(scene, meshes.pop());
   while (meshes.length < cards.length) {
     const geometry = new THREE.PlaneGeometry(CARD_ASPECT, 1);
-    const material = new THREE.MeshStandardMaterial({ transparent: true });
+    // side: DoubleSide — une fois la carte passé 90° (retournement, voir
+    // flipCardAt/advanceFlips), la caméra regarde la face géométriquement
+    // "arrière" du plan ; par défaut (FrontSide) Three.js ne la dessine pas
+    // du tout, donnant l'impression que l'animation s'arrête net à la
+    // tranche au lieu de terminer sur la face dévoilée.
+    const material = new THREE.MeshStandardMaterial({ transparent: true, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geometry, material);
+    const frame = createHighlightFrame();
+    mesh.add(frame);
+    mesh.userData.frame = frame;
     scene.add(mesh);
     meshes.push(mesh);
   }
 
   meshes.forEach((mesh, i) => {
-    // Une animation de retournement en cours pour cet index gère elle-même
-    // sa texture/rotation (voir advanceFlips) — ne pas l'écraser ici.
-    if (entry.flips.has(i)) return;
+    // Une animation de retournement ou de disparition/descente en cours pour
+    // cet index gère elle-même sa texture/transform (voir advanceFlips et
+    // advanceFades) — ne pas l'écraser ici.
+    if (entry.flips.has(i) || entry.fades.has(i)) return;
     const card = cards[i];
     const texture = card ? getCardFaceTexture(card.rank, card.suit) : getCardBackTexture();
     mesh.material.map = texture;
     mesh.material.color.set(card ? 0xffffff : pickable ? 0xffffff : 0xb9b9b9);
     mesh.material.needsUpdate = true;
+    mesh.material.opacity = 1;
+    mesh.scale.set(1, 1, 1);
+    mesh.visible = true;
     mesh.rotation.y = 0; // efface un retournement précédent déjà terminé
+    mesh.userData.frame.visible = false; // efface une mise en valeur précédente déjà terminée
   });
 
   const maxExtent = layoutFan(meshes);
-  fitCameraToExtent(entry.camera, maxExtent);
+  fitCameraToExtent(entry.camera, maxExtent, entry.canvasHeightPx);
 }
+
+// Hauteur de canvas (px) pour laquelle BASE_CAMERA_DISTANCE donne la taille de
+// carte "de référence" — voir fitCameraToExtent. Proche du min-height/aspect-ratio
+// d'origine de .pouilleux-3d-stage (avant l'ajout du second éventail "mine").
+const REFERENCE_CANVAS_HEIGHT = 240;
 
 /**
  * Recule la caméra au besoin pour que `maxExtent` (demi-largeur en unités
@@ -349,15 +413,26 @@ export function updateFan(key, cards = [], { pickable = false } = {}) {
  * marge de sécurité — sans ça, les cartes des extrémités d'une grande main
  * (le Pouilleux peut en distribuer plus de 20 par joueur) dépassent le cadre
  * et deviennent invisibles ET impossibles à toucher (voir getCardScreenRects,
- * qui reflète fidèlement ce que rend la caméra). Ne rapproche jamais sous la
- * distance de base (pas la peine de zoomer davantage pour une main courte).
+ * qui reflète fidèlement ce que rend la caméra).
+ *
+ * `canvasHeightPx` calibre la distance de base : à FOV égal, une même
+ * distance de caméra donne une carte plus PETITE en pixels sur un canvas plus
+ * bas (moins de pixels disponibles pour la même taille angulaire) — sans ce
+ * calibrage, l'éventail "mine" (canvas nettement plus bas que "stage")
+ * affichait des cartes visiblement plus petites, cassant l'illusion d'une
+ * carte qui "descend" d'un éventail à l'autre (voir descendCard). La distance
+ * de base est donc mise à l'échelle proportionnellement à la hauteur réelle
+ * du canvas par rapport à REFERENCE_CANVAS_HEIGHT. Ne rapproche jamais sous
+ * cette base (pas la peine de zoomer davantage pour une main courte).
  */
-function fitCameraToExtent(camera, maxExtent) {
+function fitCameraToExtent(camera, maxExtent, canvasHeightPx) {
+  const heightScale = (canvasHeightPx || REFERENCE_CANVAS_HEIGHT) / REFERENCE_CANVAS_HEIGHT;
+  const baseDistance = BASE_CAMERA_DISTANCE * heightScale;
   const halfVFov = (camera.fov * Math.PI) / 360;
   const halfHFov = Math.atan(Math.tan(halfVFov) * camera.aspect);
   const margin = 0.82; // <1 : garde une marge, n'utilise pas tout le cadre pile au bord
   const neededDistance = maxExtent / Math.tan(halfHFov * margin);
-  camera.position.z = Math.max(BASE_CAMERA_DISTANCE, neededDistance);
+  camera.position.z = Math.max(baseDistance, neededDistance);
 }
 
 /**
@@ -383,6 +458,33 @@ export function showFan(key) {
   if (entry) entry.canvas.style.display = 'block';
 }
 
+/** Cache UN SEUL éventail (contrairement à hideAllFans) — pour une clé qui n'a plus lieu d'être affichée ce rendu-ci sans toucher aux autres scènes (ex. "mine" quand ce n'est plus mon tour de piocher). */
+export function hideFan(key) {
+  const entry = scenes.get(key);
+  if (entry) entry.canvas.style.display = 'none';
+}
+
 export function hideAllFans() {
   for (const entry of scenes.values()) entry.canvas.style.display = 'none';
+}
+
+/** Bascule le contour doré de la carte à `index` dans l'éventail `key` (mise en valeur, ex. paire détectée — voir renderDrawReveal3D). */
+export function setCardHighlight(key, index, on) {
+  const frame = scenes.get(key)?.meshes[index]?.userData.frame;
+  if (frame) frame.visible = on;
+}
+
+/** Fait disparaître (rétrécit + fondu) la carte à `index` — paire défaussée. */
+export function fadeOutCard(key, index, { duration = 400 } = {}) {
+  const entry = scenes.get(key);
+  if (!entry?.meshes[index]) return;
+  entry.fades.set(index, { kind: 'fadeOut', startTime: performance.now(), duration });
+}
+
+/** Fait descendre (translation + fondu) la carte à `index` — rejoint la main affichée en dessous. */
+export function descendCard(key, index, { duration = 450, distance = 1.2 } = {}) {
+  const entry = scenes.get(key);
+  const mesh = entry?.meshes[index];
+  if (!mesh) return;
+  entry.fades.set(index, { kind: 'descend', startTime: performance.now(), duration, distance, startY: mesh.position.y });
 }
