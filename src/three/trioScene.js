@@ -86,6 +86,8 @@ const BASE_ELEV = 1.02;
 const BASE_DIST = 5.35;
 const PITCH_MIN = 0.38;
 const PITCH_MAX = 1.28;
+const DIST_MIN = 2.35;
+const DIST_MAX_FACTOR = 1.45;
 // Les faces adverses regardent vers l'extérieur (yaw ≈ theta du voisin =
 // on lit leur jeu). On reste en deçà de l'espacement entre sièges.
 const PLAYER_YAW_PAD = 0.85;
@@ -94,6 +96,8 @@ const PLAYER_YAW_MAX = 0.95;
 let orbitYaw = 0;
 let orbitPitch = BASE_ELEV;
 let orbitDistance = BASE_DIST;
+let fittedDistance = BASE_DIST;
+let userZoomed = false;
 let orbitYawLimited = true;
 let orbitYawLimit = 0.7;
 
@@ -643,8 +647,13 @@ function applyOrbitCamera() {
   camera.lookAt(_look);
 }
 
-function fitCamera() {
-  if (!camera) return;
+function maxOrbitDistance() {
+  return Math.max(fittedDistance, BASE_DIST) * DIST_MAX_FACTOR;
+}
+
+function computeFittedDistance() {
+  if (!camera) return BASE_DIST;
+  const saved = orbitDistance;
   orbitDistance = BASE_DIST;
   applyOrbitCamera();
   const halfVFov = (CAMERA_FOV * Math.PI) / 360;
@@ -652,10 +661,20 @@ function fitCamera() {
   const margin = TABLE_RADIUS + 0.5;
   const offset = camera.position.clone().sub(_look);
   const visibleHalfW = offset.length() * Math.tan(halfHFov);
+  let dist = BASE_DIST;
   if (visibleHalfW < margin && visibleHalfW > 0) {
-    orbitDistance = offset.length() * (margin / visibleHalfW);
-    applyOrbitCamera();
+    dist = offset.length() * (margin / visibleHalfW);
   }
+  orbitDistance = saved;
+  return dist;
+}
+
+function fitCamera() {
+  if (!camera) return;
+  fittedDistance = computeFittedDistance();
+  if (!userZoomed) orbitDistance = fittedDistance;
+  else orbitDistance = Math.max(DIST_MIN, Math.min(maxOrbitDistance(), orbitDistance));
+  applyOrbitCamera();
 }
 
 /** Glisser pour tourner autour de la table (yaw) et incliner (pitch). */
@@ -673,10 +692,19 @@ export function orbitCameraByScreenDelta(dx, dy) {
   applyOrbitCamera();
 }
 
+/** `factor` > 1 = pinch écarté = zoom avant (caméra plus près). */
+export function zoomCameraByFactor(factor) {
+  if (!mounted || !Number.isFinite(factor) || factor <= 0) return;
+  userZoomed = true;
+  orbitDistance = Math.max(DIST_MIN, Math.min(maxOrbitDistance(), orbitDistance / factor));
+  applyOrbitCamera();
+}
+
 export function resetOrbit() {
   orbitYaw = 0;
   orbitPitch = BASE_ELEV;
-  orbitDistance = BASE_DIST;
+  userZoomed = false;
+  orbitDistance = fittedDistance || BASE_DIST;
   clampOrbitYaw();
   if (mounted) applyOrbitCamera();
 }

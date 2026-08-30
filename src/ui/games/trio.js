@@ -25,6 +25,7 @@ import {
   getCardRects,
   getRowLabelAnchors,
   orbitCameraByScreenDelta,
+  zoomCameraByFactor,
   resetOrbit
 } from '../../three/trioScene.js';
 
@@ -496,10 +497,60 @@ function wireTrioOrbit(tableEl, onOrbit) {
   let dragLastY = 0;
   let dragMoved = false;
   const DRAG_THRESHOLD = 10;
+  let pinching = false;
+  let pinchDist = 0;
+
+  const touchGap = (touches) => {
+    if (touches.length < 2) return 0;
+    return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+  };
+
+  // Pinch via TouchEvent : sur iOS le 2ᵉ doigt annule souvent le 1er PointerEvent.
+  tableEl.addEventListener(
+    'touchstart',
+    (e) => {
+      if (e.touches.length < 2) return;
+      pinching = true;
+      dragging = false;
+      dragMoved = true;
+      pinchDist = touchGap(e.touches);
+    },
+    { passive: true, capture: true }
+  );
+  tableEl.addEventListener(
+    'touchmove',
+    (e) => {
+      if (e.touches.length < 2) return;
+      e.preventDefault();
+      pinching = true;
+      dragging = false;
+      dragMoved = true;
+      const dist = touchGap(e.touches);
+      if (pinchDist > 8 && dist > 8) {
+        zoomCameraByFactor(dist / pinchDist);
+        onOrbit?.();
+      }
+      pinchDist = dist;
+    },
+    { passive: false, capture: true }
+  );
+  const endPinch = (e) => {
+    if (e.touches.length < 2) pinching = false;
+  };
+  tableEl.addEventListener('touchend', endPinch, true);
+  tableEl.addEventListener('touchcancel', endPinch, true);
+  tableEl.addEventListener(
+    'gesturestart',
+    (e) => {
+      e.preventDefault();
+    },
+    { passive: false }
+  );
 
   tableEl.addEventListener(
     'pointerdown',
     (e) => {
+      if (pinching) return;
       // Un clic sur une carte doit aller au bouton, pas à l'orbite —
       // `setPointerCapture` sur la table volait le click souris (Lucky
       // Numbers n'en a pas, et les clics y marchent).
@@ -518,7 +569,7 @@ function wireTrioOrbit(tableEl, onOrbit) {
   tableEl.addEventListener(
     'pointermove',
     (e) => {
-      if (!dragging) return;
+      if (pinching || !dragging) return;
       const dx = e.clientX - dragLastX;
       const dy = e.clientY - dragLastY;
       if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) dragMoved = true;
@@ -541,11 +592,19 @@ function wireTrioOrbit(tableEl, onOrbit) {
     (e) => {
       if (!dragMoved) return;
       dragMoved = false;
-      if (e.target.closest('.trio-3d-card')) return;
       e.stopPropagation();
       e.preventDefault();
     },
     true
+  );
+  tableEl.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      zoomCameraByFactor(Math.exp(-e.deltaY * 0.0015));
+      onOrbit?.();
+    },
+    { passive: false }
   );
 }
 
