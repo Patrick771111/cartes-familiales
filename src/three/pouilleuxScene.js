@@ -371,6 +371,15 @@ export function getCardScreenRects(key) {
   const entry = scenes.get(key);
   if (!entry) return [];
   const { camera, meshes, canvas } = entry;
+  // La caméra n'est ajoutée à aucune scène (voir ensureScene) : son
+  // matrixWorld n'est normalement recalculé qu'au prochain rendu WebGL
+  // (tick()). Or `fitCameraToExtent` (voir updateFan) vient de changer sa
+  // position juste avant cet appel, pour caler le zoom sur le nombre de
+  // cartes actuel — sans ce recalcul explicite, .project() ci-dessous
+  // utiliserait encore l'ancienne distance de caméra (celle du rendu
+  // précédent), décalant les zones de clic dès que la taille de la main
+  // change d'un rendu à l'autre.
+  camera.updateMatrixWorld();
   const w = parseFloat(canvas.style.width) || canvas.clientWidth || 1;
   const h = parseFloat(canvas.style.height) || canvas.clientHeight || 1;
   const halfW = CARD_ASPECT / 2;
