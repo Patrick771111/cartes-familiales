@@ -65,9 +65,10 @@ const BOARD_SCALE = 0.5;
 const BOARD_HALF = (BOARD_SIZE / 2) * BOARD_SCALE;
 const SEAT_SPACING = BOARD_SIZE * BOARD_SCALE * 1.6;
 // Écart entre les 2 rangées assez grand pour que l'assiette de défausse
-// (voir PLATE_DIAMETER) ne déborde jamais sur les plateaux — bug constaté
-// avec l'ancien écart de 0.65, bien plus petit que le diamètre de l'assiette.
-const ROW_GAP = 2.0;
+// (voir PLATE_DIAMETER, DISCARD_GRID_COLS) ne déborde jamais sur les
+// plateaux voisins — l'assiette doit pouvoir contenir une quinzaine de
+// jetons (demande explicite), donc bien plus grande que le premier essai.
+const ROW_GAP = 2.6;
 const MY_ROW_Y = -(BOARD_HALF + ROW_GAP / 2);
 const OPPONENT_ROW_Y = BOARD_HALF + ROW_GAP / 2;
 
@@ -215,7 +216,19 @@ function loadDiscardPlateTexture() {
       c.width = size;
       c.height = size;
       const ctx = c.getContext('2d');
-      ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, size, size);
+      // La photo fournie a une grosse marge transparente autour de
+      // l'assiette (le disque opaque ne remplit qu'environ la moitié du
+      // carré) — mesuré une fois par analyse de pixels (bbox alpha>20 ≈
+      // 20%..71% en X, 23%..74% en Y). Sans ce recadrage, `plateDiameter`
+      // dans updateScene ne correspondrait qu'à la moitié de l'assiette
+      // réellement visible, faisant déborder les jetons largement hors de
+      // l'assiette (bug constaté : "les jetons débordent tout autour").
+      const cropFrac = 0.59;
+      const sx = img.width * (0.501 - cropFrac / 2);
+      const sy = img.height * (0.487 - cropFrac / 2);
+      const sw = img.width * cropFrac;
+      const sh = img.height * cropFrac;
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
       const imageData = ctx.getImageData(0, 0, size, size);
       const px = imageData.data;
       for (let i = 0; i < px.length; i += 4) {
@@ -482,7 +495,11 @@ function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, plac
       group.glowMeshes[i] = glow;
     }
     const glow = group.glowMeshes[i];
-    glow.position.set(x, y, surfaceZ + 0.004 * scale);
+    // Décalage plus généreux qu'avant (0.004 → 0.01) : avec l'anneau/puits
+    // retirés, ce halo n'a plus de "coussin" de mesh intermédiaire pour
+    // éviter un z-fighting avec la face du plateau à cette échelle réduite
+    // (BOARD_SCALE=0.5) — bug constaté : halo invisible malgré `visible=true`.
+    glow.position.set(x, y, surfaceZ + 0.01 * scale);
     glow.scale.setScalar(scale);
     glow.visible = highlighted;
 
@@ -664,25 +681,48 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   const pileY = (MY_ROW_Y + OPPONENT_ROW_Y) / 2;
   const pileZ = TABLE_Z + 0.15;
 
-  // Centrée sur la zone de défausse (0.55, voir plus bas), pas sur tout
-  // l'espace pioche+défausse — demande explicite : l'assiette est pour les
-  // jetons de défausse, pas la pioche.
-  const plateSize = TOKEN_RADIUS * 4.2;
-  plateMesh.position.set(0.55, pileY, pileZ - 0.08);
-  plateMesh.scale.set(plateSize, plateSize, 1);
+  // Assez grande pour une quinzaine de jetons À LA TAILLE DU PLATEAU (voir
+  // DISCARD_GRID_COLS/DISCARD_SPACING ci-dessous) — demande explicite,
+  // centrée sur X=0 ("au milieu de la table") plutôt que décalée vers la
+  // défausse, pour laisser toute la place nécessaire de chaque côté.
+  const plateDiameter = 2.4;
+  const plateCenterX = 0;
+  plateMesh.position.set(plateCenterX, pileY, pileZ - 0.08);
+  plateMesh.scale.set(plateDiameter, plateDiameter, 1);
 
-  ensureDiscardMeshCount(discardTiles.length);
+  // Grille 4 colonnes (16 places, "une quinzaine" — demande explicite) :
+  // espacement resserré pour que même le coin le plus éloigné du centre
+  // reste NETTEMENT dans le rayon visible de l'assiette (les jetons
+  // peuvent se toucher/chevaucher un peu, demande explicite — "ils
+  // débordaient tout autour" avec un espacement plus large). Chaque
+  // RANGÉE est centrée selon son propre nombre de jetons (pas un nombre de
+  // colonnes fixe) — sinon 1 ou 2 jetons se retrouvent collés à gauche de
+  // l'assiette au lieu d'être au milieu (bug constaté avec peu de jetons).
+  const DISCARD_GRID_COLS = 4;
+  const DISCARD_SPACING = 0.32;
+  const discardCount = discardTiles.length;
+  const discardRows = Math.max(1, Math.ceil(discardCount / DISCARD_GRID_COLS));
+  ensureDiscardMeshCount(discardCount);
   discardTiles.forEach((tile, i) => {
     const mesh = discardMeshes[i];
     mesh.visible = true;
     setTokenValue(mesh, tile);
-    const spread = (i - (discardTiles.length - 1) / 2) * (TOKEN_RADIUS * 2.1);
-    mesh.position.set(0.55 + spread, pileY, pileZ);
+    mesh.scale.setScalar(BOARD_SCALE); // même taille que les jetons du plateau — demande explicite
+    const row = Math.floor(i / DISCARD_GRID_COLS);
+    const col = i % DISCARD_GRID_COLS;
+    const colsInRow = Math.min(DISCARD_GRID_COLS, discardCount - row * DISCARD_GRID_COLS);
+    const x = plateCenterX + (col - (colsInRow - 1) / 2) * DISCARD_SPACING;
+    const y = pileY + ((discardRows - 1) / 2 - row) * DISCARD_SPACING;
+    mesh.position.set(x, y, pileZ);
   });
 
+  // Pioche décalée à gauche de l'assiette (désormais large) pour ne jamais
+  // s'y superposer, mais pas trop loin — au-delà de ~1.6 elle sort du champ
+  // visible sur un mobile normal (aspect 3/4), bug constaté à -1.8.
   ensureDrawPileMeshCount(stockCount > 0 ? 4 : 0);
   drawPileMeshes.forEach((mesh, i) => {
-    mesh.position.set(-0.65, pileY + i * 0.02, pileZ - 0.05 + i * 0.01);
+    mesh.scale.setScalar(BOARD_SCALE);
+    mesh.position.set(-1.5, pileY + i * 0.02, pileZ - 0.05 + i * 0.01);
   });
 }
 
@@ -756,7 +796,11 @@ export function getMyBoardCellRects() {
 
 function meshScreenRect(mesh) {
   if (!mesh) return null;
-  const half = TOKEN_RADIUS * 1.1;
+  // `mesh.scale.x` : les jetons de pioche/défausse sont désormais réduits à
+  // BOARD_SCALE (même taille que ceux du plateau, demande explicite) — une
+  // demi-taille fixe donnerait des cibles de clic 2x trop grandes,
+  // chevauchant les jetons voisins de la grille de défausse.
+  const half = TOKEN_RADIUS * 1.1 * mesh.scale.x;
   const { x, y, z } = mesh.position;
   return projectPointsRect([
     [x - half, y + half, z],
