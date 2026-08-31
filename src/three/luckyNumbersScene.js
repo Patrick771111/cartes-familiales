@@ -204,6 +204,38 @@ function loadBoardPlateTexture() {
       const sw = 1210.2;
       const sh = 1260.7;
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
+      // Fondu en transparence des tout derniers pixels du recadrage — la
+      // photo a un vrai relief 3D peint avec une ombre portée à son bord
+      // (vérifié pixel par pixel : la couleur s'assombrit progressivement
+      // juste avant l'aplomb du recadrage, sans marge transparente pour
+      // l'absorber), ce qui donnait l'impression d'un liseré noir dur autour
+      // du plateau une fois affiché en jeu. Plutôt que de recalculer tout le
+      // recadrage (risque de recasser le calage des trous), on fait
+      // simplement fondre les bords de LA TEXTURE elle-même en transparence
+      // : quoi qu'il y ait à cet endroit dans la photo, il disparaît en
+      // douceur au profit de la table en bois derrière.
+      // FEATHER_PX=50 avec une courbe cubique (pas linéaire) : l'ombre
+      // peinte n'est pas collée au tout dernier pixel du recadrage mais en
+      // léger retrait (~10-20px sur 768) — un fondu linéaire ne l'atténuait
+      // que de moitié à cette distance. Le cube reste proche de 0 jusque
+      // tard dans la zone de fondu, donc même l'ombre la plus sombre (à
+      // ~18px du bord) tombe sous les 5% d'opacité.
+      const FEATHER_PX = 50;
+      const imageData = ctx.getImageData(0, 0, size, size);
+      const alphaPx = imageData.data;
+      for (let y = 0; y < size; y++) {
+        const distY = Math.min(y, size - 1 - y);
+        for (let x = 0; x < size; x++) {
+          const distX = Math.min(x, size - 1 - x);
+          const dist = Math.min(distX, distY);
+          if (dist < FEATHER_PX) {
+            const i = (y * size + x) * 4 + 3;
+            const t = dist / FEATHER_PX;
+            alphaPx[i] = Math.round(alphaPx[i] * t * t * t);
+          }
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
       const texture = new THREE.CanvasTexture(c);
       texture.colorSpace = THREE.SRGBColorSpace;
       // Pas de mipmaps sur cette texture à découpe alpha (RGB=0 sous les
