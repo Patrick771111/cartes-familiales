@@ -369,7 +369,8 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
     placeableIndexes: placeableForDrawn,
     opponents: others.map((p) => ({ board: p.board })),
     discardTiles: state.discard,
-    stockCount: state.stock.length
+    stockCount: state.stock.length,
+    drawnTile: state.drawnTile || null
   });
   if (!hasAutoCenteredCamera) {
     panCameraToMySeat();

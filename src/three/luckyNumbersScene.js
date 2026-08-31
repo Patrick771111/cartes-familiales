@@ -60,7 +60,13 @@ const BOARD_MARGIN_TOP = 0.8358;
 const BOARD_MARGIN_BOTTOM = 2.0733;
 const BOARD_WIDTH = (GRID_DIM - 1) * CELL_SPACING + BOARD_MARGIN_LEFT + BOARD_MARGIN_RIGHT;
 const BOARD_HEIGHT = (GRID_DIM - 1) * CELL_SPACING + BOARD_MARGIN_TOP + BOARD_MARGIN_BOTTOM;
-const BOARD_THICKNESS = 0.14;
+// Réduite (0.14 → 0.05) — pas un problème de texture (la photo a bien un
+// vrai fond alpha transparent) mais la tranche latérale de ce volume 3D
+// (moins éclairée que la face avant sous la lumière directionnelle) qui
+// apparaît comme un fin liseré sombre tout autour de chaque plateau, plus
+// visible depuis les derniers réglages. Une tranche plus fine réduit ce
+// liseré sans supprimer complètement le relief 3D du plateau.
+const BOARD_THICKNESS = 0.05;
 
 const CAMERA_DISTANCE = 8.5;
 const CAMERA_FOV = 45;
@@ -143,6 +149,7 @@ let discardMeshes = [];
 let tableMesh = null;
 let plateMesh = null;
 let piocheMesh = null;
+let drawnTileMesh = null;
 
 let myCurrentSeatX = 0; // recalculé à chaque updateScene selon le nombre de sièges — voir getMyBoardCellRect
 
@@ -435,7 +442,13 @@ function createGlowMesh() {
 function createBoardMesh() {
   const radius = Math.min(BOARD_THICKNESS / 2, Math.min(BOARD_WIDTH, BOARD_HEIGHT) * 0.02);
   const geometry = new RoundedBoxGeometry(BOARD_WIDTH, BOARD_HEIGHT, BOARD_THICKNESS, 3, radius);
-  const material = new THREE.MeshStandardMaterial({ color: BOARD_GREEN, roughness: 0.85, transparent: true });
+  // `alphaTest` plutôt que `transparent` : cette texture n'a que du alpha
+  // 0 ou 255 (pas de dégradé), donc une vraie découpe (discard des pixels
+  // sous le seuil) au lieu d'un mélange alpha — le mélange créait un fin
+  // liseré sombre à la silhouette du mesh (les pixels d'antialiasing du
+  // bord se mélangeaient avec ce qu'il y a derrière au lieu d'être
+  // simplement invisibles).
+  const material = new THREE.MeshStandardMaterial({ color: BOARD_GREEN, roughness: 0.85, alphaTest: 0.5 });
   const mesh = new THREE.Mesh(geometry, material);
   loadBoardPlateTexture().then((texture) => {
     material.map = texture;
@@ -473,7 +486,7 @@ function createTableMesh() {
 /** Assiette pour la défausse, entre les 2 rangées (voir loadDiscardPlateTexture). */
 function createPlateMesh() {
   const geometry = new THREE.PlaneGeometry(1, 1);
-  const material = new THREE.MeshStandardMaterial({ color: 0xf2ece0, roughness: 0.6, transparent: true });
+  const material = new THREE.MeshStandardMaterial({ color: 0xf2ece0, roughness: 0.6, alphaTest: 0.5 });
   const mesh = new THREE.Mesh(geometry, material);
   loadDiscardPlateTexture().then((texture) => {
     material.map = texture;
@@ -486,7 +499,7 @@ function createPlateMesh() {
 /** Sac de pioche (voir loadPiocheTexture, demande explicite) — remplace l'ancienne pile de jetons face cachée. */
 function createPiocheMesh() {
   const geometry = new THREE.PlaneGeometry(1, 1);
-  const material = new THREE.MeshStandardMaterial({ color: 0x6a9a5a, roughness: 0.7, transparent: true });
+  const material = new THREE.MeshStandardMaterial({ color: 0x6a9a5a, roughness: 0.7, alphaTest: 0.5 });
   const mesh = new THREE.Mesh(geometry, material);
   loadPiocheTexture().then((texture) => {
     material.map = texture;
@@ -639,6 +652,14 @@ function ensureScene() {
   piocheMesh = createPiocheMesh();
   scene.add(piocheMesh);
 
+  // Jeton piochée en attente de pose — invisible tant qu'aucune tuile n'est
+  // piochée (bug constaté : "le jeton pris lorsque l'on pioche n'est pas
+  // visible"), posé à côté du sac une fois piochée (voir updateScene).
+  drawnTileMesh = createTokenMesh();
+  drawnTileMesh.visible = false;
+  drawnTileMesh.renderOrder = 4;
+  scene.add(drawnTileMesh);
+
   const tick = () => {
     requestAnimationFrame(tick);
     const t = performance.now() * 0.001;
@@ -717,8 +738,10 @@ export function panCameraToMySeat() {
  * - `discardTiles` : `Array<{value,color}>` — tuiles visibles de la défausse commune.
  * - `stockCount` : nombre de tuiles restantes dans la pioche (juste pour
  *   décider si la pioche doit apparaître "pleine" ou non, purement décoratif).
+ * - `drawnTile` : `{value,color}|null` — la tuile piochée en attente de pose
+ *   (posée à côté du sac, voir plus bas), `null` si aucune tuile piochée.
  */
-export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponents = [], discardTiles = [], stockCount = 0 }) {
+export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponents = [], discardTiles = [], stockCount = 0, drawnTile = null }) {
   if (!mounted) return;
 
   // Mon plateau a sa PROPRE rangée (toujours seul dessus, donc toujours à
@@ -818,6 +841,16 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   const piocheDiameter = 1.1;
   piocheMesh.position.set(-1.0, pileY, pileZ - 0.05);
   piocheMesh.scale.set(piocheDiameter, piocheDiameter, 1);
+
+  // Tuile piochée en attente de pose, posée juste à côté du sac (demande
+  // explicite : elle n'était visible nulle part en 3D, seulement dans le
+  // texte du HUD) — dans l'espace libre entre le sac et l'assiette.
+  drawnTileMesh.visible = Boolean(drawnTile);
+  if (drawnTile) {
+    setTokenValue(drawnTileMesh, drawnTile);
+    drawnTileMesh.scale.setScalar(BOARD_SCALE);
+    drawnTileMesh.position.set(-0.35, pileY, pileZ);
+  }
 }
 
 function ensureDiscardMeshCount(count) {
