@@ -1,5 +1,5 @@
 import { cardFaceHtml, cardBackHtml } from '../cards.js';
-import { drawForCurrentPlayer, playerToDrawFrom as computeTarget } from '../../game/pouilleux.js';
+import { drawForCurrentPlayer, formAdjacentPairs, discardAdjacentPairs, playerToDrawFrom as computeTarget } from '../../game/pouilleux.js';
 import { replaceBotWithPlayer } from '../../game/engine.js';
 import { getOrderedHand, moveCard, resetHandOrder } from '../handOrder.js';
 import { enableHandDrag } from '../dragReorder.js';
@@ -75,6 +75,29 @@ export function resetSelection() {
   resetHandOrder('pouilleux');
   hideTable();
   resetOrbit();
+}
+
+async function tryDiscardAdjacentPairs(container, { room, player, state, onLeave, mode }) {
+  const me = state.players.find((p) => p.id === player.id);
+  if (!me) return;
+  const ordered = getOrderedHand('pouilleux', me.hand, sortedHand);
+  const { discarded } = discardAdjacentPairs(ordered);
+  if (!discarded.length) {
+    if (mode === '3d') renderTableNow3D(container, { room, player, state, onLeave });
+    else renderTableNow2D(container, { room, player, state, onLeave });
+    return;
+  }
+  if (mode === '3d') discarded.forEach((c) => fadeOutCard(c.id));
+  try {
+    await formAdjacentPairs(
+      room,
+      player.id,
+      ordered.map((c) => c.id)
+    );
+  } catch (err) {
+    if (mode === '3d') renderTableNow3D(container, { room, player, state, onLeave });
+    else renderTableNow2D(container, { room, player, state, onLeave });
+  }
 }
 
 /** Applique le rendu resté en attente pendant la révélation qui vient de se terminer, s'il y en a un. */
@@ -336,7 +359,7 @@ function renderTableNow2D(container, { room, player, state, onLeave }) {
 
       <div class="pouilleux-zone pouilleux-zone--mine">
         <div class="my-hand">
-          <p class="my-hand__label">Ta main (${me.hand.length}) <small>— glisse pour réordonner</small></p>
+          <p class="my-hand__label">Ta main (${me.hand.length}) <small>— glisse deux cartes de même rang côte à côte (ou l'une sur l'autre) pour défausser</small></p>
           <div class="my-hand__cards">
             ${orderedHand.map(cardFaceHtml).join('') || '<p class="my-hand__empty">Tu es sorti·e, bravo ! Suis la suite de la partie ci-dessus.</p>'}
           </div>
@@ -372,7 +395,7 @@ function renderTableNow2D(container, { room, player, state, onLeave }) {
     enableHandDrag(myHandEl, {
       onDrop: (cardId, index) => {
         moveCard('pouilleux', cardId, index);
-        renderTableNow2D(container, { room, player, state, onLeave });
+        tryDiscardAdjacentPairs(container, { room, player, state, onLeave, mode: '2d' });
       }
     });
   }
@@ -521,7 +544,7 @@ function renderTableNow3D(container, { room, player, state, onLeave }) {
       selector: '.mine-card--draggable',
       onDrop: (cardId, index) => {
         moveCard('pouilleux', cardId, index);
-        renderTableNow3D(container, { room, player, state, onLeave });
+        tryDiscardAdjacentPairs(container, { room, player, state, onLeave, mode: '3d' });
       }
     });
   }
