@@ -80,10 +80,10 @@ export function applyDynamicHandOverlap(handEl, { maxOverlapRatio = 0.72, minMar
  * `transform` appliqué ici sur l'élément lui-même n'a aucun effet visible —
  * voir setCardHighlight dans src/three/pouilleuxScene.js).
  */
-export function enableHandDrag(handEl, { onDrop, onTap, onDragStart, onDragEnd } = {}) {
+export function enableHandDrag(handEl, { onDrop, onTap, onDragStart, onDragEnd, selector = '[data-card-id]' } = {}) {
   let dragging = null; // { el, id, startX, startY, moved }
 
-  handEl.querySelectorAll('[data-card-id]').forEach((el) => {
+  handEl.querySelectorAll(selector).forEach((el) => {
     el.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       dragging = { el, id: el.dataset.cardId, startX: e.clientX, startY: e.clientY, moved: false };
@@ -120,7 +120,7 @@ export function enableHandDrag(handEl, { onDrop, onTap, onDragStart, onDragEnd }
       onDragEnd?.(id);
 
       const dropX = dragging.lastX;
-      const siblings = [...handEl.querySelectorAll('[data-card-id]')].filter((s) => s !== el);
+      const siblings = [...handEl.querySelectorAll(selector)].filter((s) => s !== el);
       let dropIndex = siblings.length;
       let closestDist = Infinity;
       siblings.forEach((sib, i) => {

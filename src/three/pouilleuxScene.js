@@ -1,42 +1,45 @@
 import * as THREE from 'three';
+import { suitCardImage, classiqueFigureImage, cardBackImage } from '../ui/cardThemes.js';
+import { suitInfo } from '../game/deck.js';
 
 /**
- * Scènes 3D persistantes pour la main du Pouilleux tenue en éventail — soit
- * la sienne (face visible, quand on est la cible du tour), soit celle d'un
- * autre joueur (dos de carte, quand on pioche ou qu'on regarde piocher —
- * voir "Refonte graphique 3D" dans README). Chaque éventail est identifié
- * par une clé libre choisie par l'appelant (ex. `'stage'`) : ce module reste
- * générique, il ne connaît aucune zone en particulier. Montées UNE SEULE
- * FOIS chacune, ajoutées à `document.body` (donc en dehors de `#app`,
- * jamais touchées par les `container.innerHTML = ...` du reste de
- * l'appli) — un canvas WebGL recréé à chaque coup perdrait son contexte GL
- * et clignoterait.
+ * Scène 3D persistante pour le Pouilleux — table ronde, un chevalet par
+ * joueur (même contrat caméra / overlays que Trio : src/three/trioScene.js).
  *
- * Volontairement décoratif : le clic réel reste sur les boutons DOM
- * `.target-card--pickable` existants (rendus transparents en mode 3D, voir
- * pouilleux.js) — pas de raycasting, la logique de jeu ne bouge pas. Aucune
- * interaction (glisser-déposer) sur sa propre main affichée en 3D pour
- * cette passe (ordre de tri fixe). `flipCardAt` anime le retournement de la
- * carte piochée (dos → face) lors de la révélation.
+ * Siège 0 = le joueur local (+Z). Les suivants suivent orderedOpponents.
+ * Les chevalets adverses sont retournés (cartes vers le centre) : depuis
+ * notre siège on lit les dos, pas les faces. Orbite yaw bornée pour un
+ * joueur assis (tourner derrière = triche) ; 360° en spectateur.
+ *
+ * Clics = boutons DOM superposés (getCardRects), pas de raycasting.
+ * Le retournement d'une carte piochée est une vraie rotation 180° Y.
  */
 
-const CARD_ASPECT = 240 / 360; // largeur/hauteur, cohérent avec les autres cartes de l'appli
+const CARD_ASPECT = 240 / 360;
+const CAMERA_FOV = 46;
+
+const TABLE_RADIUS = 2.55;
+const TABLE_THICKNESS = 0.14;
+const TABLE_TOP = TABLE_THICKNESS / 2;
+const EASEL_RADIUS = 2.12;
+const EASEL_WIDTH = 2.45;
+const TARGET_EASEL_RADIUS = 1.82;
+const CARD_SCALE = 0.42;
+const CARD_TILT = -0.28;
+const CARD_GEO = new THREE.PlaneGeometry(CARD_ASPECT, 1);
+
 const FELT_600 = '#1F4D3A';
 const FELT_900 = '#0F2E21';
 const BRASS = '#C9A227';
 const BRASS_SOFT = '#E4C765';
 const CREAM = '#F7F1E1';
+const WOOD = '#6B4423';
+const WOOD_DARK = '#4A2E18';
 const RED_SUIT = '#B33A3A';
 const DARK_SUIT = '#201E18';
 const SUIT_COLOR = { S: DARK_SUIT, H: RED_SUIT, D: RED_SUIT, C: DARK_SUIT };
 const SUIT_SYMBOL = { S: '♠', H: '♥', D: '♦', C: '♣' };
-const BASE_CAMERA_DISTANCE = 3.2; // distance mini (mains courtes) — voir fitCameraToExtent pour les mains plus grandes
-
-// Rang -> lettre française affichée (cohérent avec rankLabel dans src/ui/cards.js).
 const COURT_LABEL = { J: 'V', Q: 'D', K: 'R' };
-// Disposition des pips par nombre (façon Bicycle), [gauche%, haut%] dans un
-// cadre centré sur la carte — mêmes coordonnées que .card__pips--N dans
-// style.css (2D), pour un rendu 3D cohérent avec le reste de l'appli.
 const PIP_LAYOUTS = {
   1: [[50, 50]],
   2: [[50, 18], [50, 82]],
@@ -50,12 +53,55 @@ const PIP_LAYOUTS = {
   10: [[28, 13], [72, 13], [50, 25], [28, 37], [72, 37], [28, 63], [72, 63], [50, 75], [28, 87], [72, 87]]
 };
 const PIP_COUNT = { A: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10 };
-const AXIS_Z = new THREE.Vector3(0, 0, 1); // axe du tilt de l'éventail, voir layoutFan
 
-const scenes = new Map(); // key -> { canvas, renderer, scene, camera, meshes: [] }
-let cardBackTexture = null;
-const cardFaceTextures = new Map(); // `${rank}${suit}` -> THREE.CanvasTexture
+const BASE_ELEV = 1.02;
+const BASE_DIST = 5.35;
+const PITCH_MIN = 0.38;
+const PITCH_MAX = 1.28;
+const DIST_MIN = 2.35;
+const DIST_MAX_FACTOR = 1.45;
+let lastSeatCount = 2;
+
+let canvas = null;
+let renderer = null;
+let scene = null;
+let camera = null;
+let mounted = false;
 let animationHandle = null;
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    if (animationHandle) cancelAnimationFrame(animationHandle);
+    animationHandle = null;
+    document.querySelectorAll('#pouilleux-3d-canvas, [id^="pouilleux-3d-canvas-"]').forEach((el) => el.remove());
+    mounted = false;
+    canvas = null;
+  });
+}
+
+let tableGroup = null;
+let seatGroups = [];
+let myHandMeshes = [];
+let opponentGroups = [];
+
+const flips = new Map();
+const fades = new Map();
+const alarms = new Map();
+
+let cardBackTexture = null;
+let cardBackTheme = null;
+const cardFaceTextures = new Map();
+
+const _world = new THREE.Vector3();
+const _look = new THREE.Vector3();
+
+let orbitYaw = 0;
+let orbitPitch = BASE_ELEV;
+let orbitDistance = BASE_DIST;
+let fittedDistance = BASE_DIST;
+let userZoomed = false;
+let orbitYawLimited = true;
+let orbitYawLimit = 0.7;
 
 function buildCardBackTexture() {
   const size = 256;
@@ -101,7 +147,6 @@ function buildCardBackTexture() {
   return texture;
 }
 
-/** Pips (cartes numérales, voir PIP_LAYOUTS) — disposition à l'identique de .card__pips en 2D : cadre centré, inset 10% de la largeur des 4 côtés. */
 function drawPips(ctx, c, rank, symbol, color) {
   const layout = PIP_LAYOUTS[PIP_COUNT[rank]] || PIP_LAYOUTS[1];
   const inset = c.width * 0.1;
@@ -118,9 +163,91 @@ function drawPips(ctx, c, rank, symbol, color) {
   });
 }
 
-/** Figure (Valet/Dame/Roi) — cadre + ornements + monogramme, même vocabulaire que le repli non illustré de courtHtml en 2D (src/ui/cards.js). */
+function currentTheme() {
+  return document.documentElement.dataset.cardTheme || 'classique';
+}
+
+function roleForRank(rank) {
+  if (rank === 'A') return 'as';
+  if (rank === 'J') return 'valet';
+  if (rank === 'Q') return 'dame';
+  if (rank === 'K') return 'roi';
+  return 'number';
+}
+
+function isCourtRank(rank) {
+  return rank === 'J' || rank === 'Q' || rank === 'K';
+}
+
+function drawCoverImage(ctx, img, w, h) {
+  const ir = img.width / img.height;
+  const br = w / h;
+  let dw;
+  let dh;
+  let dx;
+  let dy;
+  if (ir > br) {
+    dh = h;
+    dw = h * ir;
+    dx = (w - dw) / 2;
+    dy = 0;
+  } else {
+    dw = w;
+    dh = w / ir;
+    dx = 0;
+    dy = (h - dh) / 2;
+  }
+  ctx.drawImage(img, dx, dy, dw, dh);
+}
+
+function drawContainedImage(ctx, img, x, y, w, h) {
+  const ir = img.width / img.height;
+  const br = w / h;
+  let dw;
+  let dh;
+  let dx;
+  let dy;
+  if (ir > br) {
+    dw = w;
+    dh = w / ir;
+    dx = x;
+    dy = y + (h - dh) / 2;
+  } else {
+    dh = h;
+    dw = h * ir;
+    dy = y;
+    dx = x + (w - dw) / 2;
+  }
+  ctx.drawImage(img, dx, dy, dw, dh);
+}
+
+function drawCorners(ctx, c, label, symbol, color, { boxed = false } = {}) {
+  const cornerFont = Math.round(c.width * 0.17);
+  const drawOne = () => {
+    if (boxed) {
+      ctx.fillStyle = 'rgba(245, 240, 230, 0.88)';
+      const bw = c.width * 0.28;
+      const bh = c.height * 0.22;
+      ctx.fillRect(c.width * 0.04, c.height * 0.03, bw, bh);
+    }
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.font = `700 ${cornerFont}px Georgia, serif`;
+    ctx.fillText(label, c.width * 0.16, c.height * 0.05);
+    ctx.font = `${Math.round(cornerFont * 0.7)}px Georgia, serif`;
+    ctx.fillText(symbol, c.width * 0.16, c.height * 0.05 + cornerFont * 1.05);
+  };
+  drawOne();
+  ctx.save();
+  ctx.translate(c.width, c.height);
+  ctx.rotate(Math.PI);
+  drawOne();
+  ctx.restore();
+}
+
 function drawCourtFigure(ctx, c, rank, symbol, color) {
-  const cqw = c.width / 100; // unité "% de la largeur", cohérente avec les cqw utilisés en 2D
+  const cqw = c.width / 100;
   const label = COURT_LABEL[rank] || rank;
 
   ctx.save();
@@ -158,7 +285,7 @@ function drawCourtFigure(ctx, c, rank, symbol, color) {
   ctx.fillText(label, c.width / 2, c.height / 2);
 }
 
-function buildCardFaceTexture(rank, suit) {
+function buildCardFaceTexture(rank, suit, img = null, mode = 'mono') {
   const size = 256;
   const c = document.createElement('canvas');
   c.width = size;
@@ -166,186 +293,562 @@ function buildCardFaceTexture(rank, suit) {
   const ctx = c.getContext('2d');
   const color = SUIT_COLOR[suit] || DARK_SUIT;
   const symbol = SUIT_SYMBOL[suit] || '?';
+  const label = COURT_LABEL[rank] || rank;
 
   ctx.fillStyle = CREAM;
   ctx.fillRect(0, 0, c.width, c.height);
+
+  if (mode === 'full' && img) {
+    drawCoverImage(ctx, img, c.width, c.height);
+    drawCorners(ctx, c, label, symbol, color, { boxed: true });
+    const texture = new THREE.CanvasTexture(c);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }
+
   ctx.strokeStyle = BRASS;
   ctx.lineWidth = 5;
   ctx.strokeRect(3, 3, c.width - 6, c.height - 6);
+  drawCorners(ctx, c, label, symbol, color);
 
-  ctx.fillStyle = color;
-  ctx.textAlign = 'center';
-
-  // Coins (haut-gauche, bas-droite retourné) : rang (lettre française pour
-  // une figure, voir COURT_LABEL) + symbole empilés.
-  const cornerLabel = COURT_LABEL[rank] || rank;
-  const cornerFont = Math.round(c.width * 0.17);
-  ctx.font = `700 ${cornerFont}px Georgia, serif`;
-  ctx.textBaseline = 'top';
-  ctx.fillText(cornerLabel, c.width * 0.16, c.height * 0.05);
-  ctx.font = `${Math.round(cornerFont * 0.7)}px Georgia, serif`;
-  ctx.fillText(symbol, c.width * 0.16, c.height * 0.05 + cornerFont * 1.05);
-
-  ctx.save();
-  ctx.translate(c.width, c.height);
-  ctx.rotate(Math.PI);
-  ctx.font = `700 ${cornerFont}px Georgia, serif`;
-  ctx.textBaseline = 'top';
-  ctx.fillText(cornerLabel, c.width * 0.16, c.height * 0.05);
-  ctx.font = `${Math.round(cornerFont * 0.7)}px Georgia, serif`;
-  ctx.fillText(symbol, c.width * 0.16, c.height * 0.05 + cornerFont * 1.05);
-  ctx.restore();
-
-  // Pips pour une carte numérale (dont l'As, pip unique en grand), monogramme
-  // encadré pour une figure (Valet/Dame/Roi) — voir drawPips/drawCourtFigure.
-  if (COURT_LABEL[rank]) drawCourtFigure(ctx, c, rank, symbol, color);
-  else drawPips(ctx, c, rank, symbol, color);
+  if (isCourtRank(rank) && img && mode === 'inset') {
+    const cqw = c.width / 100;
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1, cqw * 0.6);
+    const frameInset = 8 * cqw;
+    const radius = 6 * cqw;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(frameInset, frameInset, c.width - frameInset * 2, c.height - frameInset * 2, radius);
+    else ctx.rect(frameInset, frameInset, c.width - frameInset * 2, c.height - frameInset * 2);
+    ctx.stroke();
+    ctx.restore();
+    const inset = 10 * cqw;
+    drawContainedImage(ctx, img, inset, inset, c.width - inset * 2, c.height - inset * 2);
+  } else if (isCourtRank(rank)) {
+    drawCourtFigure(ctx, c, rank, symbol, color);
+  } else {
+    drawPips(ctx, c, rank, symbol, color);
+  }
 
   const texture = new THREE.CanvasTexture(c);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
 
+function applyFaceToMeshes(rank, suit, tex) {
+  for (const mesh of allMeshes()) {
+    if (mesh.userData.rank === rank && mesh.userData.suit === suit && mesh.userData.face) {
+      mesh.userData.face.material.map = tex;
+      mesh.userData.face.material.needsUpdate = true;
+    }
+  }
+}
+
 function getCardBackTexture() {
-  if (!cardBackTexture) cardBackTexture = buildCardBackTexture();
+  const theme = currentTheme();
+  if (cardBackTexture && cardBackTheme === theme) return cardBackTexture;
+  cardBackTheme = theme;
+  const url = cardBackImage(theme);
+  cardBackTexture = buildCardBackTexture();
+  if (url) {
+    const img = new Image();
+    img.onload = () => {
+      if (cardBackTheme !== theme) return;
+      const tex = new THREE.Texture(img);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.needsUpdate = true;
+      cardBackTexture = tex;
+      for (const mesh of allMeshes()) {
+        if (!mesh.userData.faceUp && !flips.has(mesh.userData.cardId) && mesh.userData.back) {
+          mesh.userData.back.material.map = tex;
+          mesh.userData.back.material.needsUpdate = true;
+        }
+      }
+    };
+    img.src = url;
+  }
   return cardBackTexture;
 }
 
 function getCardFaceTexture(rank, suit) {
-  const key = `${rank}${suit}`;
-  let texture = cardFaceTextures.get(key);
-  if (!texture) {
-    texture = buildCardFaceTexture(rank, suit);
-    cardFaceTextures.set(key, texture);
-  }
-  return texture;
-}
+  const theme = currentTheme();
+  const key = `${theme}:${rank}${suit}`;
+  const cached = cardFaceTextures.get(key);
+  if (cached) return cached;
 
-function ensureScene(key) {
-  let entry = scenes.get(key);
-  if (entry) return entry;
+  const fallback = buildCardFaceTexture(rank, suit);
+  cardFaceTextures.set(key, fallback);
 
-  const canvas = document.createElement('canvas');
-  canvas.id = `pouilleux-3d-canvas-${key}`;
-  canvas.style.position = 'fixed';
-  canvas.style.pointerEvents = 'none'; // les clics traversent vers les boutons DOM dessous
-  canvas.style.display = 'none';
-  canvas.style.zIndex = '5'; // sous les bulles HUD (z-index 50), au-dessus du feutre
-  document.body.appendChild(canvas);
-
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
-  // Caméra bien en face (pas surélevée) : une carte tournée sur elle-même
-  // (rotation.z, l'éventail) doit rester une simple rotation "à plat" à
-  // l'écran — vue depuis un angle en plongée, la même rotation change aussi
-  // l'inclinaison apparente de la carte par rapport à la caméra, et donc sa
-  // taille projetée (certaines cartes de l'éventail semblaient plus grandes
-  // que les autres).
-  camera.position.set(0, 0, BASE_CAMERA_DISTANCE);
-  camera.lookAt(0, 0, 0);
-
-  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
-  dirLight.position.set(1, 2, 2);
-  scene.add(dirLight);
-
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-  renderer.setClearColor(0x000000, 0);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-
-  entry = { canvas, renderer, scene, camera, meshes: [], flips: new Map(), fades: new Map() };
-  scenes.set(key, entry);
-
-  if (!animationHandle) {
-    const tick = () => {
-      animationHandle = requestAnimationFrame(tick);
-      const now = performance.now();
-      for (const s of scenes.values()) {
-        advanceFlips(s, now);
-        advanceFades(s, now);
-        s.renderer.render(s.scene, s.camera);
-      }
+  const role = roleForRank(rank);
+  const fullUrl = suitCardImage(theme, suit, role);
+  const insetUrl = !fullUrl && isCourtRank(rank) ? classiqueFigureImage(role, suitInfo(suit)?.color) : null;
+  const url = fullUrl || insetUrl;
+  if (url) {
+    const img = new Image();
+    img.onload = () => {
+      if (currentTheme() !== theme) return;
+      const tex = buildCardFaceTexture(rank, suit, img, fullUrl ? 'full' : 'inset');
+      cardFaceTextures.set(key, tex);
+      fallback.dispose();
+      applyFaceToMeshes(rank, suit, tex);
     };
-    tick();
+    img.src = url;
   }
-
-  return entry;
+  return fallback;
 }
 
-/** Avance les animations de retournement de carte en cours pour cette scène (voir flipCardAt). */
-function advanceFlips(entry, now) {
-  for (const [index, flip] of entry.flips) {
-    const mesh = entry.meshes[index];
-    if (!mesh) {
-      entry.flips.delete(index);
+function makeCardMaterial() {
+  return new THREE.MeshStandardMaterial({
+    roughness: 0.55,
+    metalness: 0.02,
+    transparent: true,
+    emissive: 0x000000,
+    emissiveIntensity: 1,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+    depthWrite: true
+  });
+}
+
+function createCardMesh() {
+  const root = new THREE.Group();
+  const pivot = new THREE.Group();
+  const back = new THREE.Mesh(CARD_GEO, makeCardMaterial());
+  const face = new THREE.Mesh(CARD_GEO, makeCardMaterial());
+  face.rotation.y = Math.PI;
+  back.position.z = 0.0015;
+  face.position.z = -0.0015;
+  pivot.add(back);
+  pivot.add(face);
+  root.add(pivot);
+  root.userData.pivot = pivot;
+  root.userData.back = back;
+  root.userData.face = face;
+  return root;
+}
+
+function disposeMesh(root) {
+  if (!root) return;
+  flips.delete(root.userData.cardId);
+  fades.delete(root.userData.cardId);
+  alarms.delete(root.userData.cardId);
+  root.parent?.remove(root);
+  const { back, face } = root.userData;
+  if (back?.material) back.material.dispose();
+  if (face?.material) face.material.dispose();
+}
+
+function allMeshes() {
+  const out = [];
+  for (const s of seatGroups) out.push(...s.meshes);
+  return out;
+}
+
+function findMesh(cardId) {
+  return allMeshes().find((m) => m.userData.cardId === cardId) || null;
+}
+
+function syncMeshes(list, cards, parent) {
+  const byId = new Map(list.map((m) => [m.userData.cardId, m]));
+  const next = [];
+  for (const card of cards) {
+    let mesh = byId.get(card.id);
+    if (mesh) {
+      byId.delete(card.id);
+    } else {
+      mesh = createCardMesh();
+      parent.add(mesh);
+    }
+    if (mesh.parent !== parent) parent.add(mesh);
+    mesh.userData.cardId = card.id;
+    mesh.userData.rank = card.rank;
+    mesh.userData.suit = card.suit;
+    next.push(mesh);
+  }
+  for (const leftover of byId.values()) disposeMesh(leftover);
+  list.length = 0;
+  list.push(...next);
+}
+
+function applyCardLook(root, card, { flipping = false } = {}) {
+  const faceUp = Boolean(card.faceUp) && !flipping;
+  root.userData.faceUp = faceUp;
+  root.visible = true;
+  if (flipping || flips.has(card.id) || fades.has(card.id) || alarms.has(card.id)) return;
+  const { face, back, pivot } = root.userData;
+  if (card.rank && card.suit) face.material.map = getCardFaceTexture(card.rank, card.suit);
+  back.material.map = getCardBackTexture();
+  face.material.color.set(0xffffff);
+  back.material.color.set(0xffffff);
+  face.material.opacity = 1;
+  back.material.opacity = 1;
+  face.material.needsUpdate = true;
+  back.material.needsUpdate = true;
+  pivot.rotation.x = 0;
+  pivot.rotation.y = faceUp ? Math.PI : 0;
+}
+
+function createEasel() {
+  const g = new THREE.Group();
+  const wood = new THREE.MeshStandardMaterial({ color: WOOD, roughness: 0.82, metalness: 0.04 });
+  const woodDark = new THREE.MeshStandardMaterial({ color: WOOD_DARK, roughness: 0.88, metalness: 0.04 });
+  const width = EASEL_WIDTH;
+
+  for (const x of [-width / 2 + 0.1, width / 2 - 0.1]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.18, 0.18), woodDark);
+    leg.position.set(x, 0.09, 0);
+    g.add(leg);
+  }
+
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(width, 0.05, 0.2), wood);
+  shelf.position.set(0, 0.175, 0.02);
+  g.add(shelf);
+
+  const lip = new THREE.Mesh(new THREE.BoxGeometry(width, 0.08, 0.035), wood);
+  lip.position.set(0, 0.215, 0.11);
+  g.add(lip);
+
+  const rest = new THREE.Mesh(new THREE.BoxGeometry(width, 0.16, 0.035), wood);
+  rest.position.set(0, 0.28, -0.05);
+  rest.rotation.x = -0.35;
+  g.add(rest);
+  return g;
+}
+
+function createTable() {
+  const group = new THREE.Group();
+  const rimMat = new THREE.MeshStandardMaterial({
+    color: WOOD,
+    roughness: 0.7,
+    metalness: 0.05,
+    side: THREE.DoubleSide
+  });
+  const rim = new THREE.Mesh(
+    new THREE.CylinderGeometry(TABLE_RADIUS, TABLE_RADIUS, TABLE_THICKNESS, 64, 1, true),
+    rimMat
+  );
+  group.add(rim);
+
+  const felt = new THREE.Mesh(
+    new THREE.CircleGeometry(TABLE_RADIUS, 96),
+    new THREE.MeshStandardMaterial({ color: FELT_600, roughness: 0.9, metalness: 0 })
+  );
+  felt.rotation.x = -Math.PI / 2;
+  felt.position.y = TABLE_TOP + 0.002;
+  group.add(felt);
+
+  const inlay = new THREE.Mesh(
+    new THREE.RingGeometry(TABLE_RADIUS * 0.22, TABLE_RADIUS * 0.26, 48),
+    new THREE.MeshStandardMaterial({ color: BRASS, roughness: 0.45, metalness: 0.35 })
+  );
+  inlay.rotation.x = -Math.PI / 2;
+  inlay.position.y = TABLE_TOP + 0.004;
+  group.add(inlay);
+  return group;
+}
+
+function layoutEaselCards(meshes, cards) {
+  const n = meshes.length;
+  if (n === 0) return;
+  const pickable = cards.some((c) => c.pickable);
+  const cardW = CARD_ASPECT * CARD_SCALE;
+  const maxSpread = pickable ? 3.2 : EASEL_WIDTH - 0.2;
+  const spacing = n <= 1 ? 0 : Math.min(cardW * 0.92, maxSpread / Math.max(n - 1, 1));
+  const shelfY = 0.2;
+  meshes.forEach((mesh, i) => {
+    const x = (i - (n - 1) / 2) * spacing;
+    const lifted = cards[i]?.lifted ? 0.14 : 0;
+    const y = shelfY + 0.5 * CARD_SCALE + lifted;
+    mesh.position.z = 0.04;
+    if (!alarms.has(mesh.userData.cardId)) {
+      mesh.position.x = x;
+      mesh.rotation.z = 0;
+    }
+    if (!flips.has(mesh.userData.cardId) && !fades.has(mesh.userData.cardId) && !alarms.has(mesh.userData.cardId)) {
+      mesh.position.y = y;
+    }
+    if (!alarms.has(mesh.userData.cardId) && !fades.has(mesh.userData.cardId)) mesh.scale.setScalar(CARD_SCALE);
+    mesh.rotation.x = CARD_TILT;
+    mesh.renderOrder = 20 + i;
+    const { back, face } = mesh.userData;
+    if (back) back.renderOrder = 20 + i;
+    if (face) face.renderOrder = 20 + i;
+  });
+}
+
+function placeSeats(total, seatsMeta, spectator = false) {
+  for (let i = 0; i < seatGroups.length; i++) {
+    const theta = -i * ((Math.PI * 2) / total);
+    const seat = seatGroups[i];
+    const meta = seatsMeta[i] || {};
+    const radius = !spectator && meta.isTarget && i !== 0 ? TARGET_EASEL_RADIUS : EASEL_RADIUS;
+    seat.group.position.set(Math.sin(theta) * radius, TABLE_TOP, Math.cos(theta) * radius);
+    const faceOutward = spectator || i === 0;
+    seat.group.rotation.set(0, faceOutward ? theta : theta + Math.PI, 0);
+  }
+}
+
+function neighborSpacing() {
+  return (Math.PI * 2) / Math.max(lastSeatCount, 2);
+}
+
+/** Demi-angle (rad) sous lequel on voit la FACE d'un chevalet (normale vers l'extérieur). */
+function facePeekHalf() {
+  const horiz = Math.abs(Math.cos(orbitPitch) * orbitDistance);
+  if (horiz <= EASEL_RADIUS + 0.08) return 0;
+  return Math.acos(Math.min(0.999, EASEL_RADIUS / horiz));
+}
+
+function refreshPlayerYawLimit(seatCount) {
+  if (Number.isFinite(seatCount) && seatCount >= 2) lastSeatCount = seatCount;
+  const spacing = neighborSpacing();
+  const peek = facePeekHalf();
+  const easelHalf = Math.atan(EASEL_WIDTH / 2 / EASEL_RADIUS);
+  // Plus il y a de joueurs, plus le voisin est proche : on reste devant
+  // son chevalet, hors du cône qui montre ses cartes.
+  orbitYawLimit = Math.max(0.06, spacing - peek - easelHalf * 0.35);
+  clampOrbitYaw();
+}
+
+function clampOrbitYaw() {
+  if (!orbitYawLimited) return;
+  if (orbitYaw > orbitYawLimit) orbitYaw = orbitYawLimit;
+  else if (orbitYaw < -orbitYawLimit) orbitYaw = -orbitYawLimit;
+}
+
+export function setOrbitYawLimited(limited) {
+  const next = Boolean(limited);
+  if (next && !orbitYawLimited) {
+    orbitYaw = 0;
+    orbitPitch = BASE_ELEV;
+  }
+  orbitYawLimited = next;
+  clampOrbitYaw();
+  if (mounted) applyOrbitCamera();
+}
+
+function ensureSeats(count) {
+  while (seatGroups.length > count) {
+    const seat = seatGroups.pop();
+    seat.meshes.forEach(disposeMesh);
+    scene.remove(seat.group);
+  }
+  while (seatGroups.length < count) {
+    const group = new THREE.Group();
+    const easel = createEasel();
+    group.add(easel);
+    scene.add(group);
+    seatGroups.push({ group, easel, meshes: [] });
+  }
+  myHandMeshes = seatGroups[0] ? seatGroups[0].meshes : [];
+  opponentGroups = seatGroups.slice(1).map((s) => ({ meshes: s.meshes }));
+}
+
+function applyOrbitCamera() {
+  if (!camera) return;
+  _look.set(0, 0.08, 0);
+  const horiz = Math.cos(orbitPitch) * orbitDistance;
+  camera.position.set(
+    _look.x + Math.sin(orbitYaw) * horiz,
+    _look.y + Math.sin(orbitPitch) * orbitDistance,
+    _look.z + Math.cos(orbitYaw) * horiz
+  );
+  camera.lookAt(_look);
+}
+
+function maxOrbitDistance() {
+  return Math.max(fittedDistance, BASE_DIST) * DIST_MAX_FACTOR;
+}
+
+function computeFittedDistance() {
+  if (!camera) return BASE_DIST;
+  const halfVFov = (CAMERA_FOV * Math.PI) / 360;
+  const halfHFov = Math.atan(Math.tan(halfVFov) * Math.max(camera.aspect, 0.05));
+  const margin = TABLE_RADIUS + 0.5;
+  const byWidth = margin / Math.tan(halfHFov);
+  const byHeight = margin / Math.tan(halfVFov);
+  return Math.max(BASE_DIST, byWidth, byHeight);
+}
+
+function fitCamera() {
+  if (!camera) return;
+  fittedDistance = computeFittedDistance();
+  if (!userZoomed) orbitDistance = fittedDistance;
+  else orbitDistance = Math.max(DIST_MIN, Math.min(maxOrbitDistance(), orbitDistance));
+  applyOrbitCamera();
+}
+
+export function orbitCameraByScreenDelta(dx, dy) {
+  if (!mounted) return;
+  orbitPitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, orbitPitch + dy * 0.006));
+  orbitYaw -= dx * 0.008;
+  if (orbitYawLimited) {
+    refreshPlayerYawLimit();
+  } else if (orbitYaw > Math.PI) {
+    orbitYaw -= Math.PI * 2;
+  } else if (orbitYaw < -Math.PI) {
+    orbitYaw += Math.PI * 2;
+  }
+  applyOrbitCamera();
+}
+
+export function zoomCameraByFactor(factor) {
+  if (!mounted || !Number.isFinite(factor) || factor <= 0) return;
+  userZoomed = true;
+  orbitDistance = Math.max(DIST_MIN, Math.min(maxOrbitDistance(), orbitDistance / factor));
+  if (orbitYawLimited) refreshPlayerYawLimit();
+  applyOrbitCamera();
+}
+
+export function resetOrbit() {
+  orbitYaw = 0;
+  orbitPitch = BASE_ELEV;
+  userZoomed = false;
+  orbitDistance = fittedDistance || BASE_DIST;
+  if (orbitYawLimited) refreshPlayerYawLimit();
+  else clampOrbitYaw();
+  if (mounted) applyOrbitCamera();
+}
+
+function easeFlip(t) {
+  return t * t * (3 - 2 * t);
+}
+
+function advanceFlips(now) {
+  for (const [cardId, flip] of flips) {
+    const mesh = flip.root || findMesh(cardId);
+    const pivot = mesh?.userData?.pivot;
+    if (!mesh || !pivot) {
+      flips.delete(cardId);
       continue;
     }
     const t = Math.min(1, (now - flip.startTime) / flip.duration);
-    // Pincement horizontal (scale.x : 1 -> 0 -> 1) le long de l'axe propre de
-    // la carte, PAS une rotation 3D : quel que soit l'axe choisi pour une
-    // vraie rotation (diagonale, vertical monde, vertical local...), un
-    // retournement à 180° déplace forcément au moins un coin — soit en
-    // inversant le sens de l'inclinaison (axe vertical monde), soit en
-    // faisant disparaître temporairement l'inclinaison (axe vertical local
-    // sans le tilt). Ici l'inclinaison de l'éventail (rotation.z, voir
-    // layoutFan) n'est JAMAIS touchée : chaque coin garde en permanence sa
-    // position angulaire exacte par rapport au centre de la carte, seule sa
-    // distance au centre varie (la carte "s'aplatit" sur sa tranche puis se
-    // redéploie). Change aussi la face affichée (dos -> face) au moment le
-    // plus fin, comme le ferait le passage par la tranche d'une vraie rotation.
-    if (!flip.swapped && t >= 0.5) {
-      mesh.material.map = flip.faceTexture;
-      mesh.material.color.set(0xffffff);
-      mesh.material.needsUpdate = true;
-      flip.swapped = true;
-    }
-    mesh.scale.x = Math.max(0.02, Math.abs(1 - 2 * t));
+    const k = easeFlip(t);
+    pivot.rotation.y = flip.from + (flip.to - flip.from) * k;
+    mesh.position.y = flip.baseY + Math.sin(t * Math.PI) * flip.lift;
     if (t >= 1) {
-      mesh.scale.x = 1;
-      entry.flips.delete(index);
+      pivot.rotation.y = flip.to;
+      mesh.position.y = flip.baseY;
+      mesh.userData.faceUp = true;
+      flips.delete(cardId);
     }
   }
 }
 
-/**
- * Avance les animations transitoires de disparition (`fadeOutCard`, paire
- * défaussée) ou de descente (`descendCard`, carte qui rejoint la main) en
- * cours pour cette scène. Purement décoratif comme `advanceFlips` : le
- * prochain `updateFan` fait autorité et remplace ce rendu.
- */
-function advanceFades(entry, now) {
-  for (const [index, fade] of entry.fades) {
-    const mesh = entry.meshes[index];
+function advanceFades(now) {
+  for (const [cardId, fade] of fades) {
+    const mesh = fade.root || findMesh(cardId);
     if (!mesh) {
-      entry.fades.delete(index);
+      fades.delete(cardId);
       continue;
     }
     const t = Math.min(1, (now - fade.startTime) / fade.duration);
+    const { back, face } = mesh.userData;
     if (fade.kind === 'fadeOut') {
-      const s = 1 - t;
-      mesh.scale.set(s, s, s);
-      mesh.material.opacity = s;
+      const s = Math.max(0.02, 1 - t);
+      mesh.scale.setScalar(CARD_SCALE * s);
+      if (back) back.material.opacity = 1 - t;
+      if (face) face.material.opacity = 1 - t;
     } else {
       mesh.position.y = fade.startY - fade.distance * t;
-      mesh.material.opacity = 1 - t;
+      if (back) back.material.opacity = 1 - t;
+      if (face) face.material.opacity = 1 - t;
     }
     if (t >= 1) {
       mesh.visible = false;
-      entry.fades.delete(index);
+      fades.delete(cardId);
     }
   }
 }
 
-/** Idempotent par clé : ne recrée rien si déjà montée. */
-export function mountFan(key) {
-  ensureScene(key);
+function advanceAlarms(now) {
+  for (const [cardId, alarm] of alarms) {
+    const mesh = alarm.root || findMesh(cardId);
+    if (!mesh) {
+      alarms.delete(cardId);
+      continue;
+    }
+    const t = Math.min(1, (now - alarm.startTime) / alarm.duration);
+    const decay = 1 - t;
+    const wiggle = Math.sin(t * Math.PI * 14);
+    mesh.position.x = alarm.baseX + wiggle * 0.07 * decay;
+    mesh.rotation.z = alarm.baseRotZ + wiggle * 0.22 * decay;
+    mesh.position.y = alarm.baseY + 0.08 + Math.sin(t * Math.PI) * 0.16;
+    mesh.scale.setScalar(CARD_SCALE * (1 + 0.12 * Math.sin(t * Math.PI)));
+    const pulse = 0.45 + 0.55 * Math.abs(Math.sin(t * Math.PI * 5));
+    const { face, back } = mesh.userData;
+    if (face) face.material.emissive.setRGB(0.7 * pulse, 0.04 * pulse, 0.04 * pulse);
+    if (back) back.material.emissive.setRGB(0.45 * pulse, 0.02 * pulse, 0.02 * pulse);
+    if (t >= 1) {
+      mesh.position.x = alarm.baseX;
+      mesh.position.y = alarm.baseY;
+      mesh.rotation.z = alarm.baseRotZ;
+      mesh.scale.setScalar(CARD_SCALE);
+      if (face) face.material.emissive.set(0x000000);
+      if (back) back.material.emissive.set(0x000000);
+      alarms.delete(cardId);
+    }
+  }
 }
 
-/** Ajuste le canvas fixe de `key` pour qu'il recouvre exactement `rect` (un DOMRect, coordonnées viewport). */
-export function positionFan(key, rect) {
-  const entry = scenes.get(key);
-  if (!entry || !rect || rect.width <= 0 || rect.height <= 0) return;
-  const { canvas, renderer, camera } = entry;
+function ensureScene() {
+  if (mounted && canvas && canvas.isConnected) return;
+  mounted = true;
+  if (animationHandle) cancelAnimationFrame(animationHandle);
+  animationHandle = null;
+  seatGroups = [];
+  myHandMeshes = [];
+  opponentGroups = [];
+  tableGroup = null;
+  document.querySelectorAll('#pouilleux-3d-canvas, [id^="pouilleux-3d-canvas-"]').forEach((el) => el.remove());
+
+  canvas = document.createElement('canvas');
+  canvas.id = 'pouilleux-3d-canvas';
+  canvas.style.position = 'fixed';
+  canvas.style.pointerEvents = 'none';
+  canvas.style.display = 'none';
+  canvas.style.zIndex = '5';
+  document.body.appendChild(canvas);
+
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 80);
+
+  scene.add(new THREE.HemisphereLight(0xe8f0ea, 0x1a120c, 0.55));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.28));
+  const key = new THREE.DirectionalLight(0xfff6e8, 0.75);
+  key.position.set(2.2, 7, 4.5);
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(0xb7c9c0, 0.28);
+  fill.position.set(-3, 3, -2);
+  scene.add(fill);
+
+  renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  renderer.setClearColor(0x000000, 0);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+  tableGroup = createTable();
+  scene.add(tableGroup);
+
+  const tick = () => {
+    animationHandle = requestAnimationFrame(tick);
+    const now = performance.now();
+    advanceFlips(now);
+    advanceFades(now);
+    advanceAlarms(now);
+    renderer.render(scene, camera);
+  };
+  tick();
+}
+
+export function mountTable() {
+  ensureScene();
+}
+
+export function positionTable(rect) {
+  if (!mounted || !rect || rect.width <= 0 || rect.height <= 0) return;
   canvas.style.left = `${rect.left}px`;
   canvas.style.top = `${rect.top}px`;
   canvas.style.width = `${rect.width}px`;
@@ -353,32 +856,122 @@ export function positionFan(key, rect) {
   renderer.setSize(rect.width, rect.height, false);
   camera.aspect = rect.width / rect.height;
   camera.updateProjectionMatrix();
-  entry.canvasHeightPx = rect.height; // voir fitCameraToExtent — calibre la distance de caméra sur la hauteur RÉELLE du canvas
+  fitCamera();
 }
 
-/**
- * Rectangle écran (coordonnées CSS px, relatives au canvas/à la zone de
- * `positionFan`) couvert par chaque carte de l'éventail `key`, dans le même
- * ordre que `updateFan` — sert à superposer précisément les vrais boutons
- * DOM cliquables (`.target-card--pickable`) sur les cartes 3D dessinées :
- * sans ça, ces boutons restent dans le flux HTML normal (empilés en haut à
- * gauche du "stage") au lieu de correspondre à l'éventail réellement
- * affiché, rendant la pioche impossible à toucher. Englobant (AABB) des 4
- * coins projetés — ignore la rotation propre du bouton (invisible, seule sa
- * zone de clic compte).
- */
-export function getCardScreenRects(key) {
-  const entry = scenes.get(key);
-  if (!entry) return [];
-  const { camera, meshes, canvas } = entry;
-  // La caméra n'est ajoutée à aucune scène (voir ensureScene) : son
-  // matrixWorld n'est normalement recalculé qu'au prochain rendu WebGL
-  // (tick()). Or `fitCameraToExtent` (voir updateFan) vient de changer sa
-  // position juste avant cet appel, pour caler le zoom sur le nombre de
-  // cartes actuel — sans ce recalcul explicite, .project() ci-dessous
-  // utiliserait encore l'ancienne distance de caméra (celle du rendu
-  // précédent), décalant les zones de clic dès que la taille de la main
-  // change d'un rendu à l'autre.
+export function showTable() {
+  ensureScene();
+  if (canvas) canvas.style.display = 'block';
+}
+
+export function hideTable() {
+  if (canvas) canvas.style.display = 'none';
+  document.querySelectorAll('#pouilleux-3d-canvas, [id^="pouilleux-3d-canvas-"]').forEach((el) => {
+    el.style.display = 'none';
+  });
+}
+
+export function hideAllFans() {
+  hideTable();
+}
+
+export function updateTable({ myHand = [], opponents = [], spectator = false, myIsTarget = false } = {}) {
+  if (!mounted) return;
+
+  setOrbitYawLimited(!spectator);
+
+  const fillSeat = (seat, cards) => {
+    if (!seat) return;
+    syncMeshes(seat.meshes, cards, seat.group);
+    seat.meshes.forEach((mesh, j) => applyCardLook(mesh, cards[j], { flipping: flips.has(cards[j].id) }));
+    layoutEaselCards(seat.meshes, cards);
+  };
+
+  if (spectator) {
+    const total = opponents.length;
+    ensureSeats(total);
+    placeSeats(
+      total,
+      opponents.map((p) => ({ isTurn: p.isTurn, isTarget: p.isTarget })),
+      true
+    );
+    fitCamera();
+    opponents.forEach((p, i) => fillSeat(seatGroups[i], p.hand || []));
+    myHandMeshes = [];
+    opponentGroups = seatGroups.map((s) => ({ meshes: s.meshes }));
+    return;
+  }
+
+  const total = 1 + opponents.length;
+  ensureSeats(total);
+  const seatsMeta = [{ isTurn: false, isTarget: Boolean(myIsTarget) }, ...opponents.map((o) => ({ isTurn: o.isTurn, isTarget: o.isTarget }))];
+  placeSeats(total, seatsMeta, false);
+  fitCamera();
+  refreshPlayerYawLimit(total);
+
+  const meSeat = seatGroups[0];
+  fillSeat(meSeat, myHand);
+  myHandMeshes = meSeat.meshes;
+
+  opponents.forEach((opp, i) => fillSeat(seatGroups[i + 1], opp.hand || []));
+  opponentGroups = seatGroups.slice(1).map((s) => ({ meshes: s.meshes }));
+}
+
+export function flipCard(cardId, card, { duration = 700 } = {}) {
+  const mesh = findMesh(cardId);
+  const pivot = mesh?.userData?.pivot;
+  if (!mesh || !pivot) return;
+  if (card?.rank && card?.suit) {
+    mesh.userData.face.material.map = getCardFaceTexture(card.rank, card.suit);
+    mesh.userData.face.material.needsUpdate = true;
+  }
+  flips.set(cardId, {
+    root: mesh,
+    startTime: performance.now(),
+    duration,
+    from: 0,
+    to: Math.PI,
+    baseY: mesh.position.y,
+    lift: 0.1
+  });
+}
+
+export function fadeOutCard(cardId, { duration = 400 } = {}) {
+  const mesh = findMesh(cardId);
+  if (!mesh) return;
+  fades.set(cardId, { kind: 'fadeOut', root: mesh, startTime: performance.now(), duration });
+}
+
+export function descendCard(cardId, { duration = 450, distance = 0.55 } = {}) {
+  const mesh = findMesh(cardId);
+  if (!mesh) return;
+  fades.set(cardId, {
+    kind: 'descend',
+    root: mesh,
+    startTime: performance.now(),
+    duration,
+    distance,
+    startY: mesh.position.y
+  });
+}
+
+/** Équivalent 3D de `.draw-reveal--danger` : la carte tremble, s'élève et pulse en rouge. */
+export function alarmCard(cardId, { duration = 1200 } = {}) {
+  const mesh = findMesh(cardId);
+  if (!mesh) return;
+  fades.delete(cardId);
+  alarms.set(cardId, {
+    root: mesh,
+    startTime: performance.now(),
+    duration,
+    baseX: mesh.position.x,
+    baseY: mesh.position.y,
+    baseRotZ: mesh.rotation.z
+  });
+}
+
+function projectMeshes(meshes) {
+  if (!mounted) return [];
   camera.updateMatrixWorld();
   const w = parseFloat(canvas.style.width) || canvas.clientWidth || 1;
   const h = parseFloat(canvas.style.height) || canvas.clientHeight || 1;
@@ -387,200 +980,57 @@ export function getCardScreenRects(key) {
   const corner = new THREE.Vector3();
 
   return meshes.map((mesh) => {
+    const plane = mesh.userData?.back || mesh;
+    plane.updateMatrixWorld();
     mesh.updateMatrixWorld();
     const xs = [];
     const ys = [];
-    for (const [cx, cy] of [[-halfW, halfH], [halfW, halfH], [halfW, -halfH], [-halfW, -halfH]]) {
-      corner.set(cx, cy, 0).applyMatrix4(mesh.matrixWorld).project(camera);
+    for (const [cx, cy] of [
+      [-halfW, halfH],
+      [halfW, halfH],
+      [halfW, -halfH],
+      [-halfW, -halfH]
+    ]) {
+      corner.set(cx, cy, 0).applyMatrix4(plane.matrixWorld).project(camera);
       xs.push((corner.x * 0.5 + 0.5) * w);
       ys.push((-corner.y * 0.5 + 0.5) * h);
     }
     const left = Math.min(...xs);
     const top = Math.min(...ys);
-    return { left, top, width: Math.max(...xs) - left, height: Math.max(...ys) - top };
+    return {
+      id: mesh.userData.cardId,
+      left,
+      top,
+      width: Math.max(...xs) - left,
+      height: Math.max(...ys) - top
+    };
   });
 }
 
-/** Cadre doré enfant, discret par défaut (voir setCardHighlight) — hérite automatiquement de la position/rotation de la carte porteuse. */
-function createHighlightFrame() {
-  const geometry = new THREE.PlaneGeometry(CARD_ASPECT + 0.06, 1.06);
-  const material = new THREE.MeshBasicMaterial({ color: BRASS, side: THREE.DoubleSide, transparent: true });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.z = -0.005;
-  mesh.visible = false;
-  return mesh;
+export function getCardRects() {
+  return {
+    mine: projectMeshes(myHandMeshes.filter((m) => m.visible)),
+    opponents: opponentGroups.map((g) => projectMeshes(g.meshes.filter((m) => m.visible))),
+    seats: seatGroups.map((s) => projectMeshes(s.meshes.filter((m) => m.visible)))
+  };
 }
 
-function disposeMesh(scene, mesh) {
-  scene.remove(mesh);
-  mesh.geometry.dispose();
-  mesh.material.dispose();
-  const frame = mesh.userData.frame;
-  if (frame) {
-    frame.geometry.dispose();
-    frame.material.dispose();
-  }
-}
+export function getRowLabelAnchors() {
+  if (!mounted) return { mine: null, opponents: [], seats: [] };
+  camera.updateMatrixWorld();
+  const w = parseFloat(canvas.style.width) || canvas.clientWidth || 1;
+  const h = parseFloat(canvas.style.height) || canvas.clientHeight || 1;
 
-/**
- * Dispose `n` cartes en éventail (angle total plafonné, chevauchement accru
- * plutôt qu'un éventail qui continue de s'élargir sans fin une fois la main
- * grande — même intention que applyDynamicHandOverlap côté 2D, voir
- * src/ui/dragReorder.js, sans le réutiliser tel quel puisqu'ici c'est un
- * calcul 3D). Retourne l'étendue horizontale maximale atteinte (demi-largeur
- * en unités monde) — utilisé par `updateFan` pour reculer la caméra si
- * besoin, sans quoi les cartes des extrémités d'une grande main dépassent le
- * champ de vision (invisibles, et donc impossibles à toucher).
- */
-function layoutFan(meshes) {
-  const n = meshes.length;
-  if (n === 0) return 0;
-  const maxSpanDeg = 70;
-  const minAnglePerCardDeg = 4;
-  const anglePerCardDeg = n > 1 ? Math.max(minAnglePerCardDeg, Math.min(maxSpanDeg / (n - 1), 10)) : 0;
-  const anglePerCard = (anglePerCardDeg * Math.PI) / 180;
-  const radius = 3;
-  const halfDiagonal = Math.sqrt((CARD_ASPECT / 2) ** 2 + 0.5 ** 2);
+  const fromGroup = (group) => {
+    if (!group) return null;
+    group.updateMatrixWorld();
+    _world.set(0, 0.88, -0.08).applyMatrix4(group.matrixWorld).project(camera);
+    return { left: (_world.x * 0.5 + 0.5) * w, top: (-_world.y * 0.5 + 0.5) * h };
+  };
 
-  let maxExtent = halfDiagonal;
-  meshes.forEach((mesh, i) => {
-    const angle = (i - (n - 1) / 2) * anglePerCard;
-    const x = Math.sin(angle) * radius;
-    mesh.position.set(x, (Math.cos(angle) - 1) * radius * 0.15, i * 0.01);
-    mesh.quaternion.setFromAxisAngle(AXIS_Z, -angle);
-    maxExtent = Math.max(maxExtent, Math.abs(x) + halfDiagonal);
-  });
-  return maxExtent;
-}
-
-/**
- * `cards` : tableau de `{ rank, suit }` (face visible) ou `null` (dos de
- * carte générique, pour une main dont on ne voit pas le contenu). `pickable`
- * éclaircit légèrement les cartes (même intention que le contraste
- * jouable/grisé utilisé ailleurs dans l'appli).
- */
-export function updateFan(key, cards = [], { pickable = false } = {}) {
-  const entry = scenes.get(key);
-  if (!entry) return;
-  const { scene, meshes } = entry;
-
-  while (meshes.length > cards.length) disposeMesh(scene, meshes.pop());
-  while (meshes.length < cards.length) {
-    const geometry = new THREE.PlaneGeometry(CARD_ASPECT, 1);
-    const material = new THREE.MeshStandardMaterial({ transparent: true });
-    const mesh = new THREE.Mesh(geometry, material);
-    const frame = createHighlightFrame();
-    mesh.add(frame);
-    mesh.userData.frame = frame;
-    scene.add(mesh);
-    meshes.push(mesh);
-  }
-
-  meshes.forEach((mesh, i) => {
-    // Une animation de retournement ou de disparition/descente en cours pour
-    // cet index gère elle-même sa texture/transform (voir advanceFlips et
-    // advanceFades) — ne pas l'écraser ici.
-    if (entry.flips.has(i) || entry.fades.has(i)) return;
-    const card = cards[i];
-    const texture = card ? getCardFaceTexture(card.rank, card.suit) : getCardBackTexture();
-    mesh.material.map = texture;
-    mesh.material.color.set(card ? 0xffffff : pickable ? 0xffffff : 0xb9b9b9);
-    mesh.material.needsUpdate = true;
-    mesh.material.opacity = 1;
-    mesh.scale.set(1, 1, 1);
-    mesh.visible = true;
-    // L'orientation (tilt + éventuel retournement terminé) est réécrite juste
-    // après par layoutFan (mesh.quaternion), pas la peine de la réinitialiser ici.
-    mesh.userData.frame.visible = false; // efface une mise en valeur précédente déjà terminée
-  });
-
-  const maxExtent = layoutFan(meshes);
-  fitCameraToExtent(entry.camera, maxExtent, entry.canvasHeightPx);
-}
-
-// Hauteur de canvas (px) pour laquelle BASE_CAMERA_DISTANCE donne la taille de
-// carte "de référence" — voir fitCameraToExtent. Proche du min-height/aspect-ratio
-// d'origine de .pouilleux-3d-stage (avant l'ajout du second éventail "mine").
-const REFERENCE_CANVAS_HEIGHT = 240;
-
-/**
- * Recule la caméra au besoin pour que `maxExtent` (demi-largeur en unités
- * monde, voir layoutFan) tienne dans le champ de vision horizontal, avec une
- * marge de sécurité — sans ça, les cartes des extrémités d'une grande main
- * (le Pouilleux peut en distribuer plus de 20 par joueur) dépassent le cadre
- * et deviennent invisibles ET impossibles à toucher (voir getCardScreenRects,
- * qui reflète fidèlement ce que rend la caméra).
- *
- * `canvasHeightPx` calibre la distance de base : à FOV égal, une même
- * distance de caméra donne une carte plus PETITE en pixels sur un canvas plus
- * bas (moins de pixels disponibles pour la même taille angulaire) — sans ce
- * calibrage, l'éventail "mine" (canvas nettement plus bas que "stage")
- * affichait des cartes visiblement plus petites, cassant l'illusion d'une
- * carte qui "descend" d'un éventail à l'autre (voir descendCard). La distance
- * de base est donc mise à l'échelle proportionnellement à la hauteur réelle
- * du canvas par rapport à REFERENCE_CANVAS_HEIGHT. Ne rapproche jamais sous
- * cette base (pas la peine de zoomer davantage pour une main courte).
- */
-function fitCameraToExtent(camera, maxExtent, canvasHeightPx) {
-  const heightScale = (canvasHeightPx || REFERENCE_CANVAS_HEIGHT) / REFERENCE_CANVAS_HEIGHT;
-  const baseDistance = BASE_CAMERA_DISTANCE * heightScale;
-  const halfVFov = (camera.fov * Math.PI) / 360;
-  const halfHFov = Math.atan(Math.tan(halfVFov) * camera.aspect);
-  const margin = 0.82; // <1 : garde une marge, n'utilise pas tout le cadre pile au bord
-  const neededDistance = maxExtent / Math.tan(halfHFov * margin);
-  camera.position.z = Math.max(baseDistance, neededDistance);
-}
-
-/**
- * Anime le retournement de la carte à `index` dans l'éventail `key` (dos ->
- * face de `card`), sur `duration` ms — voir "et la carte choisie pivote pour
- * se dévoiler". Purement visuel et transitoire : le prochain `updateFan`
- * (au nouvel état de la partie) fait autorité et remplace ce rendu.
- */
-export function flipCardAt(key, index, card, { duration = 700 } = {}) {
-  const entry = scenes.get(key);
-  const mesh = entry?.meshes[index];
-  if (!mesh) return;
-  entry.flips.set(index, {
-    startTime: performance.now(),
-    duration,
-    faceTexture: getCardFaceTexture(card.rank, card.suit),
-    swapped: false
-  });
-}
-
-export function showFan(key) {
-  const entry = scenes.get(key);
-  if (entry) entry.canvas.style.display = 'block';
-}
-
-/** Cache UN SEUL éventail (contrairement à hideAllFans) — pour une clé qui n'a plus lieu d'être affichée ce rendu-ci sans toucher aux autres scènes (ex. "mine" quand ce n'est plus mon tour de piocher). */
-export function hideFan(key) {
-  const entry = scenes.get(key);
-  if (entry) entry.canvas.style.display = 'none';
-}
-
-export function hideAllFans() {
-  for (const entry of scenes.values()) entry.canvas.style.display = 'none';
-}
-
-/** Bascule le contour doré de la carte à `index` dans l'éventail `key` (mise en valeur, ex. paire détectée — voir renderDrawReveal3D). */
-export function setCardHighlight(key, index, on) {
-  const frame = scenes.get(key)?.meshes[index]?.userData.frame;
-  if (frame) frame.visible = on;
-}
-
-/** Fait disparaître (rétrécit + fondu) la carte à `index` — paire défaussée. */
-export function fadeOutCard(key, index, { duration = 400 } = {}) {
-  const entry = scenes.get(key);
-  if (!entry?.meshes[index]) return;
-  entry.fades.set(index, { kind: 'fadeOut', startTime: performance.now(), duration });
-}
-
-/** Fait descendre (translation + fondu) la carte à `index` — rejoint la main affichée en dessous. */
-export function descendCard(key, index, { duration = 450, distance = 1.2 } = {}) {
-  const entry = scenes.get(key);
-  const mesh = entry?.meshes[index];
-  if (!mesh) return;
-  entry.fades.set(index, { kind: 'descend', startTime: performance.now(), duration, distance, startY: mesh.position.y });
+  return {
+    mine: fromGroup(seatGroups[0]?.group),
+    opponents: seatGroups.slice(1).map((s) => fromGroup(s.group)),
+    seats: seatGroups.map((s) => fromGroup(s.group))
+  };
 }

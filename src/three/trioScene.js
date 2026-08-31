@@ -90,9 +90,7 @@ const DIST_MIN = 2.35;
 const DIST_MAX_FACTOR = 1.45;
 // Les faces adverses regardent vers l'extérieur (yaw ≈ theta du voisin =
 // on lit leur jeu). On reste en deçà de l'espacement entre sièges.
-const PLAYER_YAW_PAD = 0.85;
-const PLAYER_YAW_MIN = 0.38;
-const PLAYER_YAW_MAX = 0.95;
+let lastSeatCount = 2;
 let orbitYaw = 0;
 let orbitPitch = BASE_ELEV;
 let orbitDistance = BASE_DIST;
@@ -594,9 +592,23 @@ function placeSeats(total, myIsTurn, opponents, spectator = false) {
   }
 }
 
+function neighborSpacing() {
+  return (Math.PI * 2) / Math.max(lastSeatCount, 2);
+}
+
+function facePeekHalf() {
+  const horiz = Math.abs(Math.cos(orbitPitch) * orbitDistance);
+  if (horiz <= EASEL_RADIUS + 0.08) return 0;
+  return Math.acos(Math.min(0.999, EASEL_RADIUS / horiz));
+}
+
 function refreshPlayerYawLimit(seatCount) {
-  const spacing = (Math.PI * 2) / Math.max(seatCount, 2);
-  orbitYawLimit = Math.min(PLAYER_YAW_MAX, Math.max(PLAYER_YAW_MIN, spacing - PLAYER_YAW_PAD));
+  if (Number.isFinite(seatCount) && seatCount >= 2) lastSeatCount = seatCount;
+  const spacing = neighborSpacing();
+  const peek = facePeekHalf();
+  const easelHalf = Math.atan(EASEL_WIDTH / 2 / EASEL_RADIUS);
+  orbitYawLimit = Math.max(0.06, spacing - peek - easelHalf * 0.35);
+  clampOrbitYaw();
 }
 
 function clampOrbitYaw() {
@@ -674,15 +686,15 @@ function fitCamera() {
 /** Glisser pour tourner autour de la table (yaw) et incliner (pitch). */
 export function orbitCameraByScreenDelta(dx, dy) {
   if (!mounted) return;
+  orbitPitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, orbitPitch + dy * 0.006));
   orbitYaw -= dx * 0.008;
   if (orbitYawLimited) {
-    clampOrbitYaw();
+    refreshPlayerYawLimit();
   } else if (orbitYaw > Math.PI) {
     orbitYaw -= Math.PI * 2;
   } else if (orbitYaw < -Math.PI) {
     orbitYaw += Math.PI * 2;
   }
-  orbitPitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, orbitPitch + dy * 0.006));
   applyOrbitCamera();
 }
 
@@ -691,6 +703,7 @@ export function zoomCameraByFactor(factor) {
   if (!mounted || !Number.isFinite(factor) || factor <= 0) return;
   userZoomed = true;
   orbitDistance = Math.max(DIST_MIN, Math.min(maxOrbitDistance(), orbitDistance / factor));
+  if (orbitYawLimited) refreshPlayerYawLimit();
   applyOrbitCamera();
 }
 
@@ -699,7 +712,8 @@ export function resetOrbit() {
   orbitPitch = BASE_ELEV;
   userZoomed = false;
   orbitDistance = fittedDistance || BASE_DIST;
-  clampOrbitYaw();
+  if (orbitYawLimited) refreshPlayerYawLimit();
+  else clampOrbitYaw();
   if (mounted) applyOrbitCamera();
 }
 
@@ -842,12 +856,11 @@ export function updateTable({
     opponentGroups = seatGroups.map((s) => ({ meshes: s.meshes }));
   } else {
     const total = 1 + opponents.length;
-    refreshPlayerYawLimit(total);
-    clampOrbitYaw();
     ensureSeats(total);
     const turnMine = myIsTurn === undefined ? !opponents.some((o) => o.isTurn) : Boolean(myIsTurn);
     placeSeats(total, turnMine, opponents, false);
     fitCamera();
+    refreshPlayerYawLimit(total);
 
     const meSeat = seatGroups[0];
     syncMeshes(meSeat.meshes, myRow, meSeat.group);

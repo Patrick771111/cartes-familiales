@@ -1275,78 +1275,87 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   .game-hud__bubble--quit { top: calc(50% + 196px); }
 }
 
-/* Écran 3D du Pouilleux (voir renderTableNow3D dans pouilleux.js) : pas de
-   zones 2D à reproduire (adversaires, mains séparées), juste un bandeau de
-   tour + un grand éventail ("stage") qui occupe l'essentiel de l'écran.
-   .pouilleux-screen centre ses enfants par défaut (align-items:center,
-   largeur au contenu) — cet écran-ci n'a qu'un seul enfant pertinent et le
-   veut pleine largeur, d'où l'étirement forcé ici plutôt que le
-   contournement ciblé utilisé côté 2D. */
-.pouilleux-screen--3d { align-items: stretch; justify-content: center; }
-.pouilleux-3d-status {
-  text-align: center;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: rgba(247, 241, 225, 0.7);
-  margin: 0;
-}
-/* Le canvas WebGL persistant (voir src/three/pouilleuxScene.js) est
-   positionné par-dessus cette zone en JS — les boutons de sélection restent
-   de vrais boutons DOM (clic identique au 2D), juste rendus transparents
-   pour laisser voir le rendu 3D dessous. Un éventail s'étale surtout à
-   l'horizontale : `aspect-ratio` (plutôt que `flex:1`, qui la laisserait
-   filer en hauteur sur un écran de téléphone haut et étroit) garde la zone
-   large plutôt que haute, sans quoi le champ de vision horizontal de la
-   caméra se retrouve écrasé et ne montre plus que 1-2 cartes du milieu. */
-.pouilleux-3d-stage {
+/* Écran 3D du Pouilleux (voir renderTableNow3D) : table ronde, un chevalet
+   par joueur, caméra et overlays calqués sur Trio (voir pouilleuxScene.js).
+   `flex:1` remplit l'écran jusqu'aux bulles (même leçon que .trio-3d-table). */
+.pouilleux-screen--3d {
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow: hidden;
+  touch-action: none;
   width: 100%;
-  aspect-ratio: 4 / 3;
-  max-height: 55vh;
-  min-height: 220px;
-  position: relative;
+  max-width: none;
 }
-/* position:absolute avec left/top/width/height posés en JS (voir
-   getCardScreenRects dans pouilleuxScene.js) pour recouvrir exactement la
-   carte 3D correspondante — sans ça les boutons restent dans le flux HTML
-   normal du stage (empilés en haut à gauche), loin de l'éventail affiché.
-   La variante :disabled est nécessaire séparément (même spécificité que
-   `.target-card--pickable:disabled` plus bas dans ce fichier, qui la
-   remplacerait sinon dès le clic — tous les boutons passent `disabled`
-   immédiatement — révélant un "quadrillage" de rectangles alignés
-   correspondant aux vraies cartes tournées de l'éventail). */
-.pouilleux-3d-stage .target-card--pickable,
-.pouilleux-3d-stage .target-card--pickable:disabled { position: absolute; opacity: 0; margin: 0; }
-
-/* Boutons invisibles superposés à SA PROPRE main quand elle est affichée en
-   3D (stage si on est la cible, "mine" si on pioche — voir renderTableNow3D)
-   pour permettre le glisser-déposer (voir enableHandDrag) : même principe de
-   superposition que .target-card--pickable ci-dessus, cursor/touch-action en
-   plus pour le geste de glisser (cohérent avec .my-hand__cards .card en 2D). */
-.pouilleux-3d-stage .mine-card--draggable,
-.pouilleux-3d-mine-stage .mine-card--draggable {
+.pouilleux-3d-table {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 280px;
+  min-width: 0;
+  align-self: stretch;
+  position: relative;
+  touch-action: none;
+  cursor: grab;
+}
+.pouilleux-3d-table:active { cursor: grabbing; }
+.pouilleux-3d-card,
+.pouilleux-3d-card.target-card--pickable,
+.pouilleux-3d-card.target-card--pickable:disabled {
   position: absolute;
   opacity: 0;
   margin: 0;
-  cursor: grab;
+  cursor: pointer;
   touch-action: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  z-index: 7;
+  pointer-events: auto;
 }
-
-/* Quand ma propre main est aussi affichée en dessous (voir showMineFan dans
-   renderTableNow3D) : le stage principal cède un peu de hauteur. */
-.pouilleux-3d-stage--compact { max-height: 38vh; }
-.pouilleux-3d-mine-label {
-  text-align: center;
-  font-family: var(--font-mono);
+.pouilleux-3d-card.mine-card--draggable { cursor: grab; }
+.pouilleux-3d-card.target-card--pickable:hover,
+.pouilleux-3d-card.target-card--pickable:focus-visible {
+  transform: none;
+  box-shadow: none;
+}
+.pouilleux-3d-label {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  margin: 0;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
   font-size: 12px;
-  color: rgba(247, 241, 225, 0.6);
-  margin: 4px 0 0;
+  font-weight: 600;
+  color: rgba(247, 241, 225, 0.9);
+  white-space: nowrap;
+  z-index: 6;
 }
-.pouilleux-3d-mine-stage {
-  width: 100%;
-  aspect-ratio: 4 / 1.3;
-  max-height: 22vh;
-  min-height: 90px;
-  position: relative;
+.pouilleux-3d-label--turn {
+  box-shadow: 0 0 0 1.5px var(--brass-soft);
+  color: var(--cream);
+}
+/* Équivalent 3D de .draw-reveal--danger : flash rouge + message, sans bloquer l'orbite. */
+.pouilleux-3d-danger {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: flash-danger-bg 0.9s ease-in-out;
+}
+.pouilleux-3d-danger__msg {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 22px;
+  color: #ff9a9a;
+  text-align: center;
+  margin: 0;
+  padding: 0 20px;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.7);
+  animation: danger-shake 0.6s ease-in-out 0.28s 2;
 }
 
 .settings-overlay {
@@ -2968,6 +2977,10 @@ body.is-card-dragging * {
   max-width: 480px;
   position: relative;
 }
+.pouilleux-screen.pouilleux-screen--3d {
+  max-width: none;
+  width: 100%;
+}
 /* Verrouillage déjà largement en place ici (zones flex + .pouilleux-target__hand
    a déjà son propre plafond+défilement, voir plus bas) — il ne manque que la
    réserve pour la rangée de bulles fixes (bas en portrait, droite en
@@ -2977,6 +2990,24 @@ body.is-card-dragging * {
 }
 @media (orientation: landscape) and (max-height: 620px) {
   .pouilleux-screen { padding-right: 64px; overflow-y: auto; }
+  .screen--table.pouilleux-screen.pouilleux-screen--3d {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    align-items: stretch;
+    justify-content: flex-start;
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    padding-right: 64px;
+  }
+  .pouilleux-screen--3d .pouilleux-3d-table {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    align-self: stretch;
+  }
 }
 .pouilleux-screen .pouilleux-zone--others { overflow-y: auto; }
 

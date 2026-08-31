@@ -1,5 +1,6 @@
 import { cardFaceHtml, cardBackHtml } from '../cards.js';
 import { drawForCurrentPlayer, playerToDrawFrom as computeTarget } from '../../game/pouilleux.js';
+import { replaceBotWithPlayer } from '../../game/engine.js';
 import { getOrderedHand, moveCard, resetHandOrder } from '../handOrder.js';
 import { enableHandDrag } from '../dragReorder.js';
 import { openRulesModal } from '../rules.js';
@@ -21,20 +22,24 @@ import {
 } from '../gameShared.js';
 import { is3DEnabled } from '../settings.js';
 import {
-  mountFan,
-  positionFan,
-  updateFan,
-  showFan,
-  hideFan,
+  mountTable,
+  positionTable,
+  updateTable,
+  showTable,
+  hideTable,
   hideAllFans,
-  flipCardAt,
-  setCardHighlight,
+  flipCard,
   fadeOutCard,
   descendCard,
-  getCardScreenRects
+  alarmCard,
+  getCardRects,
+  getRowLabelAnchors,
+  orbitCameraByScreenDelta,
+  zoomCameraByFactor,
+  resetOrbit
 } from '../../three/pouilleuxScene.js';
 
-// Durée du retournement 3D (voir flipCardAt) — nommée ici plutôt que de
+// Durée du retournement 3D (voir flipCard) — nommée ici plutôt que de
 // compter sur sa valeur par défaut, pour caler dessus le déclenchement à
 // 80% de rotation de la chorégraphie paire/descente (renderDrawReveal3D).
 const FLIP_DURATION = 700;
@@ -59,7 +64,7 @@ let pendingRenderArgs = null;
 // connaître aucun jeu en particulier pour savoir masquer sa scène au bon moment.
 export function hide3D() {
   if (performance.now() < revealActiveUntil) return;
-  hideAllFans();
+  hideTable();
 }
 
 /** Réinitialise l'état local propre à ce jeu — appelé au retour en salle d'attente. */
@@ -68,6 +73,8 @@ export function resetSelection() {
   revealActiveUntil = 0;
   pendingRenderArgs = null;
   resetHandOrder('pouilleux');
+  hideTable();
+  resetOrbit();
 }
 
 /** Applique le rendu resté en attente pendant la révélation qui vient de se terminer, s'il y en a un. */
@@ -173,39 +180,31 @@ function renderDrawReveal2D(container, { previousState, newState, player, room, 
 }
 
 /**
- * Chorégraphie de fin de retournement pour la carte `idx` de "stage",
- * partagée entre "je viens de piocher" (ma propre main visible dans "mine")
- * et "je regarde deux autres joueurs s'affronter" (main cachée du tireur
- * dans "mine", voir renderDrawReveal3D). `secondHandBefore` est la main du
- * joueur qui reçoit la carte, dans le même ordre que ses cartes affichées
- * dans "mine", AVANT le tirage. "À partir de 80% de rotation" (voir demande
- * utilisateur) : paire détectée -> contour doré puis disparition des 2
- * cartes ; sinon la carte descend, direction visuelle vers l'éventail "mine"
- * affiché juste en dessous (pas de déplacement littéral entre les deux
- * canvas indépendants — simplification assumée).
+ * Chorégraphie de fin de retournement : `receiverHandBefore` est la main
+ * de celui qui reçoit la carte, AVANT le tirage. À 80 % de rotation :
+ * paire → contour doré puis disparition des 2 cartes ; sinon la carte
+ * descend vers la table (elle rejoint le chevalet du tireur au prochain rendu).
  */
-function scheduleFlipConclusion(idx, draw, secondHandBefore) {
-  const pairIdx = draw.paired ? secondHandBefore.findIndex((c) => c.rank === draw.card.rank) : -1;
+function scheduleFlipConclusion(drawnCardId, draw, receiverHandBefore, { isOddCard = false } = {}) {
+  const pairCard = draw.paired ? receiverHandBefore.find((c) => c.rank === draw.card.rank) : null;
+  if (isOddCard) {
+    window.setTimeout(() => alarmCard(drawnCardId, { duration: 1200 }), FLIP_DURATION);
+    return;
+  }
   window.setTimeout(() => {
-    if (draw.paired && pairIdx !== -1) {
-      setCardHighlight('stage', idx, true);
-      setCardHighlight('mine', pairIdx, true);
-      window.setTimeout(() => {
-        fadeOutCard('stage', idx);
-        fadeOutCard('mine', pairIdx);
-      }, 250);
+    if (draw.paired && pairCard) {
+      fadeOutCard(drawnCardId);
+      fadeOutCard(pairCard.id);
     } else {
-      descendCard('stage', idx, { duration: 450, distance: 1.2 });
+      descendCard(drawnCardId);
     }
   }, FLIP_DURATION * 0.8);
 }
 
 /**
- * Version 3D de la révélation d'un tirage : la carte piochée pivote sur
- * elle-même pour dévoiler sa face (voir flipCardAt) au lieu du grand
- * médaillon 2D — seulement si la main d'où l'on a piocher n'était pas déjà
- * affichée face visible (voir "ta main" quand on est soi-même la cible, plus
- * rien à révéler dans ce cas).
+ * Version 3D de la révélation d'un tirage : la carte piochée pivote dos →
+ * face (voir flipCard) — rien à révéler si on est soi-même la cible (main
+ * déjà face visible sur notre chevalet).
  */
 function renderDrawReveal3D(container, { previousState, newState, player, room, onLeave }) {
   renderTableNow3D(container, { room: { ...room, state: previousState }, player, state: previousState, onLeave });
@@ -214,40 +213,38 @@ function renderDrawReveal3D(container, { previousState, newState, player, room, 
   const drawer = previousState.players.find((p) => p.id === draw.by);
   const target = previousState.players.find((p) => p.id === draw.from);
   const targetWasMe = draw.from === player.id;
-
-  if (!targetWasMe && target) {
-    const idx = target.hand.findIndex((c) => c.id === draw.card.id);
-    if (idx !== -1) {
-      flipCardAt('stage', idx, { rank: draw.card.rank, suit: draw.card.suit }, { duration: FLIP_DURATION });
-
-      // Chorégraphie de fin de retournement (voir scheduleFlipConclusion) :
-      // soit c'est MOI qui viens de piocher (draw.by === player.id, ma main
-      // face visible est dans "mine" via renderTableNow3D), soit — à 3
-      // joueurs ou plus — je regarde deux AUTRES joueurs s'affronter et
-      // "mine" montre alors la main cachée du tireur (spectatingOthers dans
-      // renderTableNow3D, exactement les mêmes conditions que ce `else`).
-      if (draw.by === player.id) {
-        const me = previousState.players.find((p) => p.id === player.id);
-        const myHandBefore = getOrderedHand('pouilleux', me.hand, sortedHand);
-        scheduleFlipConclusion(idx, draw, myHandBefore);
-      } else if (drawer) {
-        scheduleFlipConclusion(idx, draw, drawer.hand);
-      }
-    }
-  }
-
   const isOddCard = draw.card.id === newState.oddCardId;
   const isFinalReveal = isOddCard && newState.status === 'finished';
+  const oddMessage = isFinalReveal ? `${drawer?.name || '?'} est LE Pouilleux !` : 'Attention, LE Pouilleux !';
+
+  if (!targetWasMe && target && draw.card?.id) {
+    flipCard(draw.card.id, { rank: draw.card.rank, suit: draw.card.suit }, { duration: FLIP_DURATION });
+    if (draw.by === player.id) {
+      const me = previousState.players.find((p) => p.id === player.id);
+      const myHandBefore = getOrderedHand('pouilleux', me.hand, sortedHand);
+      scheduleFlipConclusion(draw.card.id, draw, myHandBefore, { isOddCard });
+    } else if (drawer) {
+      scheduleFlipConclusion(draw.card.id, draw, drawer.hand, { isOddCard });
+    }
+  } else if (isOddCard && draw.card?.id) {
+    alarmCard(draw.card.id, { duration: 1200 });
+  }
+
   const safeNames = [draw.drawerFinished ? drawer?.name : null, draw.targetFinished ? target?.name : null].filter(Boolean);
 
   const messages = [`${drawer?.name || '?'} pioche chez ${target?.name || '?'}${draw.paired ? ' — paire !' : ''}`];
-  if (isOddCard) messages.push(isFinalReveal ? `${drawer?.name || '?'} est LE Pouilleux !` : 'Attention, LE Pouilleux !');
+  if (isOddCard) messages.push(oddMessage);
   safeNames.forEach((name) => messages.push(`${name} est à l'abri !`));
 
   const banner = container.querySelector('.turn-banner');
-  if (banner) banner.textContent = messages[0];
-  const status = container.querySelector('.pouilleux-3d-status');
-  if (status && messages.length > 1) status.textContent = messages.slice(1).join(' · ');
+  if (banner) banner.textContent = messages.join(' · ');
+
+  if (isOddCard) {
+    const overlay = document.createElement('div');
+    overlay.className = 'pouilleux-3d-danger';
+    overlay.innerHTML = `<p class="pouilleux-3d-danger__msg">${oddMessage}</p>`;
+    container.querySelector('.pouilleux-3d-table')?.appendChild(overlay);
+  }
 
   if (isFinalReveal) {
     vibrate([150, 80, 150, 80, 300]);
@@ -401,11 +398,30 @@ function renderTableNow2D(container, { room, player, state, onLeave }) {
   }
 }
 
+function handCards(hand, { faceUp = false, pickable = false } = {}) {
+  return hand.map((c, i) => ({
+    id: c.id,
+    rank: c.rank,
+    suit: c.suit,
+    faceUp,
+    pickable,
+    pickIndex: i
+  }));
+}
+
+function pouilleuxHudHtml(state, player) {
+  return `
+    <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
+    <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
+    <button class="game-hud__bubble game-hud__bubble--invite" id="btn-invite-game" title="Inviter un ami" aria-label="Inviter un ami">📤</button>
+    ${threeDToggleHtml('pouilleux')}
+    <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
+  `;
+}
+
 /**
- * Rendu 3D : pas de zones 2D à conserver (adversaires, mains séparées) — un
- * seul grand éventail ("stage") qui montre soit sa propre main face visible
- * (quand on est la cible du tour), soit celle du joueur ciblé dos visible
- * (quand on pioche, ou qu'on regarde quelqu'un d'autre piocher).
+ * Rendu 3D : table ronde, un chevalet par joueur (voir pouilleuxScene.js).
+ * La main cible s'ouvre et se rapproche quand on peut piocher.
  */
 function renderTableNow3D(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
@@ -414,149 +430,100 @@ function renderTableNow3D(container, { room, player, state, onLeave }) {
   const target = state.players.find((p) => p.id === targetId) || null;
   const targetIsMe = Boolean(target) && target.id === player.id;
   const currentPlayerName = state.players.find((p) => p.id === state.currentPlayerId)?.name || '';
-  const orderedHand = getOrderedHand('pouilleux', me.hand, sortedHand);
+  const orderedHand = me ? getOrderedHand('pouilleux', me.hand, sortedHand) : [];
+  const canPick = Boolean(isMyTurn && target && !targetIsMe && target.hand.length > 0);
+  const others = orderedOpponents(state, player.id);
 
-  const stagePickable = Boolean(isMyTurn && target && !targetIsMe && target.hand.length > 0);
-  const pickableButtonsHtml = stagePickable
-    ? Array.from({ length: target.hand.length })
-        .map((_, i) => `<button type="button" class="card card--back target-card--pickable" data-pick-index="${i}"></button>`)
-        .join('')
-    : '';
+  const myHand = handCards(orderedHand, { faceUp: true, pickable: false });
+  const opponentViews = others.map((p) => ({
+    id: p.id,
+    name: p.name,
+    isBot: p.isBot,
+    isTurn: p.id === state.currentPlayerId,
+    isTarget: p.id === targetId,
+    hand: handCards(p.hand, { faceUp: false, pickable: canPick && p.id === targetId })
+  }));
 
-  // Boutons invisibles pour le glisser-déposer de SA PROPRE main (voir plus
-  // bas myHandKey/enableHandDrag) — seulement pertinent quand elle est
-  // affichée face visible : soit dans "stage" (targetIsMe), soit dans "mine"
-  // (iAmDrawing, calculé plus bas). `draggableButtonsHtml` est injecté dans
-  // le conteneur du bon éventail au moment de construire le gabarit HTML.
-  const draggableButtonsHtml = orderedHand
-    .map((c) => `<button type="button" class="card mine-card--draggable" data-card-id="${c.id}"></button>`)
+  const clickableButtons = [];
+  if (canPick && target) {
+    target.hand.forEach((c, i) => {
+      clickableButtons.push(
+        `<button type="button" class="pouilleux-3d-card target-card--pickable" data-card-id="${c.id}" data-pick-index="${i}"></button>`
+      );
+    });
+  }
+  orderedHand.forEach((c) => {
+    clickableButtons.push(`<button type="button" class="pouilleux-3d-card mine-card--draggable" data-card-id="${c.id}"></button>`);
+  });
+
+  const opponentLabels = opponentViews
+    .map(
+      (opp, i) =>
+        `<p class="pouilleux-3d-label ${opp.isTarget ? 'pouilleux-3d-label--turn' : ''}" data-opp-label="${i}">${opp.name}${connectionBadge(
+          state,
+          opp.id
+        )}${opp.isBot ? ' 🤖' : ''}${opp.hand.length ? ` · ${opp.hand.length}` : ' — sorti·e'}</p>`
+    )
     .join('');
-
-  const statusText = !target
-    ? ''
-    : targetIsMe
-      ? `Ta main (${orderedHand.length})`
-      : `${target.name}${connectionBadge(state, target.id)} · ${target.hand.length} carte${target.hand.length > 1 ? 's' : ''}`;
-
-  // Second éventail sous celui du joueur ciblé (toujours "stage" ci-dessus) :
-  // soit ma propre main (face visible) pendant que JE pioche chez quelqu'un
-  // d'autre, soit — à 3 joueurs ou plus — la main cachée (dos) de celui qui
-  // est EN TRAIN de piocher, quand je ne suis ni lui ni sa cible (pur
-  // spectateur d'un tour entre deux autres joueurs). Dans les deux cas ce
-  // rendu sert aussi d'état initial à renderDrawReveal3D, donc reste actif
-  // pendant la révélation qui suit. Quand je suis moi-même la cible, ma main
-  // occupe déjà le grand éventail "stage" ci-dessus, pas de second nécessaire.
-  const drawer = state.players.find((p) => p.id === state.currentPlayerId) || null;
-  const iAmDrawing = Boolean(isMyTurn && target && !targetIsMe);
-  const spectatingOthers = Boolean(!isMyTurn && !targetIsMe && target && drawer);
-  const showSecondFan = iAmDrawing || spectatingOthers;
-  const secondFanLabel = iAmDrawing
-    ? `Ta main (${orderedHand.length})`
-    : spectatingOthers
-      ? `${drawer.name}${connectionBadge(state, drawer.id)} · ${drawer.hand.length} carte${drawer.hand.length > 1 ? 's' : ''}`
-      : '';
-
-  // Clé de l'éventail qui montre ACTUELLEMENT ma propre main face visible
-  // (jamais les deux à la fois) — sert à la fois à placer les boutons de
-  // glisser-déposer ci-dessus dans le bon conteneur et à brancher
-  // enableHandDrag plus bas. `null` quand ma main n'est affichée nulle part
-  // ce rendu-ci (ex. pur spectateur d'un tour entre deux autres joueurs).
-  const myHandKey = targetIsMe ? 'stage' : iAmDrawing ? 'mine' : null;
 
   container.innerHTML = `
     <div class="screen screen--table pouilleux-screen pouilleux-screen--3d">
       <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">
         ${targetIsMe ? 'On pioche chez toi !' : isMyTurn ? `Touche une carte chez ${target?.name || ''}` : `Tour de ${currentPlayerName}`}
       </div>
-      ${statusText ? `<p class="pouilleux-3d-status">${statusText}</p>` : ''}
-      <div class="pouilleux-3d-stage ${showSecondFan ? 'pouilleux-3d-stage--compact' : ''}">${pickableButtonsHtml}${myHandKey === 'stage' ? draggableButtonsHtml : ''}</div>
-      ${showSecondFan ? `<p class="pouilleux-3d-mine-label">${secondFanLabel}</p><div class="pouilleux-3d-mine-stage">${myHandKey === 'mine' ? draggableButtonsHtml : ''}</div>` : ''}
 
-      <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
-      <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
-      <button class="game-hud__bubble game-hud__bubble--invite" id="btn-invite-game" title="Inviter un ami" aria-label="Inviter un ami">📤</button>
-      ${threeDToggleHtml('pouilleux')}
-      <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
+      <div class="pouilleux-3d-table">
+        ${opponentLabels}
+        ${clickableButtons.join('')}
+      </div>
+
+      ${pouilleuxHudHtml(state, player)}
     </div>
   `;
 
-  mountFan('stage');
-  const stageEl = container.querySelector('.pouilleux-3d-stage');
-  if (stageEl) positionFan('stage', stageEl.getBoundingClientRect());
-  const stageCards = targetIsMe
-    ? orderedHand.map((c) => ({ rank: c.rank, suit: c.suit }))
-    : Array(target ? target.hand.length : 0).fill(null);
-  updateFan('stage', stageCards, { pickable: stagePickable });
-  showFan('stage');
+  mountTable();
+  updateTable({
+    myHand,
+    opponents: opponentViews,
+    myIsTarget: targetIsMe
+  });
+  showTable();
 
-  if (showSecondFan) {
-    mountFan('mine');
-    const mineEl = container.querySelector('.pouilleux-3d-mine-stage');
-    if (mineEl) positionFan('mine', mineEl.getBoundingClientRect());
-    const secondFanCards = iAmDrawing ? orderedHand.map((c) => ({ rank: c.rank, suit: c.suit })) : Array(drawer.hand.length).fill(null);
-    updateFan('mine', secondFanCards);
-    showFan('mine');
-  } else {
-    // Ce rendu peut être atteint sans repasser par hideAllThreeDScenes() (ex.
-    // rendu final du setTimeout de révélation, voir renderDrawReveal3D) : un
-    // "mine" resté affiché d'un tour précédent ne se cacherait pas tout seul
-    // sinon (hideAllFans() cacherait aussi "stage", qu'on veut garder).
-    hideFan('mine');
-  }
-
-  // Les boutons de clic invisibles doivent recouvrir les VRAIES positions des
-  // cartes dessinées en 3D (éventail, pas un simple alignement) — sans ça ils
-  // restent empilés dans le flux HTML normal du "stage", loin des cartes
-  // visibles, et la pioche devient impossible à toucher.
-  if (stagePickable) {
-    const rects = getCardScreenRects('stage');
-    container.querySelectorAll('.target-card--pickable').forEach((btn, i) => {
-      const r = rects[i];
-      if (!r) return;
-      btn.style.left = `${r.left}px`;
-      btn.style.top = `${r.top}px`;
-      btn.style.width = `${r.width}px`;
-      btn.style.height = `${r.height}px`;
-    });
-  }
-
-  // Glisser-déposer de sa propre main affichée en 3D (voir myHandKey) — même
-  // superposition de boutons invisibles sur les cartes réellement dessinées
-  // que ci-dessus pour la pioche, et même moveCard('pouilleux', ...) que le
-  // glisser-déposer 2D (src/ui/dragReorder.js) : les deux vues partagent le
-  // même ordre persisté (handOrder.js), rien de spécifique à la 3D côté tri.
-  if (myHandKey) {
-    const rects = getCardScreenRects(myHandKey);
-    container.querySelectorAll('.mine-card--draggable').forEach((btn, i) => {
-      const r = rects[i];
-      if (!r) return;
-      btn.style.left = `${r.left}px`;
-      btn.style.top = `${r.top}px`;
-      btn.style.width = `${r.width}px`;
-      btn.style.height = `${r.height}px`;
-    });
-
-    const handEl = container.querySelector(myHandKey === 'stage' ? '.pouilleux-3d-stage' : '.pouilleux-3d-mine-stage');
-    if (handEl) {
-      enableHandDrag(handEl, {
-        // Le `transform` posé par enableHandDrag sur le bouton lui-même
-        // (invisible, opacity:0) n'a aucun effet visible : la carte 3D
-        // correspondante reçoit à la place un contour doré pendant la prise
-        // en main (voir setCardHighlight, déjà utilisé pour la paire).
-        onDragStart: (cardId) => {
-          const idx = orderedHand.findIndex((c) => c.id === cardId);
-          if (idx !== -1) setCardHighlight(myHandKey, idx, true);
-        },
-        onDragEnd: (cardId) => {
-          const idx = orderedHand.findIndex((c) => c.id === cardId);
-          if (idx !== -1) setCardHighlight(myHandKey, idx, false);
-        },
-        onDrop: (cardId, index) => {
-          moveCard('pouilleux', cardId, index);
-          renderTableNow3D(container, { room, player, state, onLeave });
-        }
+  const tableEl = container.querySelector('.pouilleux-3d-table');
+  if (tableEl) {
+    const repositionOverlays = () => {
+      const rects = getCardRects();
+      const byId = new Map();
+      for (const r of rects.mine) byId.set(r.id, r);
+      for (const group of rects.opponents) {
+        for (const r of group) byId.set(r.id, r);
+      }
+      tableEl.querySelectorAll('.pouilleux-3d-card').forEach((btn) => {
+        const r = byId.get(btn.dataset.cardId);
+        if (!r) return;
+        btn.style.left = `${r.left}px`;
+        btn.style.top = `${r.top}px`;
+        btn.style.width = `${r.width}px`;
+        btn.style.height = `${r.height}px`;
       });
-    }
+      const anchors = getRowLabelAnchors();
+      anchors.opponents.forEach((anchor, i) => {
+        if (!anchor) return;
+        const el = tableEl.querySelector(`[data-opp-label="${i}"]`);
+        if (!el) return;
+        el.style.left = `${anchor.left}px`;
+        el.style.top = `${anchor.top}px`;
+      });
+    };
+    attachPouilleuxViewport(tableEl, repositionOverlays);
+
+    enableHandDrag(tableEl, {
+      selector: '.mine-card--draggable',
+      onDrop: (cardId, index) => {
+        moveCard('pouilleux', cardId, index);
+        renderTableNow3D(container, { room, player, state, onLeave });
+      }
+    });
   }
 
   wireThreeDToggle(container, 'pouilleux', () => renderTable(container, { room, player, state, onLeave }));
@@ -565,7 +532,7 @@ function renderTableNow3D(container, { room, player, state, onLeave }) {
   container.querySelector('#btn-invite-game')?.addEventListener('click', () => shareInviteLink(room));
   wireAbandonButton(container, { room, player, state, onLeave });
 
-  if (stagePickable) {
+  if (canPick) {
     container.querySelectorAll('.target-card--pickable').forEach((btn) => {
       btn.addEventListener('click', async () => {
         vibrate(30);
@@ -579,6 +546,221 @@ function renderTableNow3D(container, { room, player, state, onLeave }) {
       });
     });
   }
+}
+
+function wirePouilleuxOrbit(tableEl, onOrbit) {
+  let dragging = false;
+  let dragLastX = 0;
+  let dragLastY = 0;
+  let dragMoved = false;
+  const DRAG_THRESHOLD = 10;
+  let pinching = false;
+  let pinchDist = 0;
+
+  const touchGap = (touches) => {
+    if (touches.length < 2) return 0;
+    return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+  };
+
+  tableEl.addEventListener(
+    'touchstart',
+    (e) => {
+      if (e.touches.length < 2) return;
+      pinching = true;
+      dragging = false;
+      dragMoved = true;
+      pinchDist = touchGap(e.touches);
+    },
+    { passive: true, capture: true }
+  );
+  tableEl.addEventListener(
+    'touchmove',
+    (e) => {
+      if (e.touches.length < 2) return;
+      e.preventDefault();
+      pinching = true;
+      dragging = false;
+      dragMoved = true;
+      const dist = touchGap(e.touches);
+      if (pinchDist > 8 && dist > 8) {
+        zoomCameraByFactor(dist / pinchDist);
+        onOrbit?.();
+      }
+      pinchDist = dist;
+    },
+    { passive: false, capture: true }
+  );
+  const endPinch = (e) => {
+    if (e.touches.length < 2) pinching = false;
+  };
+  tableEl.addEventListener('touchend', endPinch, true);
+  tableEl.addEventListener('touchcancel', endPinch, true);
+  tableEl.addEventListener(
+    'gesturestart',
+    (e) => {
+      e.preventDefault();
+    },
+    { passive: false }
+  );
+
+  tableEl.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (pinching) return;
+      if (e.target.closest('.pouilleux-3d-card')) {
+        dragging = false;
+        dragMoved = false;
+        return;
+      }
+      dragging = true;
+      dragMoved = false;
+      dragLastX = e.clientX;
+      dragLastY = e.clientY;
+    },
+    true
+  );
+  tableEl.addEventListener(
+    'pointermove',
+    (e) => {
+      if (pinching || !dragging) return;
+      const dx = e.clientX - dragLastX;
+      const dy = e.clientY - dragLastY;
+      if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) dragMoved = true;
+      if (dragMoved) {
+        orbitCameraByScreenDelta(dx, dy);
+        dragLastX = e.clientX;
+        dragLastY = e.clientY;
+        onOrbit?.();
+      }
+    },
+    true
+  );
+  const endDrag = () => {
+    dragging = false;
+  };
+  tableEl.addEventListener('pointerup', endDrag, true);
+  tableEl.addEventListener('pointercancel', endDrag, true);
+  tableEl.addEventListener(
+    'click',
+    (e) => {
+      if (!dragMoved) return;
+      dragMoved = false;
+      e.stopPropagation();
+      e.preventDefault();
+    },
+    true
+  );
+  tableEl.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      zoomCameraByFactor(Math.exp(-e.deltaY * 0.0015));
+      onOrbit?.();
+    },
+    { passive: false }
+  );
+}
+
+function attachPouilleuxViewport(tableEl, repositionOverlays) {
+  const sync = () => {
+    positionTable(tableEl.getBoundingClientRect());
+    repositionOverlays?.();
+  };
+  sync();
+  wirePouilleuxOrbit(tableEl, repositionOverlays);
+  const ro = new ResizeObserver(sync);
+  ro.observe(tableEl);
+}
+
+export function renderSpectator(container, args) {
+  if (!is3DEnabled('pouilleux')) {
+    hideTable();
+    return false;
+  }
+  renderPouilleuxSpectator3D(container, args);
+  return true;
+}
+
+function renderPouilleuxSpectator3D(container, { room, player, gameLabel, onBackToRooms, onRerender }) {
+  const state = room.state;
+  const finished = state.status === 'finished';
+  const currentName = state.players.find((p) => p.id === state.currentPlayerId)?.name;
+  const targetId = computeTarget(state);
+
+  const seatViews = state.players.map((p) => ({
+    id: p.id,
+    name: p.name,
+    isBot: p.isBot,
+    isTurn: p.id === state.currentPlayerId,
+    isTarget: p.id === targetId,
+    hand: handCards(p.hand, { faceUp: finished, pickable: false })
+  }));
+
+  const labels = seatViews
+    .map(
+      (p, i) =>
+        `<p class="pouilleux-3d-label ${p.isTarget ? 'pouilleux-3d-label--turn' : ''}" data-seat-label="${i}">${p.name}${connectionBadge(
+          state,
+          p.id
+        )}${p.isBot ? ' 🤖' : ''}${p.hand.length ? ` · ${p.hand.length}` : ' — sorti·e'}</p>`
+    )
+    .join('');
+  const replaceBots = seatViews
+    .filter((p) => p.isBot)
+    .map((p) => `<button type="button" class="btn btn--ghost btn--small" data-replace-bot-id="${p.id}">Prendre la place de ${p.name}</button>`)
+    .join('');
+
+  container.innerHTML = `
+    <div class="screen screen--table pouilleux-screen pouilleux-screen--3d">
+      <p class="eyebrow">Tu regardes — ${gameLabel || 'Pouilleux'} en cours</p>
+      <button class="btn btn--link btn--small" id="btn-back-to-rooms">← Retour aux salons</button>
+      <div class="turn-banner">${currentName ? `Tour de ${currentName}` : 'En attente…'}</div>
+      <div class="pouilleux-3d-table">
+        ${labels}
+      </div>
+      ${replaceBots ? `<div class="spectator-join">${replaceBots}</div>` : ''}
+      <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
+      <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
+      ${threeDToggleHtml('pouilleux')}
+    </div>
+  `;
+
+  mountTable();
+  updateTable({ myHand: [], opponents: seatViews, spectator: true });
+  showTable();
+
+  const tableEl = container.querySelector('.pouilleux-3d-table');
+  if (tableEl) {
+    const repositionOverlays = () => {
+      const anchors = getRowLabelAnchors();
+      (anchors.seats || []).forEach((anchor, i) => {
+        if (!anchor) return;
+        const el = tableEl.querySelector(`[data-seat-label="${i}"]`);
+        if (!el) return;
+        el.style.left = `${anchor.left}px`;
+        el.style.top = `${anchor.top}px`;
+      });
+    };
+    attachPouilleuxViewport(tableEl, repositionOverlays);
+  }
+
+  container.querySelector('#btn-back-to-rooms')?.addEventListener('click', () => onBackToRooms?.());
+  container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
+  container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
+  wireThreeDToggle(container, 'pouilleux', () => onRerender?.());
+  container.querySelectorAll('[data-replace-bot-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = '…';
+      try {
+        await replaceBotWithPlayer(room, btn.dataset.replaceBotId, player);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = `Prendre la place de ce bot`;
+        alert(err.message || 'Impossible de remplacer ce bot.');
+      }
+    });
+  });
 }
 
 function renderEndScreen(container, { room, player, onLeave }) {
