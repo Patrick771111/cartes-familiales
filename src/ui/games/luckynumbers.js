@@ -461,38 +461,78 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
       return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
     };
 
-    // Glisser à 1 doigt du jeton piochée (demande explicite) vers l'assiette
-    // (défausse) ou une case jaune (pose) — le tap seul (sans déplacement)
-    // sur le jeton ne fait rien, comme côté 2D (voir enableDragToZone,
-    // onTap:()=>{} pour la tuile piochée).
-    let tileDrag = null; // { pointerId, ghost, startX, startY, moved }
+    // Glisser à 1 doigt (demande explicite) : le jeton piochée vers
+    // l'assiette (défausse) ou une case jaune (pose), OU un jeton de la
+    // défausse vers une case jaune (reprise) — le tap seul (sans
+    // déplacement) ne fait rien pour le jeton piochée (comme côté 2D, voir
+    // enableDragToZone, onTap:()=>{}), et laisse la sélection tap habituelle
+    // se produire pour un jeton de la défausse (pas de suppressNextClick).
+    let tileDrag = null; // { pointerId, ghost, startX, startY, moved, source: 'drawn'|'discard', discardTileId?, discardValue? }
     const TILE_DRAG_THRESHOLD = 6;
     let suppressNextClick = false;
 
     const pointInRect = (x, y, r) => Boolean(r) && x >= r.left && x <= r.left + r.width && y >= r.top && y <= r.top + r.height;
 
-    const currentPlaceableIndexes = () => (hasDrawn ? placeableForDrawn : []);
+    // Prend `drag` en paramètre (pas la variable `tileDrag` du dessus) :
+    // endTileDrag remet `tileDrag` à null AVANT d'appeler ceci (une fois le
+    // pointeur relâché, le glisser en cours n'existe plus) — lire la
+    // fermeture à ce moment-là aurait toujours donné [] (bug constaté : le
+    // dépôt sur une case ne faisait plus rien, alors que le dépôt sur
+    // l'assiette — qui ne passe pas par cette fonction — fonctionnait).
+    const placeableIndexesFor = (drag) => {
+      if (!drag) return [];
+      if (drag.source === 'drawn') return placeableForDrawn;
+      return me ? luckyValidPlacements(me.board, drag.discardValue) : [];
+    };
 
-    const findDropCellIndex = (x, y) => {
+    const findDropCellIndex = (x, y, drag) => {
       const rects = getMyBoardCellRects();
-      const indexes = currentPlaceableIndexes();
+      const indexes = placeableIndexesFor(drag);
       for (const i of indexes) {
         if (pointInRect(x, y, rects[i])) return i;
       }
       return -1;
     };
 
-    const startTileDrag = (e) => {
-      if (!hasDrawn) return false;
-      const rect = getDrawnTileRect();
-      if (!pointInRect(e.clientX, e.clientY, rect)) return false;
+    const makeGhost = (x, y, value) => {
       const ghost = document.createElement('div');
       ghost.className = 'lucky-3d-drag-ghost';
-      ghost.textContent = String(state.drawnTile.value);
-      ghost.style.left = `${e.clientX}px`;
-      ghost.style.top = `${e.clientY}px`;
+      ghost.textContent = String(value);
+      ghost.style.left = `${x}px`;
+      ghost.style.top = `${y}px`;
       document.body.appendChild(ghost);
-      tileDrag = { pointerId: e.pointerId, ghost, startX: e.clientX, startY: e.clientY, moved: false };
+      return ghost;
+    };
+
+    const startTileDrag = (e) => {
+      if (hasDrawn) {
+        const rect = getDrawnTileRect();
+        if (!pointInRect(e.clientX, e.clientY, rect)) return false;
+        tileDrag = {
+          pointerId: e.pointerId,
+          ghost: makeGhost(e.clientX, e.clientY, state.drawnTile.value),
+          startX: e.clientX,
+          startY: e.clientY,
+          moved: false,
+          source: 'drawn'
+        };
+        return true;
+      }
+      if (!isMyTurn) return false;
+      const rects = getDiscardTileRects();
+      const i = rects.findIndex((r) => pointInRect(e.clientX, e.clientY, r));
+      if (i === -1) return false;
+      const tile = state.discard[i];
+      tileDrag = {
+        pointerId: e.pointerId,
+        ghost: makeGhost(e.clientX, e.clientY, tile.value),
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false,
+        source: 'discard',
+        discardTileId: tile.id,
+        discardValue: tile.value
+      };
       return true;
     };
 
@@ -503,21 +543,22 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
       if (!tileDrag.moved && (Math.abs(dx) > TILE_DRAG_THRESHOLD || Math.abs(dy) > TILE_DRAG_THRESHOLD)) tileDrag.moved = true;
       tileDrag.ghost.style.left = `${e.clientX}px`;
       tileDrag.ghost.style.top = `${e.clientY}px`;
-      const overPlate = pointInRect(e.clientX, e.clientY, getDiscardPlateRect());
-      const overCell = findDropCellIndex(e.clientX, e.clientY) !== -1;
+      const overPlate = tileDrag.source === 'drawn' && pointInRect(e.clientX, e.clientY, getDiscardPlateRect());
+      const overCell = findDropCellIndex(e.clientX, e.clientY, tileDrag) !== -1;
       tileDrag.ghost.classList.toggle('lucky-3d-drag-ghost--valid', overPlate || overCell);
     };
 
     const endTileDrag = async (e) => {
       if (!tileDrag || e.pointerId !== tileDrag.pointerId) return;
-      const { ghost, moved } = tileDrag;
+      const drag = tileDrag;
+      const { ghost, moved, source, discardTileId } = drag;
       const dropX = e.clientX;
       const dropY = e.clientY;
       ghost.remove();
       tileDrag = null;
       if (!moved) return;
       suppressNextClick = true;
-      if (pointInRect(dropX, dropY, getDiscardPlateRect())) {
+      if (source === 'drawn' && pointInRect(dropX, dropY, getDiscardPlateRect())) {
         try {
           await discardLuckyNumbersDrawn(room, player.id);
         } catch (err) {
@@ -525,13 +566,17 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
         }
         return;
       }
-      const targetIndex = findDropCellIndex(dropX, dropY);
-      if (targetIndex !== -1) {
-        try {
+      const targetIndex = findDropCellIndex(dropX, dropY, drag);
+      if (targetIndex === -1) return;
+      try {
+        if (source === 'drawn') {
           await placeLuckyNumbersDrawn(room, player.id, targetIndex);
-        } catch (err) {
-          if (!(err instanceof ConflictError)) alert(err.message || String(err));
+        } else {
+          await takeLuckyNumbersFromDiscard(room, player.id, discardTileId, targetIndex);
+          pendingDiscardTileId = null;
         }
+      } catch (err) {
+        if (!(err instanceof ConflictError)) alert(err.message || String(err));
       }
     };
 
