@@ -22,8 +22,8 @@ import piocheUrl from '../assets/games/luckynumbers/pioche.png';
  * déjà PEINTES dans cette photo — plus d'anneau/puits 3D dessinés par-dessus
  * (demande explicite : "sans dessiner toi même les trous") ; seul le halo
  * de surbrillance (voir createGlowMesh) reste une vraie géométrie, calée au
- * centre EXACT de chaque trou peint via le même recadrage pixel-précis que
- * la texture (voir les constantes sx/sy/sw/sh dans loadBoardPlateTexture).
+ * centre EXACT de chaque trou peint (voir CELL_OFFSETS, calibré par trou sur
+ * la photo entière — voir loadBoardPlateTexture).
  *
  * Montée UNE SEULE FOIS, ajoutée à `document.body` (donc en dehors de
  * `#app`) — un canvas WebGL recréé à chaque coup perdrait son contexte GL
@@ -38,28 +38,50 @@ import piocheUrl from '../assets/games/luckynumbers/pioche.png';
 
 const GRID_DIM = 4;
 const GRID_SIZE = GRID_DIM * GRID_DIM;
-// Grille agrandie de 20% (0.85 → 1.02) — demande explicite : "l'illustration
-// est trop petite", pas la taille/position globale du plateau (déjà bonne).
-const CELL_SPACING = 1.02;
-const TOKEN_RADIUS = 0.432;
-// Rayon du halo de surbrillance (voir getGlowGeometry) — les encoches
-// elles-mêmes sont déjà peintes dans la photo du plateau, plus de rebord/
-// puits 3D dessinés par-dessus (demande explicite).
-const NOTCH_RADIUS = 0.42;
-// Marges ASYMÉTRIQUES (gauche/droite/haut/bas) autour de la grille 4×4 —
-// demande explicite : garder les 2 coccinelles décoratives de la photo
-// visibles sur le plateau (voir board-plate.png), pas seulement la grille de
-// trous. Ces coccinelles ne sont PAS centrées par rapport à la grille (celle
-// du bas-droit déborde bien plus loin que celle du haut-gauche), donc une
-// marge unique symétrique ne peut pas les contenir toutes les deux sans
-// gâcher énormément d'espace transparent inutile — chaque marge est calée
-// individuellement sur la vraie photo (mesure pixel, voir loadBoardPlateTexture).
-const BOARD_MARGIN_LEFT = 1.091;
-const BOARD_MARGIN_RIGHT = 1.2154;
-const BOARD_MARGIN_TOP = 0.8358;
-const BOARD_MARGIN_BOTTOM = 2.0733;
-const BOARD_WIDTH = (GRID_DIM - 1) * CELL_SPACING + BOARD_MARGIN_LEFT + BOARD_MARGIN_RIGHT;
-const BOARD_HEIGHT = (GRID_DIM - 1) * CELL_SPACING + BOARD_MARGIN_TOP + BOARD_MARGIN_BOTTOM;
+
+// Image source du plateau : PHOTO ENTIÈRE, non recadrée (voir
+// loadBoardPlateTexture) — un recadrage serré coupait dans une ombre peinte
+// près du bord de la photo, ce qui laissait un liseré noir dur autour de
+// chaque plateau une fois affiché, sans qu'un simple fondu ne le corrige
+// vraiment sans risquer de recasser le calage des trous. Repartir de l'image
+// complète (1408×1408) élimine le problème à la racine. Le plateau (mesh)
+// est donc CARRÉ, comme la photo, pour ne pas la déformer.
+const BOARD_IMAGE_SIZE = 1408;
+const BOARD_WIDTH = 5.9691;
+const BOARD_HEIGHT = 5.9691;
+const PIXELS_TO_WORLD = BOARD_HEIGHT / BOARD_IMAGE_SIZE;
+
+// Position de chacun des 16 trous, en unités locales du plateau (avant mise
+// à l'échelle) — calée PAR TROU (pas une grille régulière) sur les
+// coordonnées pixel natives fournies par l'utilisateur, puis calibrées
+// interactivement (page de test avec un jeton réel affiché dans chaque
+// trou, ajustements successifs jusqu'à validation visuelle). row 0 = haut,
+// col 0 = gauche, index = row*4+col (voir cellLocalOffset).
+const CELL_OFFSETS = [
+  { dx: -1.50076, dy: 1.84415 },
+  { dx: -0.50449, dy: 1.81023 },
+  { dx: 0.50025, dy: 1.81023 },
+  { dx: 1.49652, dy: 1.81023 },
+  { dx: -1.50924, dy: 0.90300 },
+  { dx: -0.47482, dy: 0.94963 },
+  { dx: 0.50025, dy: 0.90300 },
+  { dx: 1.49233, dy: 0.90724 },
+  { dx: -1.50924, dy: -0.01696 },
+  { dx: -0.50449, dy: -0.01272 },
+  { dx: 0.52145, dy: 0.02968 },
+  { dx: 1.49233, dy: -0.01696 },
+  { dx: -1.51348, dy: -0.95387 },
+  { dx: -0.50449, dy: -0.95387 },
+  { dx: 0.49601, dy: -0.94963 },
+  { dx: 1.50924, dy: -0.90724 }
+];
+
+// Rayon du jeton (et du halo de surbrillance) dérivé du même calibrage
+// pixel — un jeton de 82px natifs "à l'œil" dans chaque trou, converti dans
+// l'échelle du plateau ci-dessus. Le halo garde le même ratio qu'avant
+// (0.42/0.432) par rapport au jeton.
+const TOKEN_RADIUS = 82 * PIXELS_TO_WORLD;
+const NOTCH_RADIUS = TOKEN_RADIUS * (0.42 / 0.432);
 // Réduite (0.14 → 0.05) — pas un problème de texture (la photo a bien un
 // vrai fond alpha transparent) mais la tranche latérale de ce volume 3D
 // (moins éclairée que la face avant sous la lumière directionnelle) qui
@@ -175,13 +197,11 @@ let piocheLoadPromise = null;
 
 /**
  * Charge la photo du plateau (voir boardPlateUrl, demande explicite) — un
- * PNG à fond RÉELLEMENT transparent (pas de fond blanc à remplacer ici,
- * contrairement à l'ancienne photo). Recadré sur les 16 trous ET les 2
- * coccinelles décoratives (voir BOARD_MARGIN_LEFT/RIGHT/TOP/BOTTOM) —
- * demande explicite de l'utilisateur, quitte à agrandir le plateau pour les
- * englober. sx/sy/sw/sh calculés à partir des 16 coordonnées de trous
- * fournies par l'utilisateur (régression linéaire colonne→x / ligne→y),
- * cohérents avec ces mêmes marges (voir leurs commentaires plus haut).
+ * PNG à fond RÉELLEMENT transparent. Image COMPLÈTE, aucun recadrage (voir
+ * BOARD_IMAGE_SIZE/CELL_OFFSETS plus haut) : un recadrage serré coupait dans
+ * une ombre peinte près du bord de la photo, donnant un liseré noir dur
+ * autour du plateau une fois affiché — repartir de l'image entière évite le
+ * problème à la racine plutôt que de le masquer par un fondu.
  */
 function loadBoardPlateTexture() {
   if (boardPlateTexture) return Promise.resolve(boardPlateTexture);
@@ -189,53 +209,12 @@ function loadBoardPlateTexture() {
   boardPlateLoadPromise = new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const size = 768;
+      const size = BOARD_IMAGE_SIZE;
       const c = document.createElement('canvas');
       c.width = size;
       c.height = size;
       const ctx = c.getContext('2d');
-      // Décalage de +30px natifs (droite) / -30px natifs (haut) trouvé par
-      // calibrage visuel (page de test, jeton par trou décalé de façon
-      // croissante par incrément de 6px) puis affiné de +6px supplémentaires
-      // vers le bas et la droite sur retour direct de l'utilisateur. Pure
-      // translation du recadrage (sw/sh inchangés).
-      const sx = 79.4 + 30 + 6;
-      const sy = 126.9 - 30 + 6;
-      const sw = 1210.2;
-      const sh = 1260.7;
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
-      // Fondu en transparence des tout derniers pixels du recadrage — la
-      // photo a un vrai relief 3D peint avec une ombre portée à son bord
-      // (vérifié pixel par pixel : la couleur s'assombrit progressivement
-      // juste avant l'aplomb du recadrage, sans marge transparente pour
-      // l'absorber), ce qui donnait l'impression d'un liseré noir dur autour
-      // du plateau une fois affiché en jeu. Plutôt que de recalculer tout le
-      // recadrage (risque de recasser le calage des trous), on fait
-      // simplement fondre les bords de LA TEXTURE elle-même en transparence
-      // : quoi qu'il y ait à cet endroit dans la photo, il disparaît en
-      // douceur au profit de la table en bois derrière.
-      // FEATHER_PX=50 avec une courbe cubique (pas linéaire) : l'ombre
-      // peinte n'est pas collée au tout dernier pixel du recadrage mais en
-      // léger retrait (~10-20px sur 768) — un fondu linéaire ne l'atténuait
-      // que de moitié à cette distance. Le cube reste proche de 0 jusque
-      // tard dans la zone de fondu, donc même l'ombre la plus sombre (à
-      // ~18px du bord) tombe sous les 5% d'opacité.
-      const FEATHER_PX = 50;
-      const imageData = ctx.getImageData(0, 0, size, size);
-      const alphaPx = imageData.data;
-      for (let y = 0; y < size; y++) {
-        const distY = Math.min(y, size - 1 - y);
-        for (let x = 0; x < size; x++) {
-          const distX = Math.min(x, size - 1 - x);
-          const dist = Math.min(distX, distY);
-          if (dist < FEATHER_PX) {
-            const i = (y * size + x) * 4 + 3;
-            const t = dist / FEATHER_PX;
-            alphaPx[i] = Math.round(alphaPx[i] * t * t * t);
-          }
-        }
-      }
-      ctx.putImageData(imageData, 0, 0);
+      ctx.drawImage(img, 0, 0, size, size);
       const texture = new THREE.CanvasTexture(c);
       texture.colorSpace = THREE.SRGBColorSpace;
       // Pas de mipmaps sur cette texture à découpe alpha (RGB=0 sous les
@@ -357,9 +336,10 @@ function buildTokenFaceTexture(value) {
   ctx.stroke();
 
   ctx.fillStyle = NUMBER_DARK;
-  // Agrandi (0.42 → 0.55, demande explicite) — encore de la marge avant de
-  // toucher le bord du disque crème (rayon 0.48×size) même pour "20".
-  ctx.font = `700 ${Math.round(size * 0.55)}px Georgia, serif`;
+  // Agrandi (0.42 → 0.55 → 0.65 → 0.72, demandes explicites successives) —
+  // encore de la marge avant de toucher le bord du disque crème (rayon
+  // 0.48×size) même pour "20".
+  ctx.font = `700 ${Math.round(size * 0.72)}px Georgia, serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(String(value), cx, cy + size * 0.02);
@@ -554,20 +534,12 @@ function disposeMesh(obj) {
 }
 
 /**
- * Décalage local (avant mise à l'échelle) d'une case dans la grille 4×4 —
- * ligne 0 = haut, colonne 0 = gauche, relatif au CENTRE du plateau (voir
- * BOARD_WIDTH/BOARD_HEIGHT). Marges asymétriques (voir BOARD_MARGIN_LEFT/
- * RIGHT/TOP/BOTTOM) : la grille n'est donc PAS centrée sur le plateau —
- * décalée vers le haut-gauche, pour laisser la place aux 2 coccinelles
- * décoratives de la photo (surtout celle du bas-droit, plus excentrée).
+ * Décalage local (avant mise à l'échelle) d'une case dans la grille 4×4,
+ * relatif au CENTRE du plateau — simple lookup dans CELL_OFFSETS (voir plus
+ * haut), calé PAR TROU sur la photo entière plutôt qu'une grille régulière.
  */
 function cellLocalOffset(index) {
-  const row = Math.floor(index / GRID_DIM);
-  const col = index % GRID_DIM;
-  return {
-    dx: BOARD_MARGIN_LEFT + col * CELL_SPACING - BOARD_WIDTH / 2,
-    dy: BOARD_HEIGHT / 2 - (BOARD_MARGIN_TOP + row * CELL_SPACING)
-  };
+  return CELL_OFFSETS[index];
 }
 
 function createBoardGroup() {
@@ -591,8 +563,7 @@ function disposeBoardGroup(group) {
  * (voir loadBoardPlateTexture) — plus d'anneau/puits 3D dessinés par-dessus
  * (demande explicite : "sans dessiner toi même les trous"), seuls les
  * jetons et le halo de surbrillance sont de vraie géométrie, positionnés au
- * centre EXACT de chaque trou peint (même calage pixel que le recadrage de
- * la photo, voir cellLocalOffset/loadBoardPlateTexture).
+ * centre EXACT de chaque trou peint (voir cellLocalOffset/CELL_OFFSETS).
  */
 function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, placeableIndexes = [] }) {
   group.board.position.set(centerX, centerY, centerZ);
