@@ -3680,6 +3680,20 @@ body.is-card-dragging * {
    ceux des adversaires au loin en haut, pioche/défausse au milieu — voir
    src/three/luckyNumbersScene.js) plutôt que les zones 2D séparées. */
 .lucky-screen--3d { align-items: stretch; }
+/* La zone 3D (donc le vrai canvas, positionné par-dessus en JS via
+   positionBoard — voir .lucky-3d-table ci-dessous) occupe maintenant TOUT
+   l'écran plutôt qu'une boîte centrale à aspect-ratio fixe — demande
+   explicite : "pas besoin d'avoir 2 fonds différents" (avant, un fond bois
+   CSS statique comblait les bords laissés vides par cette boîte). Le statut,
+   la bannière de victoire et le bouton "Défausser" restent dans le flux
+   normal (donc au-dessus du plateau/de la pioche en bas de l'écran) mais
+   doivent être relevés au-dessus du canvas (z-index 5, voir ensureScene)
+   pour ne pas disparaître derrière — même famille que .game-hud__bubble
+   (z-index 50, exclue ici : ne pas lui repasser en position:relative). */
+.lucky-screen--3d > *:not(.lucky-3d-table):not(.game-hud__bubble) {
+  position: relative;
+  z-index: 10;
+}
 .lucky-3d-status {
   text-align: center;
   font-family: var(--font-mono);
@@ -3687,17 +3701,7 @@ body.is-card-dragging * {
   color: rgba(247, 241, 225, 0.7);
   margin: 0;
 }
-/* Le canvas WebGL persistant est positionné par-dessus cette zone en JS —
-   `aspect-ratio` (plutôt que `flex:1`, qui laisserait sa hauteur — et donc
-   l'aspect ratio de la caméra — fluctuer avec la taille des éléments
-   voisins) fixe sa taille uniquement à partir de sa propre largeur,
-   indépendamment du contenu autour : sans ça la pioche/défausse (position
-   3D fixe) semblerait légèrement se déplacer d'un rendu à l'autre — même
-   piège déjà rencontré et corrigé côté Uno. */
-/* Ratio plus haut (était 3/4) et plafond relevé (était 68vh) — sur mobile
-   portrait l'ancien ratio laissait ~30% de l'écran vide entre la table et
-   la rangée de bulles du bas (bug constaté : "il reste 25% de l'écran"). */
-.lucky-3d-table { width: 100%; aspect-ratio: 3 / 5.4; max-height: 80vh; min-height: 340px; position: relative; touch-action: none; }
+.lucky-3d-table { position: fixed; inset: 0; width: 100vw; height: 100dvh; touch-action: none; }
 .lucky-3d-cell,
 .lucky-3d-discard-tile,
 .lucky-3d-draw {
@@ -4351,22 +4355,6 @@ body.is-card-dragging * {
   background-image:
     linear-gradient(160deg, rgba(15, 46, 33, 0.86), rgba(12, 36, 24, 0.94)),
     url('/assets/backgrounds/games/luckynumbers.jpg');
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-}
-/* Écran 3D : la table 3D (voir .lucky-3d-table) ne couvre pas forcément
-   toute la largeur de l'écran (contrainte par son propre aspect-ratio
-   portrait) — sans ceci, le trèfle doré en filigrane du fond 2D restait
-   visible de part et d'autre, incohérent avec la vraie table en bois du
-   rendu 3D. Étend cette même photo de bois (voir tableWoodUrl côté JS) sur
-   tout l'écran à la place — demande explicite de l'utilisateur. Après (donc
-   prioritaire sur) .lucky-screen ci-dessus : même spécificité, l'ordre dans
-   la feuille de style tranche. */
-.lucky-screen--3d {
-  background-image:
-    linear-gradient(rgba(15, 31, 15, 0.15), rgba(15, 31, 15, 0.15)),
-    url('./assets/games/luckynumbers/table-wood.jpg');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
