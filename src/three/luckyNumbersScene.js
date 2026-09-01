@@ -442,22 +442,19 @@ function createGlowMesh() {
 
 /**
  * Matériau du plateau : vert uni au départ, remplacé par la vraie photo dès
- * qu'elle est chargée (async, voir loadBoardPlateTexture). `transparent:true`
- * — la photo a un vrai fond alpha (pas de fond blanc à camoufler ici,
- * contrairement à l'ancienne) : les coins de ce mesh rectangulaire, en dehors
- * de l'octogone du plateau et des coccinelles, laissent voir la table en
- * bois derrière plutôt qu'un aplat de couleur.
+ * qu'elle est chargée (async, voir loadBoardPlateTexture). `alphaTest` (seuil
+ * bas, 0.02) plutôt que `transparent` : la texture n'a que 2 valeurs d'alpha
+ * utiles (0 dans les grandes marges transparentes de l'image complète, 255
+ * sur l'octogone) — `alphaTest` donne une vraie découpe sans les soucis de
+ * tri/profondeur des matériaux `transparent` (déjà rencontrés ailleurs dans
+ * cette scène). Seuil réduit (0.5 → 0.02) par rapport à un essai précédent :
+ * un seuil élevé incluait des pixels d'anti-aliasing du bord à pleine
+ * opacité, créant un liseré sombre dur autour du plateau.
  */
 function createBoardMesh() {
   const radius = Math.min(BOARD_THICKNESS / 2, Math.min(BOARD_WIDTH, BOARD_HEIGHT) * 0.02);
   const geometry = new RoundedBoxGeometry(BOARD_WIDTH, BOARD_HEIGHT, BOARD_THICKNESS, 3, radius);
-  // `alphaTest` plutôt que `transparent` : cette texture n'a que du alpha
-  // 0 ou 255 (pas de dégradé), donc une vraie découpe (discard des pixels
-  // sous le seuil) au lieu d'un mélange alpha — le mélange créait un fin
-  // liseré sombre à la silhouette du mesh (les pixels d'antialiasing du
-  // bord se mélangeaient avec ce qu'il y a derrière au lieu d'être
-  // simplement invisibles).
-  const material = new THREE.MeshStandardMaterial({ color: BOARD_GREEN, roughness: 0.85, alphaTest: 0.5 });
+  const material = new THREE.MeshStandardMaterial({ color: BOARD_GREEN, roughness: 0.85, alphaTest: 0.02 });
   const mesh = new THREE.Mesh(geometry, material);
   loadBoardPlateTexture().then((texture) => {
     material.map = texture;
@@ -472,8 +469,15 @@ function loadWoodTexture() {
   if (woodTexture) return Promise.resolve(woodTexture);
   return new THREE.TextureLoader().loadAsync(tableWoodUrl).then((texture) => {
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
+    // PAS de répétition (ni RepeatWrapping ni MirroredRepeatWrapping) : la
+    // photo a un grain directionnel marqué, donc même en miroir le grain
+    // change brusquement de sens à chaque raccord — visible comme une fine
+    // ligne sombre verticale (bug constaté : "deux lignes verticales
+    // noires" en dézoomant, la table couvrant alors plusieurs largeurs de
+    // la photo). Une seule copie étirée sur toute la table (voir
+    // resizeTableMesh, plus de repeat.set) élimine tout raccord, quitte à
+    // ce que le grain paraisse un peu plus étiré au dézoom maximal — un
+    // léger étirement est bien moins visible qu'un liseré noir dur.
     woodTexture = texture;
     return texture;
   });
@@ -566,6 +570,10 @@ function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, plac
   group.board.position.set(centerX, centerY, centerZ);
   group.board.scale.setScalar(scale);
   const surfaceZ = centerZ + (BOARD_THICKNESS / 2) * scale;
+  // Retenu pour getBoardLabelRects() (bulle de nom sous chaque plateau).
+  group.centerX = centerX;
+  group.centerY = centerY;
+  group.labelScale = scale;
 
   for (let i = 0; i < GRID_SIZE; i++) {
     const { dx, dy } = cellLocalOffset(i);
@@ -734,7 +742,6 @@ function resizeTableMesh() {
   const tableHeight = (panMaxY - panMinY) + visibleHalfH * 2.6;
   tableMesh.position.y = (panMinY + panMaxY) / 2;
   tableMesh.scale.set(tableWidth, tableHeight, 1);
-  if (tableMesh.material.map) tableMesh.material.map.repeat.set(tableWidth / 2.2, tableHeight / 2.2);
 }
 
 /**
@@ -939,6 +946,31 @@ export function getMyBoardCellRect(index) {
 
 export function getMyBoardCellRects() {
   return Array.from({ length: GRID_SIZE }, (_, i) => getMyBoardCellRect(i));
+}
+
+// Décalage (en unités locales du plateau, avant mise à l'échelle) sous le
+// rebord bas visible de l'octogone jusqu'à la bulle de nom — sous la ligne
+// 3 des trous (dy ≈ -0.95, voir CELL_OFFSETS) avec une marge pour dégager le
+// rebord vert et les feuilles de trèfle décoratives.
+const BOARD_LABEL_DY = -2.3;
+
+/**
+ * Rectangle écran (coordonnées CSS px) de la bulle de nom sous chaque
+ * plateau, dans l'ordre de boardGroups (0 = le mien, 1..N = adversaires dans
+ * l'ordre des sièges) — voir layoutBoardGroup pour centerX/centerY/labelScale.
+ */
+export function getBoardLabelRects() {
+  return boardGroups.map((g) => {
+    if (g.centerX === undefined) return null;
+    const half = 0.6 * g.labelScale;
+    const y = g.centerY + BOARD_LABEL_DY * g.labelScale;
+    return projectPointsRect([
+      [g.centerX - half, y + half, TABLE_Z],
+      [g.centerX + half, y + half, TABLE_Z],
+      [g.centerX + half, y - half, TABLE_Z],
+      [g.centerX - half, y - half, TABLE_Z]
+    ]);
+  });
 }
 
 function meshScreenRect(mesh) {

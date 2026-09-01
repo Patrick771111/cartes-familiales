@@ -30,6 +30,7 @@ import {
   getMyBoardCellRects,
   getDiscardTileRects,
   getDrawPileRect,
+  getBoardLabelRects,
   panCameraByScreenDelta,
   panCameraToMySeat,
   zoomCameraByFactor
@@ -341,12 +342,25 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
         : `Ton jardin · ${myEmpty} case${myEmpty > 1 ? 's' : ''} libre${myEmpty > 1 ? 's' : ''}`
       : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`;
 
+  // Un plateau à l'écran = un joueur : boardGroups[0] = moi, boardGroups[1..]
+  // = adversaires dans l'ordre des sièges déjà calculé (voir `others` /
+  // orderedOpponents) — même ordre utilisé pour les bulles de nom que pour
+  // le placement des plateaux dans updateScene, sinon un nom se retrouverait
+  // sous le mauvais plateau.
+  const boardPlayers = [me, ...others].filter(Boolean);
+  const nameLabelsHtml = boardPlayers
+    .map(
+      (p, i) =>
+        `<div class="lucky-3d-name ${p.id === state.currentPlayerId ? 'lucky-3d-name--turn' : ''}" data-board-index="${i}">${p.name}</div>`
+    )
+    .join('');
+
   container.innerHTML = `
     <div class="screen screen--table lucky-screen lucky-screen--3d">
       ${winnerBanner}
       <p class="lucky-3d-status">${statusText}</p>
 
-      <div class="lucky-3d-table"></div>
+      <div class="lucky-3d-table">${nameLabelsHtml}</div>
 
       ${isMyTurn && hasDrawn ? `<button type="button" class="btn btn--ghost btn--small" id="btn-lucky-discard-drawn">Défausser</button>` : ''}
 
@@ -411,6 +425,12 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
         drawBtn.style.height = `${drawRect.height}px`;
       }
     }
+    getBoardLabelRects().forEach((r, i) => {
+      const label = tableEl.querySelector(`.lucky-3d-name[data-board-index="${i}"]`);
+      if (!label || !r) return;
+      label.style.left = `${r.left + r.width / 2}px`;
+      label.style.top = `${r.top}px`;
+    });
   };
 
   if (tableEl) {

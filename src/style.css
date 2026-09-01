@@ -3701,7 +3701,14 @@ body.is-card-dragging * {
   color: rgba(247, 241, 225, 0.7);
   margin: 0;
 }
-.lucky-3d-table { position: fixed; inset: 0; width: 100vw; height: 100dvh; touch-action: none; }
+/* z-index:6 (pas juste `auto`) : `position:fixed` établit TOUJOURS son
+   propre contexte d'empilement (même sans z-index explicite) — sans ce
+   z-index, .lucky-3d-table entier (donc aussi .lucky-3d-name à l'intérieur,
+   quel que soit SON z-index) peinturait sous le canvas opaque (z-index 5,
+   voir ensureScene), le z-index interne ne comptant que DANS ce contexte
+   isolé. `pointer-events:none` sur le canvas fait que ce changement ne
+   modifie pas le ciblage des clics (déjà géré par les boutons DOM dessous). */
+.lucky-3d-table { position: fixed; inset: 0; width: 100vw; height: 100dvh; touch-action: none; z-index: 6; }
 .lucky-3d-cell,
 .lucky-3d-discard-tile,
 .lucky-3d-draw {
@@ -3714,6 +3721,32 @@ body.is-card-dragging * {
 .lucky-3d-cell:disabled,
 .lucky-3d-discard-tile:disabled,
 .lucky-3d-draw:disabled { cursor: default; }
+
+/* Bulle de nom sous chaque plateau (voir getBoardLabelRects) — demande
+   explicite : identifier qui joue où, avec un contour doré pendant son
+   tour (même famille visuelle que .lucky-cell--placeable / --selected).
+   pointer-events:none : c'est une étiquette, pas une cible de clic (le
+   z-index qui la fait passer au-dessus du canvas est porté par
+   .lucky-3d-table elle-même, voir plus haut). */
+.lucky-3d-name {
+  position: absolute;
+  transform: translateX(-50%);
+  pointer-events: none;
+  margin: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(15, 31, 15, 0.78);
+  border: 1.5px solid rgba(247, 241, 225, 0.25);
+  color: rgba(247, 241, 225, 0.92);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.lucky-3d-name--turn {
+  border-color: var(--brass);
+  box-shadow: 0 0 10px rgba(212, 175, 55, 0.55);
+  color: var(--cream);
+}
 
 .lucky-cell {
   width: 48px;
