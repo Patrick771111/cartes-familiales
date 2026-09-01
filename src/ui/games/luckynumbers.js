@@ -30,6 +30,8 @@ import {
   getMyBoardCellRects,
   getDiscardTileRects,
   getDrawPileRect,
+  getDiscardPlateRect,
+  getDrawnTileRect,
   getBoardLabelRects,
   panCameraByScreenDelta,
   panCameraToMySeat,
@@ -441,28 +443,96 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
     tableEl.insertAdjacentHTML('beforeend', cellButtonsHtml + discardButtonsHtml + drawButtonHtml);
     repositionOverlayButtons();
 
-    // Glisser pour faire défiler la caméra d'un plateau à l'autre, dans les
-    // 2 axes (demande explicite : "que la caméra puisse bouger de haut en
-    // bas et gauche droite pour voir tous les plateaux") : suit le pointeur
-    // en continu, puis empêche le clic-fantôme qui suivrait sur le bouton
-    // sous le doigt/curseur si un vrai glisser a eu lieu (sinon un simple
-    // tap serait interprété comme un glisser raté).
-    let dragging = false;
-    let dragLastX = 0;
-    let dragLastY = 0;
-    let dragMoved = false;
-    const DRAG_THRESHOLD = 6;
-
-    // Pinch-to-zoom (demande explicite) : suit chaque pointeur actif par id
-    // pour détecter 2 doigts simultanés. Pendant un pinch le glisser 1-doigt
-    // est suspendu (sinon les deux gestes se marchent dessus et la caméra
-    // saute) ; en relâchant un doigt sur 2, le glisser reprend en douceur
-    // avec celui qui reste, sans saut de position.
+    // Caméra à 2 doigts (demande explicite : "le déplacement de la caméra
+    // doit se faire avec 2 doigts comme le zoom") — pan (delta du point
+    // milieu des 2 doigts) ET zoom (ratio de distance entre eux)
+    // simultanément, remplace l'ancien glisser 1-doigt qui empêchait de
+    // viser correctement le jeton piochée en dessous.
     const activePointers = new Map(); // pointerId -> {x, y}
     let pinchStartDist = null;
+    let pinchStartMid = null;
     const pinchDistance = () => {
       const pts = [...activePointers.values()];
       return pts.length < 2 ? null : Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    };
+    const pinchMidpoint = () => {
+      const pts = [...activePointers.values()];
+      if (pts.length < 2) return null;
+      return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+    };
+
+    // Glisser à 1 doigt du jeton piochée (demande explicite) vers l'assiette
+    // (défausse) ou une case jaune (pose) — le tap seul (sans déplacement)
+    // sur le jeton ne fait rien, comme côté 2D (voir enableDragToZone,
+    // onTap:()=>{} pour la tuile piochée).
+    let tileDrag = null; // { pointerId, ghost, startX, startY, moved }
+    const TILE_DRAG_THRESHOLD = 6;
+    let suppressNextClick = false;
+
+    const pointInRect = (x, y, r) => Boolean(r) && x >= r.left && x <= r.left + r.width && y >= r.top && y <= r.top + r.height;
+
+    const currentPlaceableIndexes = () => (hasDrawn ? placeableForDrawn : []);
+
+    const findDropCellIndex = (x, y) => {
+      const rects = getMyBoardCellRects();
+      const indexes = currentPlaceableIndexes();
+      for (const i of indexes) {
+        if (pointInRect(x, y, rects[i])) return i;
+      }
+      return -1;
+    };
+
+    const startTileDrag = (e) => {
+      if (!hasDrawn) return false;
+      const rect = getDrawnTileRect();
+      if (!pointInRect(e.clientX, e.clientY, rect)) return false;
+      const ghost = document.createElement('div');
+      ghost.className = 'lucky-3d-drag-ghost';
+      ghost.textContent = String(state.drawnTile.value);
+      ghost.style.left = `${e.clientX}px`;
+      ghost.style.top = `${e.clientY}px`;
+      document.body.appendChild(ghost);
+      tileDrag = { pointerId: e.pointerId, ghost, startX: e.clientX, startY: e.clientY, moved: false };
+      return true;
+    };
+
+    const moveTileDrag = (e) => {
+      if (!tileDrag || e.pointerId !== tileDrag.pointerId) return;
+      const dx = e.clientX - tileDrag.startX;
+      const dy = e.clientY - tileDrag.startY;
+      if (!tileDrag.moved && (Math.abs(dx) > TILE_DRAG_THRESHOLD || Math.abs(dy) > TILE_DRAG_THRESHOLD)) tileDrag.moved = true;
+      tileDrag.ghost.style.left = `${e.clientX}px`;
+      tileDrag.ghost.style.top = `${e.clientY}px`;
+      const overPlate = pointInRect(e.clientX, e.clientY, getDiscardPlateRect());
+      const overCell = findDropCellIndex(e.clientX, e.clientY) !== -1;
+      tileDrag.ghost.classList.toggle('lucky-3d-drag-ghost--valid', overPlate || overCell);
+    };
+
+    const endTileDrag = async (e) => {
+      if (!tileDrag || e.pointerId !== tileDrag.pointerId) return;
+      const { ghost, moved } = tileDrag;
+      const dropX = e.clientX;
+      const dropY = e.clientY;
+      ghost.remove();
+      tileDrag = null;
+      if (!moved) return;
+      suppressNextClick = true;
+      if (pointInRect(dropX, dropY, getDiscardPlateRect())) {
+        try {
+          await discardLuckyNumbersDrawn(room, player.id);
+        } catch (err) {
+          if (!(err instanceof ConflictError)) alert(err.message || String(err));
+        }
+        return;
+      }
+      const targetIndex = findDropCellIndex(dropX, dropY);
+      if (targetIndex !== -1) {
+        try {
+          await placeLuckyNumbersDrawn(room, player.id, targetIndex);
+        } catch (err) {
+          if (!(err instanceof ConflictError)) alert(err.message || String(err));
+        }
+      }
     };
 
     tableEl.addEventListener(
@@ -470,13 +540,14 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
       (e) => {
         activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         if (activePointers.size >= 2) {
-          dragging = false;
+          if (tileDrag) {
+            tileDrag.ghost.remove();
+            tileDrag = null;
+          }
           pinchStartDist = pinchDistance();
+          pinchStartMid = pinchMidpoint();
         } else {
-          dragging = true;
-          dragMoved = false;
-          dragLastX = e.clientX;
-          dragLastY = e.clientY;
+          startTileDrag(e);
         }
       },
       true
@@ -488,50 +559,40 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
 
         if (activePointers.size >= 2) {
           const dist = pinchDistance();
+          const mid = pinchMidpoint();
           if (pinchStartDist && dist) {
             zoomCameraByFactor(dist / pinchStartDist);
             pinchStartDist = dist;
-            dragMoved = true; // supprime aussi le clic-fantôme après un pinch
-            repositionOverlayButtons();
           }
+          if (pinchStartMid && mid) {
+            panCameraByScreenDelta(mid.x - pinchStartMid.x, mid.y - pinchStartMid.y);
+            pinchStartMid = mid;
+          }
+          repositionOverlayButtons();
           return;
         }
 
-        if (!dragging) return;
-        const dx = e.clientX - dragLastX;
-        const dy = e.clientY - dragLastY;
-        if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) dragMoved = true;
-        if (dragMoved) {
-          panCameraByScreenDelta(dx, dy);
-          dragLastX = e.clientX;
-          dragLastY = e.clientY;
-          repositionOverlayButtons();
-        }
+        moveTileDrag(e);
       },
       true
     );
-    const endDrag = (e) => {
+    const endPointer = (e) => {
       activePointers.delete(e.pointerId);
-      pinchStartDist = null;
-      const remaining = [...activePointers.values()];
-      if (remaining.length === 1) {
-        dragging = true;
-        dragMoved = false;
-        dragLastX = remaining[0].x;
-        dragLastY = remaining[0].y;
-      } else {
-        dragging = false;
+      if (activePointers.size < 2) {
+        pinchStartDist = null;
+        pinchStartMid = null;
       }
+      endTileDrag(e);
     };
-    tableEl.addEventListener('pointerup', endDrag, true);
-    tableEl.addEventListener('pointercancel', endDrag, true);
+    tableEl.addEventListener('pointerup', endPointer, true);
+    tableEl.addEventListener('pointercancel', endPointer, true);
     tableEl.addEventListener(
       'click',
       (e) => {
-        if (dragMoved) {
+        if (suppressNextClick) {
           e.stopPropagation();
           e.preventDefault();
-          dragMoved = false;
+          suppressNextClick = false;
         }
       },
       true

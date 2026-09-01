@@ -1007,3 +1007,22 @@ export function getDrawPileRect() {
     [x - half, y - half, z]
   ]);
 }
+
+/** Rectangle écran de l'assiette de défausse — même calcul que getDrawPileRect (plan carré, pas un jeton), sert de zone de dépôt pour le glisser du jeton piochée. */
+export function getDiscardPlateRect() {
+  if (!plateMesh) return null;
+  const half = plateMesh.scale.x / 2;
+  const { x, y, z } = plateMesh.position;
+  return projectPointsRect([
+    [x - half, y + half, z],
+    [x + half, y + half, z],
+    [x + half, y - half, z],
+    [x - half, y - half, z]
+  ]);
+}
+
+/** Rectangle écran du jeton piochée en attente de pose (voir drawnTileMesh) — `null` si aucune tuile piochée. */
+export function getDrawnTileRect() {
+  if (!drawnTileMesh || !drawnTileMesh.visible) return null;
+  return meshScreenRect(drawnTileMesh);
+}

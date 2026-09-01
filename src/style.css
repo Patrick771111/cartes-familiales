@@ -3748,6 +3748,33 @@ body.is-card-dragging * {
   color: var(--cream);
 }
 
+/* "Fantôme" du jeton piochée pendant le glisser à 1 doigt (voir
+   startTileDrag dans luckynumbers.js) — position:fixed + z-index élevé,
+   suit le doigt/curseur jusqu'à l'assiette ou une case jaune. Même famille
+   visuelle que .lucky-discard-tile pour rester cohérent. */
+.lucky-3d-drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid #3a7a3a;
+  background: radial-gradient(circle at 30% 30%, #e8f8e0, #9fd48a);
+  color: #1a3a1a;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.lucky-3d-drag-ghost--valid {
+  box-shadow: 0 0 0 3px var(--brass), 0 0 14px rgba(212, 175, 55, 0.6);
+}
+
 .lucky-cell {
   width: 48px;
   height: 48px;
