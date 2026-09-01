@@ -1,7 +1,7 @@
 import { buildStandardDeck, shuffle } from './deck.js';
 import { commitGameAction } from './core.js';
 
-export const meta = { id: 'blackjack', label: 'Blackjack', hint: '1 à 6 joueurs, banque tenue par un bot', minPlayers: 1 };
+export const meta = { id: 'blackjack', label: 'Blackjack', hint: '1 à 5 joueurs, banque tenue par un bot', minPlayers: 1, maxPlayers: 5 };
 
 export const STARTING_MONEY = 500;
 export const DEFAULT_BET = 25;

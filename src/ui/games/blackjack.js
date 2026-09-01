@@ -99,6 +99,23 @@ function chipStackHtml(amount) {
     .join('')}</div>`;
 }
 
+function chipColumnsHtml(amount) {
+  const chips = chipsForAmount(amount);
+  if (!chips.length) return '';
+  const counts = {};
+  for (const v of chips) counts[v] = (counts[v] || 0) + 1;
+  return `<div class="bj-chip-cols">${[...CHIP_VALUES].reverse().filter((v) => counts[v])
+    .map((v) => {
+      const n = Math.min(counts[v], 8);
+      const stack = Array.from(
+        { length: n },
+        (_, i) => `<span class="bj-chip bj-chip--${v}" style="--i:${i}">${v}</span>`
+      ).join('');
+      return `<div class="bj-chip-col" style="--n:${n}">${stack}</div>`;
+    })
+    .join('')}</div>`;
+}
+
 const BOARD_SEAT_TO_SPOT = [2, 3, 1, 4, 0];
 
 function boardCardsHtml(cards, { hide = false } = {}) {
@@ -142,18 +159,18 @@ function renderBlackjack2D(container, { room, player, state, onLeave }) {
       )
       .join('');
     const bet = hands.reduce((s, h) => s + (h.bet || 0), 0) || p.bet || 0;
+    const result = finished ? state.results?.[p.id] : null;
     spots[spot] = `
       <div class="bj-spot ${isTurn ? 'bj-spot--turn' : ''} ${isMe ? 'bj-spot--me' : ''}" data-spot="${spot}">
         <div class="bj-spot__hands">${handsHtml}</div>
-        ${bet ? `<div class="bj-spot__bet">${chipStackHtml(bet)}</div>` : ''}
+        ${bet ? `<div class="bj-spot__bet">${chipColumnsHtml(bet)}</div>` : ''}
+        <div class="bj-spot__stack">${chipColumnsHtml(p.money || 0)}</div>
         <p class="bj-spot__name"><span class="bj-spot__nick">${p.name}${p.isBot ? ' 🤖' : ''}${connectionBadge(
           state,
           p.id
-        )}${betting && p.betReady ? ' · OK' : ''}</span><span class="bj-spot__bank">${moneyLabel(
-          p,
-          finished,
-          state.results
-        )}</span></p>
+        )}${betting && p.betReady ? ' · OK' : ''}</span>${
+          result ? `<span class="bj-spot__bank">${RESULT_LABEL[result] || result}</span>` : ''
+        }</p>
       </div>`;
   });
 

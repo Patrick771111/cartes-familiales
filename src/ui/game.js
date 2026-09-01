@@ -119,7 +119,8 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
         ${hostUnavailable && !isHost ? `<button class="btn btn--ghost btn--small" id="btn-claim-host">Devenir l'hôte</button>` : ''}
 
         ${
-          isHost && state.players.length < 6
+          isHost &&
+          state.players.length < (AVAILABLE_GAMES.find((g) => g.id === selectedGameId)?.maxPlayers || 6)
             ? `<button class="btn btn--ghost btn--small" id="btn-add-bot">+ Ajouter un bot</button>`
             : ''
         }

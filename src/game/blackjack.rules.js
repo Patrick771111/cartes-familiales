@@ -1,6 +1,6 @@
 export const title = 'Blackjack';
 export const html = `
-  <p>1 à 6 joueurs, tous contre la banque — <strong>tenue automatiquement</strong>, ce n'est pas un siège à la table.</p>
+  <p>1 à 5 joueurs, tous contre la banque — <strong>tenue automatiquement</strong>, ce n'est pas un siège à la table.</p>
   <ul>
     <li>Avant chaque main, chacun mise avec des jetons (5, 10, 25, 100) puis valide. Solde de départ : 500 💰.</li>
     <li>Chacun reçoit 2 cartes, la banque aussi (une visible, une cachée). Figures = 10, As = 11 ou 1.</li>

@@ -2075,11 +2075,11 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   height: 16.4%;
   container-type: size;
 }
-.bj-spot[data-spot="0"] { left: 19.15%; }
-.bj-spot[data-spot="1"] { left: 32.5%; }
+.bj-spot[data-spot="0"] { left: 17.1%; }
+.bj-spot[data-spot="1"] { left: 31.25%; }
 .bj-spot[data-spot="2"] { left: 45.4%; }
-.bj-spot[data-spot="3"] { left: 58.35%; }
-.bj-spot[data-spot="4"] { left: 71.7%; }
+.bj-spot[data-spot="3"] { left: 59.55%; }
+.bj-spot[data-spot="4"] { left: 73.7%; }
 .bj-spot--me .bj-spot__name { color: #f7f1e1; }
 .bj-spot--turn { filter: drop-shadow(0 0 6px rgba(212, 175, 55, 0.85)); }
 
@@ -2087,7 +2087,7 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
   position: absolute;
   left: 0;
   right: 0;
-  top: 28%;
+  top: 10%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2103,32 +2103,50 @@ body:has(.screen--table) .settings-fab { top: auto; right: auto; bottom: 12px; l
 .bj-spot__bet {
   position: absolute;
   left: 50%;
-  top: -4%;
-  transform: translate(-50%, -50%);
+  bottom: 100%;
+  transform: translate(-50%, 0);
   width: 100%;
-  display: block;
   min-height: 0;
   margin: 0;
   pointer-events: none;
 }
-.bj-spot__bet .bj-chips {
-  margin: 0;
-  min-height: 0;
+.bj-spot__stack {
+  position: absolute;
+  left: 50%;
+  top: 112%;
+  transform: translateX(-50%);
   width: 100%;
+  pointer-events: none;
+  z-index: 3;
+}
+.bj-chip-cols {
+  display: flex;
   justify-content: center;
+  align-items: flex-end;
+  gap: 4cqi;
+  width: 100%;
 }
-.bj-spot__bet .bj-chip {
-  width: 38cqi;
-  height: 38cqi;
-  font-size: 13cqi;
-  margin-left: -16cqi;
+.bj-chip-col {
+  position: relative;
+  width: 30cqi;
+  height: calc(30cqi + (var(--n, 1) - 1) * 6cqi);
+  flex-shrink: 0;
+}
+.bj-chip-col .bj-chip {
+  position: absolute;
+  left: 0;
+  bottom: calc(var(--i) * 6cqi);
+  width: 30cqi;
+  height: 30cqi;
+  margin: 0;
+  font-size: 10cqi;
   border-width: 2px;
+  z-index: calc(var(--i) + 1);
 }
-.bj-spot__bet .bj-chip:first-child { margin-left: 0; }
 .bj-spot__name {
   position: absolute;
   left: 50%;
-  top: 108%;
+  top: 148%;
   transform: translateX(-50%);
   margin: 0;
   display: flex;
