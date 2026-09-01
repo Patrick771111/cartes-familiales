@@ -773,8 +773,8 @@ export function panCameraToMySeat() {
  * - `stockCount` : nombre de tuiles restantes dans la pioche (juste pour
  *   décider si la pioche doit apparaître "pleine" ou non, purement décoratif).
  * - `drawnTile` : `{value,color}|null` — la tuile piochée en attente de pose
- *   (posée directement dans l'assiette, voir plus bas), `null` si aucune
- *   tuile piochée.
+ *   (posée à mi-chemin entre le sac et l'assiette, voir plus bas), `null` si
+ *   aucune tuile piochée.
  */
 export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponents = [], discardTiles = [], stockCount = 0, drawnTile = null }) {
   if (!mounted) return;
@@ -869,16 +869,17 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   piocheMesh.position.set(-1.0, pileY, pileZ - 0.05);
   piocheMesh.scale.set(piocheDiameter, piocheDiameter, 1);
 
-  // Tuile piochée en attente de pose, posée directement DANS l'assiette
-  // (demande explicite — n'était d'abord affichée qu'à côté du sac) : au
-  // centre exact de l'assiette, légèrement au-dessus du reste de la
-  // défausse (Z surélevé + un peu plus grande) pour bien la distinguer des
-  // tuiles déjà défaussées, même quand l'une d'elles occupe aussi le centre.
+  // Tuile piochée en attente de pose : posée exactement à mi-chemin entre le
+  // sac et l'assiette (demande explicite — la poser DANS l'assiette la
+  // rendait visuellement indiscernable d'une tuile déjà défaussée, au point
+  // que "défausser" n'avait plus de sens ; à côté du sac, elle n'était elle-
+  // même plus assez visible). Milieu exact entre piocheMesh.x (-1.0) et
+  // plateCenterX (0.85).
   drawnTileMesh.visible = Boolean(drawnTile);
   if (drawnTile) {
     setTokenValue(drawnTileMesh, drawnTile);
-    drawnTileMesh.scale.setScalar(BOARD_SCALE * 1.1);
-    drawnTileMesh.position.set(plateCenterX, pileY, pileZ + 0.06);
+    drawnTileMesh.scale.setScalar(BOARD_SCALE);
+    drawnTileMesh.position.set((-1.0 + plateCenterX) / 2, pileY, pileZ);
   }
 }
 
