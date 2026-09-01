@@ -317,8 +317,8 @@ function loadPiocheTexture() {
  * RÉELLEMENT transparent. Centres/rayons mesurés une fois par analyse de
  * pixels (bbox alpha>20 par bande de projection ligne/colonne).
  */
-const TOKEN_SHEET_COL_X = [165, 433, 700, 969, 1238];
-const TOKEN_SHEET_ROW_Y = [242, 523, 810, 1101];
+const TOKEN_SHEET_COL_X = [158, 431, 704, 976, 1248];
+const TOKEN_SHEET_ROW_Y = [244, 534, 827, 1121];
 const TOKEN_SHEET_CROP_HALF = 125;
 
 function loadTokensSheetImage() {
