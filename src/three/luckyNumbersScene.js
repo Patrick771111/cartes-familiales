@@ -4,6 +4,7 @@ import boardPlateUrl from '../assets/games/luckynumbers/board-plate.png';
 import tableWoodUrl from '../assets/games/luckynumbers/table-wood.jpg';
 import discardPlateUrl from '../assets/games/luckynumbers/discard-plate.png';
 import piocheUrl from '../assets/games/luckynumbers/pioche.png';
+import tokensSheetUrl from '../assets/games/luckynumbers/tokens-sheet.png';
 
 /**
  * Scène 3D persistante pour Lucky Numbers — une seule scène/caméra (comme
@@ -142,23 +143,13 @@ function seatX(index, total) {
 }
 
 // Thème "jardin en trèfle" (référence de l'utilisateur) — plateau texturé
-// (vraie photo, voir boardPlateUrl) + jetons trèfle pastel par couleur.
+// (vraie photo, voir boardPlateUrl) + jetons = vrais palets en bois
+// photographiés (voir tokensSheetUrl), un par valeur 1-20.
 const SCENE_BG = '#0f1f0f';
 const BOARD_GREEN = '#3a8a42';
 const GOLD = '#ffd700';
 const GOLD_EMISSIVE = '#ffaa00';
 const CENTER_CREAM = '#fffaf0';
-const CENTER_RIM = '#d8c9a8';
-const NUMBER_DARK = '#2a1e10';
-
-/** Couleur du pétale par couleur réelle de la tuile (yellow/red/violet/green du jeu) — assez saturée pour rester lisible sous l'éclairage/tone mapping de la scène. */
-const TILE_COLOR_MAP = {
-  yellow: '#f5c945',
-  red: '#e2645f',
-  violet: '#9b7fd4',
-  green: '#7cc36a'
-};
-const TILE_COLOR_FALLBACK = '#cccccc';
 
 let canvas = null;
 let renderer = null;
@@ -182,11 +173,10 @@ let cameraPanY = 0;
 let panMinY = 0;
 let panMaxY = 0;
 
-const tokenFaceTextures = new Map(); // value -> THREE.Texture (fond crème + nombre, indépendant de la couleur)
+const tokenFaceTextures = new Map(); // value (1-20) -> THREE.Texture (recadrée depuis tokensSheetUrl)
 let glowGeometry = null;
 let glowMaterial = null;
-let petalGeometry = null;
-let centerGeometry = null;
+let tokenDiscGeometry = null;
 let woodTexture = null;
 let boardPlateTexture = null;
 let boardPlateLoadPromise = null;
@@ -194,6 +184,8 @@ let discardPlateTexture = null;
 let discardPlateLoadPromise = null;
 let piocheTexture = null;
 let piocheLoadPromise = null;
+let tokensSheetImage = null;
+let tokensSheetLoadPromise = null;
 
 /**
  * Charge la photo du plateau (voir boardPlateUrl, demande explicite) — un
@@ -318,98 +310,93 @@ function loadPiocheTexture() {
   return piocheLoadPromise;
 }
 
+/**
+ * Charge la planche-contact des 20 jetons (voir tokensSheetUrl, fournie par
+ * l'utilisateur) — vraie photo de palets en bois numérotés 1-20, grille
+ * 5 colonnes × 4 rangées (valeur = rangée×5 + colonne + 1), fond déjà
+ * RÉELLEMENT transparent. Centres/rayons mesurés une fois par analyse de
+ * pixels (bbox alpha>20 par bande de projection ligne/colonne).
+ */
+const TOKEN_SHEET_COL_X = [165, 433, 700, 969, 1238];
+const TOKEN_SHEET_ROW_Y = [242, 523, 810, 1101];
+const TOKEN_SHEET_CROP_HALF = 125;
+
+function loadTokensSheetImage() {
+  if (tokensSheetImage) return Promise.resolve(tokensSheetImage);
+  if (tokensSheetLoadPromise) return tokensSheetLoadPromise;
+  tokensSheetLoadPromise = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      tokensSheetImage = img;
+      resolve(img);
+    };
+    img.src = tokensSheetUrl;
+  });
+  return tokensSheetLoadPromise;
+}
+
 function buildTokenFaceTexture(value) {
-  const size = 200;
+  const col = (value - 1) % 5;
+  const row = Math.floor((value - 1) / 5);
+  const cx = TOKEN_SHEET_COL_X[col];
+  const cy = TOKEN_SHEET_ROW_Y[row];
+  const size = 256;
   const c = document.createElement('canvas');
   c.width = size;
   c.height = size;
   const ctx = c.getContext('2d');
-  const cx = size / 2;
-  const cy = size / 2;
-
-  ctx.fillStyle = CENTER_CREAM;
-  ctx.beginPath();
-  ctx.arc(cx, cy, size * 0.48, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = CENTER_RIM;
-  ctx.lineWidth = 4;
-  ctx.stroke();
-
-  ctx.fillStyle = NUMBER_DARK;
-  // Agrandi (0.42 → 0.55 → 0.65 → 0.72, demandes explicites successives) —
-  // encore de la marge avant de toucher le bord du disque crème (rayon
-  // 0.48×size) même pour "20".
-  ctx.font = `700 ${Math.round(size * 0.72)}px Georgia, serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(String(value), cx, cy + size * 0.02);
-
+  ctx.drawImage(
+    tokensSheetImage,
+    cx - TOKEN_SHEET_CROP_HALF, cy - TOKEN_SHEET_CROP_HALF,
+    TOKEN_SHEET_CROP_HALF * 2, TOKEN_SHEET_CROP_HALF * 2,
+    0, 0, size, size
+  );
   const texture = new THREE.CanvasTexture(c);
   texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
   return texture;
 }
 
+/** Résout immédiatement si déjà en cache, sinon attend le chargement de la planche-contact (une seule fois). */
 function getTokenFaceTexture(value) {
-  let texture = tokenFaceTextures.get(value);
-  if (!texture) {
-    texture = buildTokenFaceTexture(value);
-    tokenFaceTextures.set(value, texture);
-  }
-  return texture;
+  const cached = tokenFaceTextures.get(value);
+  if (cached) return Promise.resolve(cached);
+  return loadTokensSheetImage().then(() => {
+    let texture = tokenFaceTextures.get(value);
+    if (!texture) {
+      texture = buildTokenFaceTexture(value);
+      tokenFaceTextures.set(value, texture);
+    }
+    return texture;
+  });
 }
 
-function getPetalGeometry() {
-  if (!petalGeometry) {
-    petalGeometry = new THREE.SphereGeometry(TOKEN_RADIUS * 0.42, 14, 10);
-    petalGeometry.userData.shared = true;
+function getTokenDiscGeometry() {
+  if (!tokenDiscGeometry) {
+    tokenDiscGeometry = new THREE.CircleGeometry(TOKEN_RADIUS, 32);
+    tokenDiscGeometry.userData.shared = true;
   }
-  return petalGeometry;
-}
-
-function getCenterGeometry() {
-  if (!centerGeometry) {
-    centerGeometry = new THREE.CircleGeometry(TOKEN_RADIUS * 0.5, 24);
-    centerGeometry.userData.shared = true;
-  }
-  return centerGeometry;
+  return tokenDiscGeometry;
 }
 
 /**
- * Jeton = trèfle à 4 pétales (sphères aplaties) + disque central numéroté,
- * pas un simple galet — cohérent avec le thème "jardin en trèfle" et
- * l'exemple de rendu fourni par l'utilisateur. Pétales à plat dans le plan
- * XY (aplaties sur Z, l'axe caméra), comme tout le reste de cette scène.
+ * Jeton = simple disque texturé avec le vrai palet en bois photographié
+ * (couleur + nombre déjà dans la photo, voir tokensSheetUrl) — remplace
+ * l'ancien trèfle à 4 pétales généré par code, suite à la fourniture de
+ * cette photo par l'utilisateur ("découpe cette image en 20 jetons").
  */
 function createTokenMesh() {
-  const group = new THREE.Group();
-  const petals = [];
-  for (let i = 0; i < 4; i++) {
-    const material = new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.08 });
-    const petal = new THREE.Mesh(getPetalGeometry(), material);
-    const angle = (i * 90 + 45) * (Math.PI / 180);
-    petal.position.set(Math.cos(angle) * TOKEN_RADIUS * 0.4, Math.sin(angle) * TOKEN_RADIUS * 0.4, 0);
-    petal.scale.z = 0.35;
-    group.add(petal);
-    petals.push(petal);
-  }
-  const center = new THREE.Mesh(getCenterGeometry(), new THREE.MeshStandardMaterial({ transparent: true, roughness: 0.5 }));
-  center.position.z = TOKEN_RADIUS * 0.42 * 0.35 + 0.008;
-  group.add(center);
-  group.userData.petals = petals;
-  group.userData.center = center;
-  return group;
+  const material = new THREE.MeshStandardMaterial({ color: CENTER_CREAM, roughness: 0.55, transparent: true });
+  return new THREE.Mesh(getTokenDiscGeometry(), material);
 }
 
-function setTokenValue(group, tile) {
-  const color = TILE_COLOR_MAP[tile.color] || TILE_COLOR_FALLBACK;
-  group.userData.petals.forEach((p) => {
-    p.material.color.set(color);
-    p.material.emissive.set(color);
-    p.material.emissiveIntensity = 0.08;
+function setTokenValue(mesh, tile) {
+  getTokenFaceTexture(tile.value).then((texture) => {
+    mesh.material.map = texture;
+    mesh.material.color.set(0xffffff);
+    mesh.material.needsUpdate = true;
   });
-  group.userData.center.material.map = getTokenFaceTexture(tile.value);
-  group.userData.center.material.color.set(0xffffff);
-  group.userData.center.material.needsUpdate = true;
 }
 
 function getGlowGeometry() {
