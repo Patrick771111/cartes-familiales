@@ -59,22 +59,22 @@ const PIXELS_TO_WORLD = BOARD_HEIGHT / BOARD_IMAGE_SIZE;
 // trou, ajustements successifs jusqu'à validation visuelle). row 0 = haut,
 // col 0 = gauche, index = row*4+col (voir cellLocalOffset).
 const CELL_OFFSETS = [
-  { dx: -1.50076, dy: 1.84415 },
+  { dx: -1.50076, dy: 1.80176 },
   { dx: -0.50449, dy: 1.81023 },
   { dx: 0.50025, dy: 1.81023 },
   { dx: 1.49652, dy: 1.81023 },
-  { dx: -1.50924, dy: 0.90300 },
-  { dx: -0.47482, dy: 0.94963 },
+  { dx: -1.49228, dy: 0.90300 },
+  { dx: -0.47482, dy: 0.90724 },
   { dx: 0.50025, dy: 0.90300 },
-  { dx: 1.49233, dy: 0.90724 },
-  { dx: -1.50924, dy: -0.01696 },
-  { dx: -0.50449, dy: -0.01272 },
-  { dx: 0.52145, dy: 0.02968 },
-  { dx: 1.49233, dy: -0.01696 },
-  { dx: -1.51348, dy: -0.95387 },
-  { dx: -0.50449, dy: -0.95387 },
-  { dx: 0.49601, dy: -0.94963 },
-  { dx: 1.50924, dy: -0.90724 }
+  { dx: 1.50929, dy: 0.90724 },
+  { dx: -1.49228, dy: -0.01696 },
+  { dx: -0.48753, dy: -0.01272 },
+  { dx: 0.52145, dy: -0.01271 },
+  { dx: 1.50929, dy: -0.01696 },
+  { dx: -1.49652, dy: -0.95387 },
+  { dx: -0.48753, dy: -0.95387 },
+  { dx: 0.51297, dy: -0.94963 },
+  { dx: 1.50924, dy: -0.94963 }
 ];
 
 // Rayon du jeton (et du halo de surbrillance) dérivé du même calibrage
