@@ -281,6 +281,12 @@ function spectatorHandHtml(game, state, p, reveal) {
     const revealedIds = new Set((state.pendingReveals || []).map((r) => r.source.cardId));
     return trioRowHtml(p.row, { revealedIds, alwaysFaceUp: state.status === 'finished' });
   }
+  if (game === 'blackjack' && Array.isArray(p.hands)) {
+    const html = p.hands
+      .map((h) => `<div class="blackjack-hand">${(h.cards || []).map(cardFaceHtml).join('')}</div>`)
+      .join('');
+    return `<div class="spectator-player__hand">${html}</div>`;
+  }
   if (Array.isArray(p.laidCards) && p.laidCards.length) {
     return `<div class="spectator-player__hand">${p.laidCards.map(cardFaceHtml).join('')}</div>`;
   }
