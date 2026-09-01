@@ -93,6 +93,10 @@ const BOARD_THICKNESS = 0.05;
 
 const CAMERA_DISTANCE = 8.5;
 const CAMERA_FOV = 45;
+// Bornes du pinch-to-zoom (voir zoomCameraByFactor) — distance caméra réelle,
+// pas un facteur d'échelle : plus PETIT = plus proche/zoomé.
+const ZOOM_MIN_DISTANCE = 5.2;
+const ZOOM_MAX_DISTANCE = 11.5;
 
 // Taille UNIQUE pour tous les plateaux (moi + adversaires) — demande
 // explicite de l'utilisateur, remplace l'ancien système "le mien proche/
@@ -114,10 +118,16 @@ const SEAT_SPACING = BOARD_WIDTH * BOARD_SCALE * 1.6;
  * frustum même si le conteneur CSS a de la place, car le clipping se
  * fait en espace caméra 3D, pas en layout CSS (bug déjà rencontré et
  * corrigé sur la main du Uno via maxHandCenterY, même cause ici).
+ *
+ * `distance` par défaut = CAMERA_DISTANCE (position de départ, utilisée pour
+ * les constantes de layout calculées au chargement du module — MY_ROW_Y ci-
+ * dessous, avant même que `camera` existe) ; les appels EN COURS DE PARTIE
+ * (pan, redimensionnement de la table) passent `camera.position.z` pour
+ * rester corrects une fois le pinch-to-zoom appliqué (voir zoomCameraByFactor).
  */
-function visibleHalfHeightAt(z) {
+function visibleHalfHeightAt(z, distance = CAMERA_DISTANCE) {
   const halfVFov = (CAMERA_FOV * Math.PI) / 360;
-  return (CAMERA_DISTANCE - z) * Math.tan(halfVFov);
+  return (distance - z) * Math.tan(halfVFov);
 }
 
 // Mon plateau est PLAQUÉ près du bas du champ visible (petite marge de
@@ -699,14 +709,48 @@ export function panCameraByScreenDelta(pixelDeltaX, pixelDeltaY = 0) {
   if (!mounted) return;
   const w = parseFloat(canvas.style.width) || canvas.clientWidth || 1;
   const h = parseFloat(canvas.style.height) || canvas.clientHeight || 1;
-  const visibleHalfW = visibleHalfHeightAt(TABLE_Z) * camera.aspect;
-  const visibleHalfH = visibleHalfHeightAt(TABLE_Z);
+  const visibleHalfW = visibleHalfHeightAt(TABLE_Z, camera.position.z) * camera.aspect;
+  const visibleHalfH = visibleHalfHeightAt(TABLE_Z, camera.position.z);
   const worldPerPixelX = (visibleHalfW * 2) / w;
   const worldPerPixelY = (visibleHalfH * 2) / h;
   cameraPanX = Math.max(panMin, Math.min(panMax, cameraPanX - pixelDeltaX * worldPerPixelX));
   cameraPanY = Math.max(panMinY, Math.min(panMaxY, cameraPanY + pixelDeltaY * worldPerPixelY));
   camera.position.x = cameraPanX;
   camera.position.y = cameraPanY;
+}
+
+/**
+ * Table en bois assez large/haute pour couvrir tout le champ visible à
+ * n'importe quelle position de glisser (horizontal ET vertical) ET n'importe
+ * quel niveau de zoom (voir zoomCameraByFactor) — pas seulement la taille des
+ * 2 rangées, pour ne jamais laisser voir le fond sombre de la scène ("il faut
+ * retirer le fond déjà présent"). Extrait en fonction (au lieu d'un bloc
+ * inline dans updateScene) pour pouvoir la ré-appeler après un pinch-zoom,
+ * sans attendre le prochain changement d'état de partie.
+ */
+function resizeTableMesh() {
+  const visibleHalfH = visibleHalfHeightAt(TABLE_Z, camera.position.z);
+  const tableWidth = (panMax - panMin) + visibleHalfH * camera.aspect * 2.6;
+  const tableHeight = (panMaxY - panMinY) + visibleHalfH * 2.6;
+  tableMesh.position.y = (panMinY + panMaxY) / 2;
+  tableMesh.scale.set(tableWidth, tableHeight, 1);
+  if (tableMesh.material.map) tableMesh.material.map.repeat.set(tableWidth / 2.2, tableHeight / 2.2);
+}
+
+/**
+ * Pinch-to-zoom (demande explicite) — rapproche/éloigne la caméra le long de
+ * Z plutôt que de changer le FOV (garde les proportions des plateaux
+ * cohérentes, pas d'effet "fisheye"). `factor` = ratio de la distance entre
+ * les 2 doigts (nouvelle/ancienne) : >1 = doigts qui s'écartent = zoom avant
+ * = caméra plus PROCHE, donc on DIVISE la distance par ce facteur. Bornée à
+ * [ZOOM_MIN_DISTANCE, ZOOM_MAX_DISTANCE]. Re-résout aussitôt la taille de la
+ * table (voir resizeTableMesh) pour qu'un zoom arrière ne laisse jamais voir
+ * le fond sombre de la scène.
+ */
+export function zoomCameraByFactor(factor) {
+  if (!mounted || !Number.isFinite(factor) || factor <= 0) return;
+  camera.position.z = Math.max(ZOOM_MIN_DISTANCE, Math.min(ZOOM_MAX_DISTANCE, camera.position.z / factor));
+  resizeTableMesh();
 }
 
 /** Recentre la caméra sur mon propre siège (voir myCurrentSeatX/MY_ROW_Y) — utile après un rendu complet. */
@@ -729,7 +773,8 @@ export function panCameraToMySeat() {
  * - `stockCount` : nombre de tuiles restantes dans la pioche (juste pour
  *   décider si la pioche doit apparaître "pleine" ou non, purement décoratif).
  * - `drawnTile` : `{value,color}|null` — la tuile piochée en attente de pose
- *   (posée à côté du sac, voir plus bas), `null` si aucune tuile piochée.
+ *   (posée directement dans l'assiette, voir plus bas), `null` si aucune
+ *   tuile piochée.
  */
 export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponents = [], discardTiles = [], stockCount = 0, drawnTile = null }) {
   if (!mounted) return;
@@ -775,15 +820,7 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   cameraPanY = Math.max(panMinY, Math.min(panMaxY, cameraPanY));
   camera.position.y = cameraPanY;
 
-  // Table en bois assez large/haute pour couvrir tout le champ visible à
-  // n'importe quelle position de glisser (horizontal ET vertical) — pas
-  // seulement la taille des 2 rangées, pour ne jamais laisser voir le fond
-  // sombre de la scène ("il faut retirer le fond déjà présent").
-  const tableWidth = (panMax - panMin) + visibleHalfHeightAt(TABLE_Z) * camera.aspect * 2.6;
-  const tableHeight = (panMaxY - panMinY) + visibleHalfHeightAt(TABLE_Z) * 2.6;
-  tableMesh.position.y = (panMinY + panMaxY) / 2;
-  tableMesh.scale.set(tableWidth, tableHeight, 1);
-  if (tableMesh.material.map) tableMesh.material.map.repeat.set(tableWidth / 2.2, tableHeight / 2.2);
+  resizeTableMesh();
 
   // Pioche/défausse au milieu de la table, dans l'espace entre les 2 rangées.
   const pileY = (MY_ROW_Y + OPPONENT_ROW_Y) / 2;
@@ -832,14 +869,16 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   piocheMesh.position.set(-1.0, pileY, pileZ - 0.05);
   piocheMesh.scale.set(piocheDiameter, piocheDiameter, 1);
 
-  // Tuile piochée en attente de pose, posée juste à côté du sac (demande
-  // explicite : elle n'était visible nulle part en 3D, seulement dans le
-  // texte du HUD) — dans l'espace libre entre le sac et l'assiette.
+  // Tuile piochée en attente de pose, posée directement DANS l'assiette
+  // (demande explicite — n'était d'abord affichée qu'à côté du sac) : au
+  // centre exact de l'assiette, légèrement au-dessus du reste de la
+  // défausse (Z surélevé + un peu plus grande) pour bien la distinguer des
+  // tuiles déjà défaussées, même quand l'une d'elles occupe aussi le centre.
   drawnTileMesh.visible = Boolean(drawnTile);
   if (drawnTile) {
     setTokenValue(drawnTileMesh, drawnTile);
-    drawnTileMesh.scale.setScalar(BOARD_SCALE);
-    drawnTileMesh.position.set(-0.35, pileY, pileZ);
+    drawnTileMesh.scale.setScalar(BOARD_SCALE * 1.1);
+    drawnTileMesh.position.set(plateCenterX, pileY, pileZ + 0.06);
   }
 }
 

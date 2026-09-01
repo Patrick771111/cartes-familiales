@@ -31,7 +31,8 @@ import {
   getDiscardTileRects,
   getDrawPileRect,
   panCameraByScreenDelta,
-  panCameraToMySeat
+  panCameraToMySeat,
+  zoomCameraByFactor
 } from '../../three/luckyNumbersScene.js';
 
 // Centre la caméra sur MON siège seulement au tout premier rendu 3D de la
@@ -432,19 +433,50 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
     let dragMoved = false;
     const DRAG_THRESHOLD = 6;
 
+    // Pinch-to-zoom (demande explicite) : suit chaque pointeur actif par id
+    // pour détecter 2 doigts simultanés. Pendant un pinch le glisser 1-doigt
+    // est suspendu (sinon les deux gestes se marchent dessus et la caméra
+    // saute) ; en relâchant un doigt sur 2, le glisser reprend en douceur
+    // avec celui qui reste, sans saut de position.
+    const activePointers = new Map(); // pointerId -> {x, y}
+    let pinchStartDist = null;
+    const pinchDistance = () => {
+      const pts = [...activePointers.values()];
+      return pts.length < 2 ? null : Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    };
+
     tableEl.addEventListener(
       'pointerdown',
       (e) => {
-        dragging = true;
-        dragMoved = false;
-        dragLastX = e.clientX;
-        dragLastY = e.clientY;
+        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (activePointers.size >= 2) {
+          dragging = false;
+          pinchStartDist = pinchDistance();
+        } else {
+          dragging = true;
+          dragMoved = false;
+          dragLastX = e.clientX;
+          dragLastY = e.clientY;
+        }
       },
       true
     );
     tableEl.addEventListener(
       'pointermove',
       (e) => {
+        if (activePointers.has(e.pointerId)) activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        if (activePointers.size >= 2) {
+          const dist = pinchDistance();
+          if (pinchStartDist && dist) {
+            zoomCameraByFactor(dist / pinchStartDist);
+            pinchStartDist = dist;
+            dragMoved = true; // supprime aussi le clic-fantôme après un pinch
+            repositionOverlayButtons();
+          }
+          return;
+        }
+
         if (!dragging) return;
         const dx = e.clientX - dragLastX;
         const dy = e.clientY - dragLastY;
@@ -458,8 +490,18 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
       },
       true
     );
-    const endDrag = () => {
-      dragging = false;
+    const endDrag = (e) => {
+      activePointers.delete(e.pointerId);
+      pinchStartDist = null;
+      const remaining = [...activePointers.values()];
+      if (remaining.length === 1) {
+        dragging = true;
+        dragMoved = false;
+        dragLastX = remaining[0].x;
+        dragLastY = remaining[0].y;
+      } else {
+        dragging = false;
+      }
     };
     tableEl.addEventListener('pointerup', endDrag, true);
     tableEl.addEventListener('pointercancel', endDrag, true);
