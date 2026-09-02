@@ -108,13 +108,12 @@ const ZOOM_MAX_DISTANCE = 20;
 // plateau agrandi (BOARD_WIDTH/BOARD_HEIGHT, voir plus haut) — demande
 // explicite : seuls MON plateau et la pioche doivent tenir dans l'écran, pas
 // forcément les plateaux adverses (déjà accessibles en glissant la caméra,
-// voir panCameraByScreenDelta) : voir MY_ROW_Y/OPPONENT_ROW_Y ci-dessous,
+// voir panCameraByScreenDelta) : voir MY_ROW_Y/opponentPosition ci-dessous,
 // disposition volontairement ASYMÉTRIQUE plutôt que centrée sur la table.
 const TABLE_Z = 1.6;
 const BOARD_SCALE = 0.47;
 const BOARD_HALF_X = (BOARD_WIDTH / 2) * BOARD_SCALE;
 const BOARD_HALF_Y = (BOARD_HEIGHT / 2) * BOARD_SCALE;
-const SEAT_SPACING = BOARD_WIDTH * BOARD_SCALE * 1.6;
 
 /**
  * Le FOV d'une PerspectiveCamera est TOUJOURS vertical (indépendant de
@@ -143,17 +142,39 @@ function visibleHalfHeightAt(z, distance = CAMERA_DISTANCE) {
 // du champ — ils restent accessibles en glissant la caméra horizontalement,
 // leur visibilité verticale complète n'est pas requise.
 const MY_ROW_Y = -(visibleHalfHeightAt(TABLE_Z) * 0.97 - BOARD_HALF_Y);
-// Écart généreux entre ma rangée et celle des adversaires — sert surtout à
+// Écart entre ma rangée et la pioche/assiette (voir PILE_Y) — sert surtout à
 // donner à l'assiette de défausse (voir plateDiameter dans updateScene) la
-// place de contenir une quinzaine de jetons ; n'a plus besoin de rester sous
-// `visibleHalfHeightAt` puisque la rangée adverse n'a plus à tenir dans le
-// champ (voir commentaire ci-dessus).
+// place de contenir une quinzaine de jetons.
 const ROW_GAP = 1.6;
-const OPPONENT_ROW_Y = MY_ROW_Y + 2 * BOARD_HALF_Y + ROW_GAP;
+/** Pioche/assiette : centre de l'arc de cercle des adversaires (voir opponentPosition ci-dessous). */
+const PILE_Y = MY_ROW_Y + BOARD_HALF_Y + ROW_GAP / 2;
 
-/** Position X du siège `index` parmi `total` sièges, centrée sur X=0 (le "milieu de la table"). */
-function seatX(index, total) {
-  return (index - (total - 1) / 2) * SEAT_SPACING;
+// Adversaires disposés en arc de cercle autour de la pioche/assiette
+// (demande explicite : "revoit la disposition des joueurs en arc de cercle
+// autour de la pioche et de l'assiette") plutôt qu'en rangée droite — comme
+// des joueurs assis autour d'une table ronde dont je serais le bord le plus
+// proche. Chaque plateau reste néanmoins PLAT et non tourné (voir le
+// commentaire en tête de fichier : jamais de rotation, seule la position
+// change) — la projection écran (projectPointsRect) suppose une caméra qui
+// ne fait que translater, une vraie rotation des plateaux la fausserait.
+// ARC_ANGLE_STEP fixé, ARC_RADIUS choisi pour garantir au moins l'ancien
+// espacement (SEAT_SPACING) entre 2 adversaires adjacents à cet angle, pire
+// cas 3 adversaires (4 joueurs) : chord = 2×R×sin(step/2) ≥ ancien espacement.
+const ARC_ANGLE_STEP = (40 * Math.PI) / 180;
+const ARC_RADIUS = (BOARD_WIDTH * BOARD_SCALE * 1.15) / (2 * Math.sin(ARC_ANGLE_STEP / 2));
+
+/**
+ * Position (x,y) de l'adversaire `index` parmi `total`, sur le cercle de
+ * rayon ARC_RADIUS centré sur la pioche/assiette (PILE_Y, x=0) — angle=0 est
+ * juste "au-dessus" du centre (le plus loin de moi), les sièges suivants
+ * s'écartent symétriquement de part et d'autre en s'incurvant vers moi.
+ */
+function opponentPosition(index, total) {
+  const angle = (index - (total - 1) / 2) * ARC_ANGLE_STEP;
+  return {
+    x: Math.sin(angle) * ARC_RADIUS,
+    y: PILE_Y + Math.cos(angle) * ARC_RADIUS
+  };
 }
 
 // Thème "jardin en trèfle" (référence de l'utilisateur) — plateau texturé
@@ -794,10 +815,10 @@ export function panCameraToMySeat() {
 export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponents = [], discardTiles = [], stockCount = 0, drawnTile = null }) {
   if (!mounted) return;
 
-  // Mon plateau a sa PROPRE rangée (toujours seul dessus, donc toujours à
-  // X=0) ; les adversaires occupent une deuxième rangée au-dessus, alignés
-  // entre eux (voir seatX) — demande explicite, remplace la disposition
-  // "tout le monde sur la même ligne".
+  // Mon plateau reste seul, toujours à X=0, au bord le plus proche de la
+  // caméra ; les adversaires sont désormais disposés en arc de cercle
+  // au-delà de la pioche/assiette (voir opponentPosition) — demande
+  // explicite, remplace l'ancienne rangée droite.
   myCurrentSeatX = 0;
   const totalSeats = 1 + opponents.length;
 
@@ -809,36 +830,41 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   }
 
   layoutBoardGroup(boardGroups[0], myBoardTiles, { centerX: 0, centerY: MY_ROW_Y, centerZ: TABLE_Z, scale: BOARD_SCALE, placeableIndexes });
+  const opponentPositions = opponents.map((_, i) => opponentPosition(i, opponents.length));
   opponents.forEach((opp, i) => {
-    layoutBoardGroup(boardGroups[i + 1], opp.board, { centerX: seatX(i, opponents.length), centerY: OPPONENT_ROW_Y, centerZ: TABLE_Z, scale: BOARD_SCALE });
+    const { x, y } = opponentPositions[i];
+    layoutBoardGroup(boardGroups[i + 1], opp.board, { centerX: x, centerY: y, centerZ: TABLE_Z, scale: BOARD_SCALE });
   });
 
-  // Le glisser horizontal sert à parcourir la rangée des adversaires (la
-  // mienne n'a qu'un seul siège, toujours à X=0) — un peu de marge de part
-  // et d'autre pour ne pas stopper le glisser pile sur le bord extrême.
-  if (opponents.length > 0) {
-    panMin = seatX(0, opponents.length) - SEAT_SPACING * 0.6;
-    panMax = seatX(opponents.length - 1, opponents.length) + SEAT_SPACING * 0.6;
+  // Glisser horizontal/vertical bornés sur l'étendue RÉELLE de l'arc pour ce
+  // nombre d'adversaires (pas une formule fixe — l'arc s'élargit avec le
+  // nombre de sièges, voir ARC_RADIUS/ARC_ANGLE_STEP) — marge de part et
+  // d'autre pour ne pas stopper le glisser pile sur le bord extrême.
+  if (opponentPositions.length > 0) {
+    const xs = opponentPositions.map((p) => p.x);
+    const ys = opponentPositions.map((p) => p.y);
+    panMin = Math.min(...xs) - BOARD_HALF_X * 1.3;
+    panMax = Math.max(...xs) + BOARD_HALF_X * 1.3;
+    panMaxY = Math.max(...ys) + BOARD_HALF_Y * 0.6;
   } else {
     panMin = 0;
     panMax = 0;
+    panMaxY = PILE_Y + BOARD_HALF_Y * 0.6;
   }
   cameraPanX = Math.max(panMin, Math.min(panMax, cameraPanX));
   camera.position.x = cameraPanX;
 
-  // Le glisser vertical va de ma rangée à celle des adversaires — demande
-  // explicite : pouvoir voir TOUS les plateaux, pas seulement en glissant
-  // horizontalement (les adversaires, au-dessus, n'étaient sinon jamais
-  // atteignables verticalement).
+  // Le glisser vertical va de ma rangée jusqu'au fond de l'arc — demande
+  // explicite d'origine : pouvoir voir TOUS les plateaux, pas seulement en
+  // glissant horizontalement.
   panMinY = MY_ROW_Y - BOARD_HALF_Y * 0.6;
-  panMaxY = OPPONENT_ROW_Y + BOARD_HALF_Y * 0.6;
   cameraPanY = Math.max(panMinY, Math.min(panMaxY, cameraPanY));
   camera.position.y = cameraPanY;
 
   resizeTableMesh();
 
-  // Pioche/défausse au milieu de la table, dans l'espace entre les 2 rangées.
-  const pileY = (MY_ROW_Y + OPPONENT_ROW_Y) / 2;
+  // Pioche/défausse au centre de l'arc, entre ma rangée et les adversaires.
+  const pileY = PILE_Y;
   const pileZ = TABLE_Z + 0.15;
 
   // Assez grande pour une quinzaine de jetons À LA TAILLE DU PLATEAU (voir
