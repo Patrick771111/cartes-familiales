@@ -9,11 +9,19 @@ import tokensSheetUrl from '../assets/games/luckynumbers/tokens-sheet.png';
 /**
  * Scène 3D persistante pour Lucky Numbers — une seule scène/caméra (comme
  * unoScene.js). Tous les plateaux (le mien + ceux des adversaires) sont à
- * la MÊME taille, alignés côte à côte sur une "table" (plan texturé bois) ;
- * la caméra ne fait que TRANSLATER horizontalement (glisser pour faire
- * défiler, voir panCameraByScreenDelta) — jamais de rotation/inclinaison,
- * donc toujours la même leçon que pouilleuxScene.js/unoScene.js : une
- * translation pure ne déforme rien, contrairement à une rotation.
+ * la MÊME taille, assis autour d'une table RONDE (voir seatPosition/
+ * opponentAngle) dont la pioche/assiette occupe le centre ; la CAMÉRA, elle,
+ * ne fait que TRANSLATER/zoomer (glisser + pinch, voir panCameraByScreenDelta/
+ * zoomCameraByFactor) — jamais de rotation/inclinaison, même leçon que
+ * pouilleuxScene.js/unoScene.js : une translation pure ne déforme rien,
+ * contrairement à une rotation. Les PLATEAUX eux-mêmes, en revanche, sont
+ * chacun tournés selon leur siège (0 pour moi, variable pour les
+ * adversaires — demande explicite : "à 4 le plateau d'en face est inversé")
+ * : c'est une rotation d'OBJET dans le plan de l'image (autour de Z, la
+ * caméra regardant droit selon cet axe), pas une rotation de caméra — ça ne
+ * complique donc pas la projection écran des boutons DOM invisibles (voir
+ * getMyBoardCellRects), qui ne concernent de toute façon que MON plateau
+ * (jamais tourné).
  *
  * Le plateau utilise une VRAIE photo (voir boardPlateUrl) comme texture —
  * demande explicite de l'utilisateur — avec un remplacement "blanc → vert"
@@ -142,38 +150,45 @@ function visibleHalfHeightAt(z, distance = CAMERA_DISTANCE) {
 // du champ — ils restent accessibles en glissant la caméra horizontalement,
 // leur visibilité verticale complète n'est pas requise.
 const MY_ROW_Y = -(visibleHalfHeightAt(TABLE_Z) * 0.97 - BOARD_HALF_Y);
-// Écart entre ma rangée et la pioche/assiette (voir PILE_Y) — sert surtout à
+// Écart entre ma place et la pioche/assiette (voir PILE_Y) — sert surtout à
 // donner à l'assiette de défausse (voir plateDiameter dans updateScene) la
 // place de contenir une quinzaine de jetons.
 const ROW_GAP = 1.6;
-/** Pioche/assiette : centre de l'arc de cercle des adversaires (voir opponentPosition ci-dessous). */
+/** Pioche/assiette : centre de la table ronde (voir seatPosition ci-dessous). */
 const PILE_Y = MY_ROW_Y + BOARD_HALF_Y + ROW_GAP / 2;
 
-// Adversaires disposés en arc de cercle autour de la pioche/assiette
-// (demande explicite : "revoit la disposition des joueurs en arc de cercle
-// autour de la pioche et de l'assiette") plutôt qu'en rangée droite — comme
-// des joueurs assis autour d'une table ronde dont je serais le bord le plus
-// proche. Chaque plateau reste néanmoins PLAT et non tourné (voir le
-// commentaire en tête de fichier : jamais de rotation, seule la position
-// change) — la projection écran (projectPointsRect) suppose une caméra qui
-// ne fait que translater, une vraie rotation des plateaux la fausserait.
-// ARC_ANGLE_STEP fixé, ARC_RADIUS choisi pour garantir au moins l'ancien
-// espacement (SEAT_SPACING) entre 2 adversaires adjacents à cet angle, pire
-// cas 3 adversaires (4 joueurs) : chord = 2×R×sin(step/2) ≥ ancien espacement.
-const ARC_ANGLE_STEP = (40 * Math.PI) / 180;
-const ARC_RADIUS = (BOARD_WIDTH * BOARD_SCALE * 1.15) / (2 * Math.sin(ARC_ANGLE_STEP / 2));
+// TOUS les joueurs (moi compris) sont assis sur le même cercle autour de la
+// pioche/assiette, comme une vraie table ronde (demande explicite : "tous
+// les joueurs doivent être en cercle, comme si la table était ronde") — moi
+// à l'angle 0 (donc à MY_ROW_Y, ma place ne bouge pas), les adversaires
+// répartis uniformément sur le reste du cercle. Rayon = distance pile→moi
+// (même rayon pour tout le monde, vraie symétrie de table ronde), donc fixé
+// par MY_ROW_Y/PILE_Y plutôt que choisi indépendamment.
+const SEAT_RADIUS = PILE_Y - MY_ROW_Y;
 
 /**
- * Position (x,y) de l'adversaire `index` parmi `total`, sur le cercle de
- * rayon ARC_RADIUS centré sur la pioche/assiette (PILE_Y, x=0) — angle=0 est
- * juste "au-dessus" du centre (le plus loin de moi), les sièges suivants
- * s'écartent symétriquement de part et d'autre en s'incurvant vers moi.
+ * Angle du siège adversaire `index` (0-based) parmi `opponentsCount`, sur
+ * `opponentsCount + 1` sièges répartis uniformément (moi = siège 0, angle 0,
+ * jamais tourné — les adversaires prennent les sièges suivants). À 4 joueurs
+ * (3 adversaires), le siège du milieu tombe pile à 180° : en face de moi,
+ * donc tourné de 180° (plateau inversé) — demande explicite.
  */
-function opponentPosition(index, total) {
-  const angle = (index - (total - 1) / 2) * ARC_ANGLE_STEP;
+function opponentAngle(index, opponentsCount) {
+  return ((index + 1) * 2 * Math.PI) / (opponentsCount + 1);
+}
+
+/**
+ * Position (x,y) sur le cercle de la table pour un siège à `angle` radians
+ * (0 = ma place, en bas ; π = en face, en haut ; croît vers la droite).
+ * Chaque plateau est en plus TOURNÉ de `angle` (voir layoutBoardGroup) —
+ * cette position en est indépendante, calculée séparément pour rester
+ * lisible aux deux points d'appel (adversaires ET, potentiellement, calculs
+ * de bornes de glisser).
+ */
+function seatPosition(angle) {
   return {
-    x: Math.sin(angle) * ARC_RADIUS,
-    y: PILE_Y + Math.cos(angle) * ARC_RADIUS
+    x: Math.sin(angle) * SEAT_RADIUS,
+    y: PILE_Y - Math.cos(angle) * SEAT_RADIUS
   };
 }
 
@@ -583,25 +598,49 @@ function disposeBoardGroup(group) {
 }
 
 /**
+ * Fait tourner (dx,dy) de `angle` radians — sert à placer les trous/jetons
+ * d'un plateau adverse TOURNÉ (voir layoutBoardGroup) sans re-calculer
+ * CELL_OFFSETS : la géométrie de la grille est fixe, seule son orientation
+ * change selon le siège autour de la table ronde.
+ */
+function rotateOffset(dx, dy, angle) {
+  if (!angle) return { dx, dy };
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return { dx: dx * cos - dy * sin, dy: dx * sin + dy * cos };
+}
+
+/**
  * Place/actualise un plateau complet à (centerX, centerY, centerZ), mis à
  * l'échelle `scale` (désormais IDENTIQUE pour tout le monde — voir
- * BOARD_SCALE). Les "encoches" sont déjà peintes dans la photo du plateau
+ * BOARD_SCALE) et tourné de `rotation` radians autour de Z (0 pour moi,
+ * variable pour les adversaires — voir seatAngle/opponentPosition : table
+ * ronde, chacun voit son propre plateau "à l'endroit" depuis SA place, donc
+ * tourné depuis la mienne — demande explicite : "à 4 le plateau d'en face
+ * est inversé"). Les "encoches" sont déjà peintes dans la photo du plateau
  * (voir loadBoardPlateTexture) — plus d'anneau/puits 3D dessinés par-dessus
  * (demande explicite : "sans dessiner toi même les trous"), seuls les
  * jetons et le halo de surbrillance sont de vraie géométrie, positionnés au
- * centre EXACT de chaque trou peint (voir cellLocalOffset/CELL_OFFSETS).
+ * centre EXACT de chaque trou peint (voir cellLocalOffset/CELL_OFFSETS),
+ * tourné avec le plateau.
  */
-function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, placeableIndexes = [] }) {
+function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, rotation = 0, placeableIndexes = [] }) {
   group.board.position.set(centerX, centerY, centerZ);
   group.board.scale.setScalar(scale);
+  group.board.rotation.z = rotation;
   const surfaceZ = centerZ + (BOARD_THICKNESS / 2) * scale;
-  // Retenu pour getBoardLabelRects() (bulle de nom sous chaque plateau).
+  // Retenu pour getBoardLabelRects() (bulle de nom sous chaque plateau) —
+  // la bulle elle-même ne tourne JAMAIS (demande explicite : "l'étiquette du
+  // nom reste droite"), seule sa POSITION suit la rotation du plateau pour
+  // rester du côté extérieur (loin de la pioche), voir plus bas.
   group.centerX = centerX;
   group.centerY = centerY;
   group.labelScale = scale;
+  group.rotation = rotation;
 
   for (let i = 0; i < GRID_SIZE; i++) {
-    const { dx, dy } = cellLocalOffset(i);
+    const local = cellLocalOffset(i);
+    const { dx, dy } = rotateOffset(local.dx, local.dy, rotation);
     const x = centerX + dx * scale;
     const y = centerY + dy * scale;
     const highlighted = placeableIndexes.includes(i);
@@ -633,6 +672,7 @@ function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, plac
       token.visible = true;
       token.position.set(x, y, surfaceZ + 0.02 * scale);
       token.scale.setScalar(scale);
+      token.rotation.z = rotation;
       setTokenValue(token, tile);
     } else if (group.tokenMeshes[i]) {
       group.tokenMeshes[i].visible = false;
@@ -815,10 +855,11 @@ export function panCameraToMySeat() {
 export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponents = [], discardTiles = [], stockCount = 0, drawnTile = null }) {
   if (!mounted) return;
 
-  // Mon plateau reste seul, toujours à X=0, au bord le plus proche de la
-  // caméra ; les adversaires sont désormais disposés en arc de cercle
-  // au-delà de la pioche/assiette (voir opponentPosition) — demande
-  // explicite, remplace l'ancienne rangée droite.
+  // Mon plateau reste seul, toujours à X=0, à MA place sur le cercle (angle
+  // 0, jamais tournée) ; les adversaires occupent les autres sièges répartis
+  // uniformément sur le reste de la table ronde (voir opponentAngle/
+  // seatPosition), chacun tourné selon sa place — demande explicite : "tous
+  // les joueurs doivent être en cercle, comme si la table était ronde".
   myCurrentSeatX = 0;
   const totalSeats = 1 + opponents.length;
 
@@ -830,16 +871,17 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   }
 
   layoutBoardGroup(boardGroups[0], myBoardTiles, { centerX: 0, centerY: MY_ROW_Y, centerZ: TABLE_Z, scale: BOARD_SCALE, placeableIndexes });
-  const opponentPositions = opponents.map((_, i) => opponentPosition(i, opponents.length));
+  const opponentAngles = opponents.map((_, i) => opponentAngle(i, opponents.length));
+  const opponentPositions = opponentAngles.map(seatPosition);
   opponents.forEach((opp, i) => {
     const { x, y } = opponentPositions[i];
-    layoutBoardGroup(boardGroups[i + 1], opp.board, { centerX: x, centerY: y, centerZ: TABLE_Z, scale: BOARD_SCALE });
+    layoutBoardGroup(boardGroups[i + 1], opp.board, { centerX: x, centerY: y, centerZ: TABLE_Z, scale: BOARD_SCALE, rotation: opponentAngles[i] });
   });
 
-  // Glisser horizontal/vertical bornés sur l'étendue RÉELLE de l'arc pour ce
-  // nombre d'adversaires (pas une formule fixe — l'arc s'élargit avec le
-  // nombre de sièges, voir ARC_RADIUS/ARC_ANGLE_STEP) — marge de part et
-  // d'autre pour ne pas stopper le glisser pile sur le bord extrême.
+  // Glisser horizontal/vertical bornés sur l'étendue RÉELLE du cercle pour
+  // ce nombre de joueurs (pas une formule fixe — le cercle est le même pour
+  // tous, mais plus il y a d'adversaires, plus ils couvrent d'angle) — marge
+  // de part et d'autre pour ne pas stopper le glisser pile sur le bord extrême.
   if (opponentPositions.length > 0) {
     const xs = opponentPositions.map((p) => p.x);
     const ys = opponentPositions.map((p) => p.y);
@@ -992,17 +1034,23 @@ const BOARD_LABEL_DY = -2.3;
  * Rectangle écran (coordonnées CSS px) de la bulle de nom sous chaque
  * plateau, dans l'ordre de boardGroups (0 = le mien, 1..N = adversaires dans
  * l'ordre des sièges) — voir layoutBoardGroup pour centerX/centerY/labelScale.
+ * Le décalage local (0, BOARD_LABEL_DY) est tourné avec le plateau (g.rotation)
+ * pour rester du côté EXTÉRIEUR de la table ronde pour tout le monde, mais la
+ * bulle elle-même n'est jamais tournée (juste sa position) — demande
+ * explicite : "l'étiquette du nom reste droite".
  */
 export function getBoardLabelRects() {
   return boardGroups.map((g) => {
     if (g.centerX === undefined) return null;
     const half = 0.6 * g.labelScale;
-    const y = g.centerY + BOARD_LABEL_DY * g.labelScale;
+    const offset = rotateOffset(0, BOARD_LABEL_DY, g.rotation || 0);
+    const x = g.centerX + offset.dx * g.labelScale;
+    const y = g.centerY + offset.dy * g.labelScale;
     return projectPointsRect([
-      [g.centerX - half, y + half, TABLE_Z],
-      [g.centerX + half, y + half, TABLE_Z],
-      [g.centerX + half, y - half, TABLE_Z],
-      [g.centerX - half, y - half, TABLE_Z]
+      [x - half, y + half, TABLE_Z],
+      [x + half, y + half, TABLE_Z],
+      [x + half, y - half, TABLE_Z],
+      [x - half, y - half, TABLE_Z]
     ]);
   });
 }
