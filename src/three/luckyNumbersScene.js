@@ -150,10 +150,14 @@ function visibleHalfHeightAt(z, distance = CAMERA_DISTANCE) {
 // du champ — ils restent accessibles en glissant la caméra horizontalement,
 // leur visibilité verticale complète n'est pas requise.
 const MY_ROW_Y = -(visibleHalfHeightAt(TABLE_Z) * 0.97 - BOARD_HALF_Y);
-// Écart entre ma place et la pioche/assiette (voir PILE_Y) — sert surtout à
-// donner à l'assiette de défausse (voir plateDiameter dans updateScene) la
-// place de contenir une quinzaine de jetons.
-const ROW_GAP = 1.6;
+// Écart entre ma place et la pioche/assiette (voir PILE_Y) — détermine aussi
+// SEAT_RADIUS (même distance pour tout le monde, vraie table ronde) : relevé
+// (1.6 → 4.0, demande explicite : "le cercle est trop resserré, les
+// plateaux sont en partie cachés par la pioche et l'assiette") pour que le
+// bord le plus proche de chaque plateau (à SEAT_RADIUS - BOARD_HALF_Y du
+// centre) dégage largement l'empreinte de la pioche/assiette (assiette de
+// rayon 0.75 décalée à x=0.85, donc jusqu'à x≈1.6 — voir plateCenterX).
+const ROW_GAP = 4.0;
 /** Pioche/assiette : centre de la table ronde (voir seatPosition ci-dessous). */
 const PILE_Y = MY_ROW_Y + BOARD_HALF_Y + ROW_GAP / 2;
 
