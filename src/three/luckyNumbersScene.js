@@ -94,9 +94,13 @@ const BOARD_THICKNESS = 0.05;
 const CAMERA_DISTANCE = 8.5;
 const CAMERA_FOV = 45;
 // Bornes du pinch-to-zoom (voir zoomCameraByFactor) — distance caméra réelle,
-// pas un facteur d'échelle : plus PETIT = plus proche/zoomé.
+// pas un facteur d'échelle : plus PETIT = plus proche/zoomé. Max relevé
+// (11.5 → 20, demande explicite : "dézoomer davantage pour voir les
+// plateaux de tous les joueurs") — voir aussi le brouillard (scene.fog,
+// plus bas) repoussé en conséquence pour ne pas estomper les plateaux
+// adverses au dézoom maximal.
 const ZOOM_MIN_DISTANCE = 5.2;
-const ZOOM_MAX_DISTANCE = 11.5;
+const ZOOM_MAX_DISTANCE = 20;
 
 // Taille UNIQUE pour tous les plateaux (moi + adversaires) — demande
 // explicite de l'utilisateur, remplace l'ancien système "le mien proche/
@@ -629,7 +633,11 @@ function ensureScene() {
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(SCENE_BG);
-  scene.fog = new THREE.Fog(SCENE_BG, 11.5, 20);
+  // Repoussé (11.5/20 → 28/48) avec ZOOM_MAX_DISTANCE : au dézoom maximal
+  // (distance caméra 20, donc ~18.4 des plateaux), l'ancien brouillard
+  // aurait commencé à estomper les plateaux adverses juste au moment où on
+  // veut justement les voir clairement.
+  scene.fog = new THREE.Fog(SCENE_BG, 28, 48);
 
   camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 100);
   camera.position.set(0, 0, CAMERA_DISTANCE);
