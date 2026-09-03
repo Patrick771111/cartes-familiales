@@ -902,8 +902,12 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
 
   // Le glisser vertical va de ma rangée jusqu'au fond de l'arc — demande
   // explicite d'origine : pouvoir voir TOUS les plateaux, pas seulement en
-  // glissant horizontalement.
+  // glissant horizontalement. À l'initialisation (cameraPanY = 0), centrer
+  // sur mon plateau plutôt que de laisser trop de vide en bas (demande
+  // explicite : "la vue à l'ouverture de l'appli est mal centrée elle laisse
+  // trop de vide en bas").
   panMinY = MY_ROW_Y - BOARD_HALF_Y * 0.6;
+  if (cameraPanY === 0) cameraPanY = MY_ROW_Y;
   cameraPanY = Math.max(panMinY, Math.min(panMaxY, cameraPanY));
   camera.position.y = cameraPanY;
 
@@ -931,7 +935,7 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   // colonnes fixe) — sinon 1 ou 2 jetons se retrouvent collés à gauche de
   // l'assiette au lieu d'être au milieu (bug constaté avec peu de jetons).
   const DISCARD_GRID_COLS = 4;
-  const DISCARD_SPACING = 0.17;
+  const DISCARD_SPACING = 0.25; // Augmenté (0.17 → 0.25) pour écarter les jetons et éviter le chevauchement (demande explicite : "les jetons se chevauchent trop")
   const discardCount = discardTiles.length;
   const discardRows = Math.max(1, Math.ceil(discardCount / DISCARD_GRID_COLS));
   ensureDiscardMeshCount(discardCount);
