@@ -1111,6 +1111,19 @@ export function getDiscardPlateRect() {
   ]);
 }
 
+/** Retourne la texture du jeton sous forme de data URL pour affichage dans le DOM */
+export async function getTokenFaceDataUrl(value) {
+  try {
+    const texture = await getTokenFaceTexture(value);
+    if (texture.source?.data instanceof HTMLCanvasElement) {
+      return texture.source.data.toDataURL('image/png');
+    }
+  } catch (e) {
+    console.error('Error converting token texture to data URL:', e);
+  }
+  return null;
+}
+
 /** Rectangle écran du jeton piochée en attente de pose (voir drawnTileMesh) — `null` si aucune tuile piochée. */
 export function getDrawnTileRect() {
   if (!drawnTileMesh || !drawnTileMesh.visible) return null;

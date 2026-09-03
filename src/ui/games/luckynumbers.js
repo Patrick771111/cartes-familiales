@@ -35,7 +35,8 @@ import {
   getBoardLabelRects,
   panCameraByScreenDelta,
   panCameraToMySeat,
-  zoomCameraByFactor
+  zoomCameraByFactor,
+  getTokenFaceDataUrl
 } from '../../three/luckyNumbersScene.js';
 
 // Centre la caméra sur MON siège seulement au tout premier rendu 3D de la
@@ -427,6 +428,16 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
         drawBtn.style.height = `${drawRect.height}px`;
       }
     }
+    const drawnBtn = tableEl.querySelector('.lucky-3d-drawn-tile');
+    if (drawnBtn) {
+      const drawnRect = getDrawnTileRect();
+      if (drawnRect) {
+        drawnBtn.style.left = `${drawnRect.left}px`;
+        drawnBtn.style.top = `${drawnRect.top}px`;
+        drawnBtn.style.width = `${drawnRect.width}px`;
+        drawnBtn.style.height = `${drawnRect.height}px`;
+      }
+    }
     getBoardLabelRects().forEach((r, i) => {
       const label = tableEl.querySelector(`.lucky-3d-name[data-board-index="${i}"]`);
       if (!label || !r) return;
@@ -440,7 +451,8 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
     const discardButtonsHtml = state.discard.map((t) => `<button type="button" class="lucky-3d-discard-tile" data-tile-id="${t.id}"></button>`).join('');
     const canDraw = isMyTurn && !hasDrawn && state.stock.length > 0;
     const drawButtonHtml = canDraw ? `<button type="button" class="lucky-3d-draw" id="btn-lucky-draw"></button>` : '';
-    tableEl.insertAdjacentHTML('beforeend', cellButtonsHtml + discardButtonsHtml + drawButtonHtml);
+    const drawnTileHtml = hasDrawn ? `<button type="button" class="lucky-3d-drawn-tile"></button>` : '';
+    tableEl.insertAdjacentHTML('beforeend', cellButtonsHtml + discardButtonsHtml + drawButtonHtml + drawnTileHtml);
     repositionOverlayButtons();
 
     // Caméra à 2 doigts (demande explicite : "le déplacement de la caméra
@@ -501,6 +513,19 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
       ghost.style.left = `${x}px`;
       ghost.style.top = `${y}px`;
       document.body.appendChild(ghost);
+
+      getTokenFaceDataUrl(value).then((dataUrl) => {
+        if (dataUrl && ghost.parentElement) {
+          const img = document.createElement('img');
+          img.src = dataUrl;
+          img.style.width = '100%';
+          img.style.height = '100%';
+          img.style.objectFit = 'contain';
+          ghost.textContent = '';
+          ghost.appendChild(img);
+        }
+      });
+
       return ghost;
     };
 
@@ -592,6 +617,7 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
           pinchStartDist = pinchDistance();
           pinchStartMid = pinchMidpoint();
         } else {
+          repositionOverlayButtons();
           startTileDrag(e);
         }
       },
@@ -707,5 +733,15 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
         }
       });
     });
+  }
+
+  // Expose for testing
+  if (typeof window !== 'undefined') {
+    window.__luckyTest = {
+      getDrawnTileRect,
+      getMyBoardCellRects,
+      getDiscardPlateRect,
+      getDiscardTileRects
+    };
   }
 }
