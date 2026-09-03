@@ -684,6 +684,41 @@ function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, rota
   }
 }
 
+// Système d'animation pour les jetons remplacés se déplaçant vers la défausse
+let animatingTokens = []; // { mesh, startPos, endPos, startTime, duration }
+
+function updateAnimatingTokens(now) {
+  const ANIMATION_DURATION = 600; // ms
+  animatingTokens = animatingTokens.filter(anim => {
+    const elapsed = now - anim.startTime;
+    if (elapsed >= ANIMATION_DURATION) {
+      anim.mesh.visible = false;
+      return false;
+    }
+    const t = elapsed / ANIMATION_DURATION;
+    const easeT = t < 0.5 ? 2 * t * t : -1 + 4 * t - 2 * t * t; // easeInOutQuad
+    anim.mesh.position.lerpVectors(anim.startPos, anim.endPos, easeT);
+    return true;
+  });
+}
+
+function startTokenAnimation(mesh, startPos, endPos) {
+  // Cloner ou créer une copie du jeton si nécessaire
+  const animMesh = new THREE.Mesh(mesh.geometry, mesh.material);
+  animMesh.scale.copy(mesh.scale);
+  animMesh.position.copy(startPos);
+  animMesh.renderOrder = 5;
+  scene.add(animMesh);
+
+  animatingTokens.push({
+    mesh: animMesh,
+    startPos: new THREE.Vector3().copy(startPos),
+    endPos: new THREE.Vector3().copy(endPos),
+    startTime: performance.now(),
+    duration: 600
+  });
+}
+
 function ensureScene() {
   if (mounted) return;
   mounted = true;
@@ -743,8 +778,10 @@ function ensureScene() {
 
   const tick = () => {
     requestAnimationFrame(tick);
-    const t = performance.now() * 0.001;
+    const now = performance.now();
+    const t = now * 0.001;
     if (glowMaterial) glowMaterial.emissiveIntensity = 0.55 + 0.35 * Math.sin(t * 3);
+    updateAnimatingTokens(now);
     renderer.render(scene, camera);
   };
   tick();
@@ -856,8 +893,48 @@ export function panCameraToMySeat() {
  *   (posée à mi-chemin entre le sac et l'assiette, voir plus bas), `null` si
  *   aucune tuile piochée.
  */
+let previousDiscardIds = []; // Track previous discard tiles to detect new ones
+
 export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponents = [], discardTiles = [], stockCount = 0, drawnTile = null }) {
   if (!mounted) return;
+
+  // Détecte les jetons nouvellement ajoutés à la défausse (jetons remplacés)
+  // pour lancer une animation de remplacement
+  const currentIds = discardTiles.map(t => t.id);
+  const newIds = currentIds.filter(id => !previousDiscardIds.includes(id));
+
+  // Cherche la case du plateau qui a perdu un jeton (pour animer l'ancien vers la défausse)
+  if (newIds.length > 0 && boardGroups[0]) {
+    const boardGroup = boardGroups[0];
+    for (let i = 0; i < GRID_SIZE; i++) {
+      const oldTile = boardGroup.tokenMeshes[i];
+      const newTile = myBoardTiles[i];
+      // Si une case avait un jeton et n'en a plus, c'est qu'il a été remplacé
+      if (oldTile && oldTile.visible && !newTile) {
+        // Animer le jeton qui s'est fait remplacer vers la défausse
+        const startPos = oldTile.position.clone();
+        // Positionner à la défausse (dernière position basée sur le nombre de jetons)
+        const lastDiscardIndex = discardTiles.length - 1;
+        const DISCARD_GRID_COLS = 4;
+        const DISCARD_SPACING = 0.25;
+        const discardRows = Math.ceil((lastDiscardIndex + 1) / DISCARD_GRID_COLS);
+        const pileY = PILE_Y;
+        const pileZ = TABLE_Z + 0.15;
+        const plateCenterX = 0.85;
+        const row = Math.floor(lastDiscardIndex / DISCARD_GRID_COLS);
+        const col = lastDiscardIndex % DISCARD_GRID_COLS;
+        const colsInRow = Math.min(DISCARD_GRID_COLS, (lastDiscardIndex + 1) - row * DISCARD_GRID_COLS);
+        const endPos = new THREE.Vector3(
+          plateCenterX + (col - (colsInRow - 1) / 2) * DISCARD_SPACING,
+          pileY + ((discardRows - 1) / 2 - row) * DISCARD_SPACING,
+          pileZ
+        );
+        startTokenAnimation(oldTile, startPos, endPos);
+        break; // Une seule animation par frame
+      }
+    }
+  }
+  previousDiscardIds = currentIds;
 
   // Mon plateau reste seul, toujours à X=0, à MA place sur le cercle (angle
   // 0, jamais tournée) ; les adversaires occupent les autres sièges répartis
