@@ -894,11 +894,12 @@ export function panCameraToMySeat() {
  *   aucune tuile piochée.
  */
 let previousDiscardIds = []; // Track previous discard tiles to detect new ones
+let previousOpponentBoards = []; // Track opponent boards to detect placements
 
 export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponents = [], discardTiles = [], stockCount = 0, drawnTile = null }) {
   if (!mounted) return;
 
-  // Détecte les jetons nouvellement ajoutés à la défausse (jetons remplacés)
+  // Détecte les jetons nouvellement ajoutés à la défausse (jetons remplacés du joueur courant)
   // pour lancer une animation de remplacement
   const currentIds = discardTiles.map(t => t.id);
   const newIds = currentIds.filter(id => !previousDiscardIds.includes(id));
@@ -936,6 +937,10 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   }
   previousDiscardIds = currentIds;
 
+  // Détecte les placements des adversaires (jetons remplacés ou nouveaux sur le plateau)
+  while (previousOpponentBoards.length > opponents.length) previousOpponentBoards.pop();
+  while (previousOpponentBoards.length < opponents.length) previousOpponentBoards.push([]);
+
   // Mon plateau reste seul, toujours à X=0, à MA place sur le cercle (angle
   // 0, jamais tournée) ; les adversaires occupent les autres sièges répartis
   // uniformément sur le reste de la table ronde (voir opponentAngle/
@@ -956,6 +961,53 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   const opponentPositions = opponentAngles.map(seatPosition);
   opponents.forEach((opp, i) => {
     const { x, y } = opponentPositions[i];
+
+    // Détecte les placements de cet adversaire en comparant avec le plateau précédent
+    const prevBoard = previousOpponentBoards[i] || [];
+    for (let cellIndex = 0; cellIndex < GRID_SIZE; cellIndex++) {
+      const prevTile = prevBoard[cellIndex];
+      const currTile = opp.board[cellIndex];
+
+      // Nouvelle tuile placée (pas avant, oui maintenant)
+      if (!prevTile && currTile) {
+        const boardGroup = boardGroups[i + 1];
+        if (boardGroup && boardGroup.tokenMeshes[cellIndex]) {
+          // Animer depuis la pioche vers la case
+          const tokenMesh = boardGroup.tokenMeshes[cellIndex];
+          const endPos = tokenMesh.position.clone();
+          const startPos = new THREE.Vector3((-1.0 + 0.85) / 2, PILE_Y, TABLE_Z + 0.15); // Pioche -> assiette midpoint
+          startTokenAnimation(tokenMesh, startPos, endPos);
+        }
+      }
+
+      // Remplacement (avant OUI, après NON mais nouveau ailleurs = remplacé)
+      if (prevTile && !currTile) {
+        const boardGroup = boardGroups[i + 1];
+        if (boardGroup && boardGroup.tokenMeshes[cellIndex]) {
+          const tokenMesh = boardGroup.tokenMeshes[cellIndex];
+          // Animer vers la défausse
+          const startPos = tokenMesh.position.clone();
+          const lastDiscardIndex = discardTiles.length - 1;
+          const DISCARD_GRID_COLS = 4;
+          const DISCARD_SPACING = 0.25;
+          const discardRows = Math.ceil((lastDiscardIndex + 1) / DISCARD_GRID_COLS);
+          const pileY = PILE_Y;
+          const pileZ = TABLE_Z + 0.15;
+          const plateCenterX = 0.85;
+          const row = Math.floor(lastDiscardIndex / DISCARD_GRID_COLS);
+          const col = lastDiscardIndex % DISCARD_GRID_COLS;
+          const colsInRow = Math.min(DISCARD_GRID_COLS, (lastDiscardIndex + 1) - row * DISCARD_GRID_COLS);
+          const endPos = new THREE.Vector3(
+            plateCenterX + (col - (colsInRow - 1) / 2) * DISCARD_SPACING,
+            pileY + ((discardRows - 1) / 2 - row) * DISCARD_SPACING,
+            pileZ
+          );
+          startTokenAnimation(tokenMesh, startPos, endPos);
+        }
+      }
+    }
+
+    previousOpponentBoards[i] = opp.board.slice();
     layoutBoardGroup(boardGroups[i + 1], opp.board, { centerX: x, centerY: y, centerZ: TABLE_Z, scale: BOARD_SCALE, rotation: opponentAngles[i] });
   });
 
