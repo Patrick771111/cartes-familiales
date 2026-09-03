@@ -906,6 +906,8 @@ export function panCameraToMySeat() {
  */
 let previousDiscardIds = []; // Track previous discard tiles to detect new ones
 let previousOpponentBoards = []; // Track opponent boards to detect placements
+let previousMyBoardTiles = []; // Track my board to detect new placements
+let previousDrawnTile = null; // Track drawn tile to detect when it's placed
 
 export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponents = [], discardTiles = [], stockCount = 0, drawnTile = null }) {
   if (!mounted) return;
@@ -925,13 +927,13 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
       if (oldTile && oldTile.visible && !newTile) {
         // Animer le jeton qui s'est fait remplacer vers la défausse
         const startPos = oldTile.position.clone();
+        // CACHER le jeton original avant d'animer une copie
+        oldTile.visible = false;
         // Positionner à la défausse (dernière position basée sur le nombre de jetons)
         const lastDiscardIndex = discardTiles.length - 1;
         const DISCARD_GRID_COLS = 4;
         const DISCARD_SPACING = 0.25;
         const discardRows = Math.ceil((lastDiscardIndex + 1) / DISCARD_GRID_COLS);
-        const pileY = PILE_Y;
-        const pileZ = TABLE_Z + 0.15;
         const plateCenterX = 0.85;
         const row = Math.floor(lastDiscardIndex / DISCARD_GRID_COLS);
         const col = lastDiscardIndex % DISCARD_GRID_COLS;
@@ -947,6 +949,13 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
     }
   }
   previousDiscardIds = currentIds;
+
+  // Détecte les NOUVEAUX placements sur mon plateau (pas des remplacements)
+  // Doit être APRÈS layoutBoardGroup() pour avoir les positions finales
+  // (voir plus bas où layoutBoardGroup() est appelée)
+
+  previousMyBoardTiles = myBoardTiles.slice();
+  previousDrawnTile = drawnTile;
 
   // Détecte les placements des adversaires (jetons remplacés ou nouveaux sur le plateau)
   while (previousOpponentBoards.length > opponents.length) previousOpponentBoards.pop();
@@ -968,6 +977,30 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   }
 
   layoutBoardGroup(boardGroups[0], myBoardTiles, { centerX: 0, centerY: MY_ROW_Y, centerZ: TABLE_Z, scale: BOARD_SCALE, placeableIndexes });
+
+  // Maintenant que layoutBoardGroup() a mis à jour les positions, animer les nouveaux placements
+  const pileY = PILE_Y;
+  const pileZ = TABLE_Z + 0.15;
+  const drawnTileSourcePos = new THREE.Vector3((-1.0 + 0.85) / 2, pileY, pileZ); // Position du jeton piochée
+  const piocheSourcePos = new THREE.Vector3(-1.0, pileY, pileZ - 0.05); // Position de la pioche
+
+  if (boardGroups[0]) {
+    const boardGroup = boardGroups[0];
+    for (let i = 0; i < GRID_SIZE; i++) {
+      const prevTile = previousMyBoardTiles[i];
+      const currTile = myBoardTiles[i];
+      // Nouveau jeton apparu (pas avant, oui maintenant) — animer depuis la pioche
+      if (!prevTile && currTile && boardGroup.tokenMeshes[i]) {
+        const token = boardGroup.tokenMeshes[i];
+        const endPos = token.position.clone(); // Position finale sur le plateau
+        // Animer depuis la pioche
+        const sourcePos = piocheSourcePos.clone();
+        console.log('My new placement at index', i, 'animating from pioche to', endPos);
+        startTokenAnimation(token, sourcePos, endPos);
+      }
+    }
+  }
+
   const opponentAngles = opponents.map((_, i) => opponentAngle(i, opponents.length));
   const opponentPositions = opponentAngles.map(seatPosition);
   opponents.forEach((opp, i) => {
@@ -979,27 +1012,19 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
       const prevTile = prevBoard[cellIndex];
       const currTile = opp.board[cellIndex];
 
-      // Nouvelle tuile placée (pas avant, oui maintenant)
-      if (!prevTile && currTile) {
-        console.log('Opponent', i, 'placed new token at', cellIndex, currTile.value);
-        // On ne peut pas animer d'une position qu'on ne connaît pas
-        // On va simplement marquer qu'il faut animer le prochain rendu
-      }
-
       // Remplacement (avant OUI, après NON le même = remplacé)
       if (prevTile && currTile && prevTile.value !== currTile.value) {
         console.log('Opponent', i, 'replaced token at', cellIndex, 'from', prevTile.value, 'to', currTile.value);
         const boardGroup = boardGroups[i + 1];
         if (boardGroup && boardGroup.tokenMeshes[cellIndex]) {
-          // Récupérer la position actuelle avant que layoutBoardGroup ne la change
           const tokenMesh = boardGroup.tokenMeshes[cellIndex];
+          // Cacher le jeton original avant animation
+          tokenMesh.visible = false;
           const startPos = tokenMesh.position.clone();
           const lastDiscardIndex = discardTiles.length - 1;
           const DISCARD_GRID_COLS = 4;
           const DISCARD_SPACING = 0.25;
           const discardRows = Math.ceil((lastDiscardIndex + 1) / DISCARD_GRID_COLS);
-          const pileY = PILE_Y;
-          const pileZ = TABLE_Z + 0.15;
           const plateCenterX = 0.85;
           const row = Math.floor(lastDiscardIndex / DISCARD_GRID_COLS);
           const col = lastDiscardIndex % DISCARD_GRID_COLS;
@@ -1014,8 +1039,26 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
       }
     }
 
-    previousOpponentBoards[i] = opp.board.slice();
     layoutBoardGroup(boardGroups[i + 1], opp.board, { centerX: x, centerY: y, centerZ: TABLE_Z, scale: BOARD_SCALE, rotation: opponentAngles[i] });
+
+    // Animer les nouveaux placements des adversaires APRÈS layoutBoardGroup()
+    const boardGroup = boardGroups[i + 1];
+    if (boardGroup) {
+      for (let cellIndex = 0; cellIndex < GRID_SIZE; cellIndex++) {
+        const prevTile = prevBoard[cellIndex];
+        const currTile = opp.board[cellIndex];
+        // Nouveau jeton apparu (pas avant, oui maintenant)
+        if (!prevTile && currTile && boardGroup.tokenMeshes[cellIndex]) {
+          const token = boardGroup.tokenMeshes[cellIndex];
+          const endPos = token.position.clone();
+          const sourcePos = piocheSourcePos.clone();
+          console.log('Opponent', i, 'new placement at', cellIndex, 'animating to', endPos);
+          startTokenAnimation(token, sourcePos, endPos);
+        }
+      }
+    }
+
+    previousOpponentBoards[i] = opp.board.slice();
   });
 
   // Glisser horizontal/vertical bornés sur l'étendue RÉELLE du cercle pour
@@ -1050,8 +1093,7 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   resizeTableMesh();
 
   // Pioche/défausse au centre de l'arc, entre ma rangée et les adversaires.
-  const pileY = PILE_Y;
-  const pileZ = TABLE_Z + 0.15;
+  // (pileY et pileZ sont déjà déclarées plus haut)
 
   // Assez grande pour une quinzaine de jetons À LA TAILLE DU PLATEAU (voir
   // DISCARD_GRID_COLS/DISCARD_SPACING ci-dessous) — demande explicite. Décalée
