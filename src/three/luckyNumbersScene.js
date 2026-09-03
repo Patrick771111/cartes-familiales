@@ -688,11 +688,13 @@ function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, rota
 let animatingTokens = []; // { mesh, startPos, endPos, startTime, duration }
 
 function updateAnimatingTokens(now) {
-  const ANIMATION_DURATION = 600; // ms
+  const ANIMATION_DURATION = 1200; // ms - augmenté pour être visible
   animatingTokens = animatingTokens.filter(anim => {
     const elapsed = now - anim.startTime;
     if (elapsed >= ANIMATION_DURATION) {
-      anim.mesh.visible = false;
+      scene.remove(anim.mesh);
+      anim.mesh.geometry.dispose();
+      anim.mesh.material.dispose();
       return false;
     }
     const t = elapsed / ANIMATION_DURATION;
@@ -703,19 +705,28 @@ function updateAnimatingTokens(now) {
 }
 
 function startTokenAnimation(mesh, startPos, endPos) {
-  // Cloner ou créer une copie du jeton si nécessaire
-  const animMesh = new THREE.Mesh(mesh.geometry, mesh.material);
+  if (!scene) {
+    console.warn('startTokenAnimation: scene not initialized');
+    return;
+  }
+
+  // Cloner le matériau pour éviter les conflits
+  const material = mesh.material.clone();
+  const animMesh = new THREE.Mesh(mesh.geometry, material);
   animMesh.scale.copy(mesh.scale);
   animMesh.position.copy(startPos);
   animMesh.renderOrder = 5;
+  animMesh.visible = true;
   scene.add(animMesh);
+
+  console.log('startTokenAnimation: animating token from', startPos, 'to', endPos);
 
   animatingTokens.push({
     mesh: animMesh,
     startPos: new THREE.Vector3().copy(startPos),
     endPos: new THREE.Vector3().copy(endPos),
     startTime: performance.now(),
-    duration: 600
+    duration: 1200
   });
 }
 
@@ -970,22 +981,18 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
 
       // Nouvelle tuile placée (pas avant, oui maintenant)
       if (!prevTile && currTile) {
-        const boardGroup = boardGroups[i + 1];
-        if (boardGroup && boardGroup.tokenMeshes[cellIndex]) {
-          // Animer depuis la pioche vers la case
-          const tokenMesh = boardGroup.tokenMeshes[cellIndex];
-          const endPos = tokenMesh.position.clone();
-          const startPos = new THREE.Vector3((-1.0 + 0.85) / 2, PILE_Y, TABLE_Z + 0.15); // Pioche -> assiette midpoint
-          startTokenAnimation(tokenMesh, startPos, endPos);
-        }
+        console.log('Opponent', i, 'placed new token at', cellIndex, currTile.value);
+        // On ne peut pas animer d'une position qu'on ne connaît pas
+        // On va simplement marquer qu'il faut animer le prochain rendu
       }
 
-      // Remplacement (avant OUI, après NON mais nouveau ailleurs = remplacé)
-      if (prevTile && !currTile) {
+      // Remplacement (avant OUI, après NON le même = remplacé)
+      if (prevTile && currTile && prevTile.value !== currTile.value) {
+        console.log('Opponent', i, 'replaced token at', cellIndex, 'from', prevTile.value, 'to', currTile.value);
         const boardGroup = boardGroups[i + 1];
         if (boardGroup && boardGroup.tokenMeshes[cellIndex]) {
+          // Récupérer la position actuelle avant que layoutBoardGroup ne la change
           const tokenMesh = boardGroup.tokenMeshes[cellIndex];
-          // Animer vers la défausse
           const startPos = tokenMesh.position.clone();
           const lastDiscardIndex = discardTiles.length - 1;
           const DISCARD_GRID_COLS = 4;
