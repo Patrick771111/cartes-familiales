@@ -36,7 +36,8 @@ import {
   panCameraByScreenDelta,
   panCameraToMySeat,
   zoomCameraByFactor,
-  getTokenFaceDataUrl
+  getTokenFaceDataUrl,
+  hideDrawnToken
 } from '../../three/luckyNumbersScene.js';
 
 // Centre la caméra sur MON siège seulement au tout premier rendu 3D de la
@@ -506,18 +507,23 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
       return -1;
     };
 
-    const makeGhost = (x, y, value) => {
+    const makeGhost = (x, y, value, sizeRect) => {
       const ghost = document.createElement('div');
       ghost.className = 'lucky-3d-drag-ghost';
       ghost.textContent = String(value);
       ghost.style.left = `${x}px`;
       ghost.style.top = `${y}px`;
+      if (sizeRect?.width) {
+        ghost.style.width = `${Math.max(40, sizeRect.width)}px`;
+        ghost.style.height = `${Math.max(40, sizeRect.height)}px`;
+      }
       document.body.appendChild(ghost);
 
       getTokenFaceDataUrl(value).then((dataUrl) => {
         if (dataUrl && ghost.parentElement) {
           const img = document.createElement('img');
           img.src = dataUrl;
+          img.alt = String(value);
           img.style.width = '100%';
           img.style.height = '100%';
           img.style.objectFit = 'contain';
@@ -535,12 +541,13 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
         if (!pointInRect(e.clientX, e.clientY, rect)) return false;
         tileDrag = {
           pointerId: e.pointerId,
-          ghost: makeGhost(e.clientX, e.clientY, state.drawnTile.value),
+          ghost: makeGhost(e.clientX, e.clientY, state.drawnTile.value, rect),
           startX: e.clientX,
           startY: e.clientY,
           moved: false,
           source: 'drawn'
         };
+        hideDrawnToken(true);
         return true;
       }
       if (!isMyTurn) return false;
@@ -550,7 +557,7 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
       const tile = state.discard[i];
       tileDrag = {
         pointerId: e.pointerId,
-        ghost: makeGhost(e.clientX, e.clientY, tile.value),
+        ghost: makeGhost(e.clientX, e.clientY, tile.value, rects[i]),
         startX: e.clientX,
         startY: e.clientY,
         moved: false,
@@ -581,18 +588,30 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
       const dropY = e.clientY;
       ghost.remove();
       tileDrag = null;
-      if (!moved) return;
+      try {
+        tableEl.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+      if (!moved) {
+        hideDrawnToken(false);
+        return;
+      }
       suppressNextClick = true;
+      let dropped = false;
       if (source === 'drawn' && pointInRect(dropX, dropY, getDiscardPlateRect())) {
         try {
           await discardLuckyNumbersDrawn(room, player.id);
+          dropped = true;
         } catch (err) {
           if (!(err instanceof ConflictError)) alert(err.message || String(err));
         }
+        if (!dropped) hideDrawnToken(false);
         return;
       }
       const targetIndex = findDropCellIndex(dropX, dropY, drag);
-      if (targetIndex === -1) return;
+      if (targetIndex === -1) {
+        hideDrawnToken(false);
+        return;
+      }
       try {
         if (source === 'drawn') {
           await placeLuckyNumbersDrawn(room, player.id, targetIndex);
@@ -600,9 +619,11 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
           await takeLuckyNumbersFromDiscard(room, player.id, discardTileId, targetIndex);
           pendingDiscardTileId = null;
         }
+        dropped = true;
       } catch (err) {
         if (!(err instanceof ConflictError)) alert(err.message || String(err));
       }
+      if (!dropped) hideDrawnToken(false);
     };
 
     tableEl.addEventListener(
@@ -613,12 +634,17 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
           if (tileDrag) {
             tileDrag.ghost.remove();
             tileDrag = null;
+            hideDrawnToken(false);
           }
           pinchStartDist = pinchDistance();
           pinchStartMid = pinchMidpoint();
         } else {
           repositionOverlayButtons();
-          startTileDrag(e);
+          if (startTileDrag(e)) {
+            try {
+              tableEl.setPointerCapture(e.pointerId);
+            } catch (_) {}
+          }
         }
       },
       true

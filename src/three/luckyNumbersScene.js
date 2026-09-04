@@ -218,6 +218,15 @@ let plateMesh = null;
 let piocheMesh = null;
 let drawnTileMesh = null;
 
+const flights = [];
+const hideUntil = new Set();
+let hasSnapshot = false;
+let drawnDragHidden = false;
+let previousMyBoardTiles = [];
+let previousOpponentBoards = [];
+let previousDiscardIds = [];
+let previousDrawnTile = null;
+
 let myCurrentSeatX = 0; // recalculé à chaque updateScene selon le nombre de sièges — voir getMyBoardCellRect
 
 let cameraPanX = 0;
@@ -673,10 +682,12 @@ function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, rota
         group.tokenMeshes[i] = token;
       }
       const token = group.tokenMeshes[i];
-      token.visible = true;
-      token.position.set(x, y, surfaceZ + 0.02 * scale);
-      token.scale.setScalar(scale);
-      token.rotation.z = rotation;
+      token.visible = !hideUntil.has(token.uuid);
+      if (!isFlying(token)) {
+        token.position.set(x, y, surfaceZ + 0.02 * scale);
+        token.scale.setScalar(scale);
+        token.rotation.z = rotation;
+      }
       setTokenValue(token, tile);
     } else if (group.tokenMeshes[i]) {
       group.tokenMeshes[i].visible = false;
@@ -684,50 +695,136 @@ function layoutBoardGroup(group, board, { centerX, centerY, centerZ, scale, rota
   }
 }
 
-// Système d'animation pour les jetons remplacés se déplaçant vers la défausse
-let animatingTokens = []; // { mesh, startPos, endPos, startTime, duration }
+function easeSmooth(t) {
+  return t * t * (3 - 2 * t);
+}
 
-function updateAnimatingTokens(now) {
-  const ANIMATION_DURATION = 1200; // ms - augmenté pour être visible
-  animatingTokens = animatingTokens.filter(anim => {
-    const elapsed = now - anim.startTime;
-    if (elapsed >= ANIMATION_DURATION) {
-      scene.remove(anim.mesh);
-      anim.mesh.geometry.dispose();
-      anim.mesh.material.dispose();
-      return false;
-    }
-    const t = elapsed / ANIMATION_DURATION;
-    const easeT = t < 0.5 ? 2 * t * t : -1 + 4 * t - 2 * t * t; // easeInOutQuad
-    anim.mesh.position.lerpVectors(anim.startPos, anim.endPos, easeT);
-    return true;
+function isFlying(mesh) {
+  return Boolean(mesh && flights.some((f) => f.mesh === mesh));
+}
+
+function capturePos(mesh) {
+  return mesh ? mesh.position.clone() : null;
+}
+
+function discardWorldPos(index, count) {
+  const DISCARD_GRID_COLS = 4;
+  const DISCARD_SPACING = 0.25;
+  const plateCenterX = 0.85;
+  const n = Math.max(1, count);
+  const discardRows = Math.max(1, Math.ceil(n / DISCARD_GRID_COLS));
+  const row = Math.floor(Math.max(0, index) / DISCARD_GRID_COLS);
+  const col = Math.max(0, index) % DISCARD_GRID_COLS;
+  const colsInRow = Math.min(DISCARD_GRID_COLS, n - row * DISCARD_GRID_COLS);
+  return new THREE.Vector3(
+    plateCenterX + (col - (colsInRow - 1) / 2) * DISCARD_SPACING,
+    PILE_Y + ((discardRows - 1) / 2 - row) * DISCARD_SPACING,
+    TABLE_Z + 0.15
+  );
+}
+
+function startFlight(mesh, to, { duration = 720, lift = 0.38, onDone } = {}) {
+  if (!mesh || !to) return;
+  flights.push({
+    mesh,
+    from: mesh.position.clone(),
+    to: to.clone(),
+    start: performance.now(),
+    duration,
+    lift,
+    onDone
   });
 }
 
-function startTokenAnimation(mesh, startPos, endPos) {
-  if (!scene) {
-    console.warn('startTokenAnimation: scene not initialized');
-    return;
+function advanceFlights(now) {
+  for (let i = flights.length - 1; i >= 0; i--) {
+    const f = flights[i];
+    const t = Math.min(1, (now - f.start) / f.duration);
+    const k = easeSmooth(t);
+    f.mesh.position.lerpVectors(f.from, f.to, k);
+    f.mesh.position.z += Math.sin(t * Math.PI) * f.lift;
+    if (t >= 1) {
+      f.mesh.position.copy(f.to);
+      flights.splice(i, 1);
+      f.onDone?.();
+    }
   }
+}
 
-  // Cloner le matériau pour éviter les conflits
-  const material = mesh.material.clone();
-  const animMesh = new THREE.Mesh(mesh.geometry, material);
-  animMesh.scale.copy(mesh.scale);
-  animMesh.position.copy(startPos);
-  animMesh.renderOrder = 5;
-  animMesh.visible = true;
-  scene.add(animMesh);
+function cloneFlyer(fromMesh) {
+  const material = fromMesh.material.clone();
+  const flyer = new THREE.Mesh(getTokenDiscGeometry(), material);
+  flyer.scale.copy(fromMesh.scale);
+  flyer.rotation.copy(fromMesh.rotation);
+  flyer.renderOrder = 8;
+  flyer.visible = true;
+  scene.add(flyer);
+  return flyer;
+}
 
-  console.log('startTokenAnimation: animating token from', startPos, 'to', endPos);
+function releaseFlyer(flyer) {
+  if (!flyer) return;
+  scene.remove(flyer);
+  if (flyer.material && !flyer.material.userData.shared) flyer.material.dispose();
+}
 
-  animatingTokens.push({
-    mesh: animMesh,
-    startPos: new THREE.Vector3().copy(startPos),
-    endPos: new THREE.Vector3().copy(endPos),
-    startTime: performance.now(),
-    duration: 1200
+function flyIncoming(destMesh, fromPos, tile) {
+  if (!destMesh || !fromPos || !tile) return;
+  hideUntil.add(destMesh.uuid);
+  destMesh.visible = false;
+  const flyer = cloneFlyer(destMesh);
+  flyer.position.copy(fromPos);
+  setTokenValue(flyer, tile);
+  startFlight(flyer, destMesh.position.clone(), {
+    onDone: () => {
+      releaseFlyer(flyer);
+      hideUntil.delete(destMesh.uuid);
+      destMesh.visible = true;
+    }
   });
+}
+
+function flyToDiscard(tile, fromPos, pile) {
+  if (!tile || !fromPos || !scene) return;
+  const idx = pile.findIndex((t) => t.id === tile.id);
+  const destIndex = idx >= 0 ? idx : Math.max(0, pile.length - 1);
+  const destMesh = discardMeshes[destIndex];
+  const to = destMesh ? destMesh.position.clone() : discardWorldPos(destIndex, pile.length);
+  if (destMesh) {
+    hideUntil.add(destMesh.uuid);
+    destMesh.visible = false;
+  }
+  const flyer = createTokenMesh();
+  flyer.scale.setScalar(BOARD_SCALE);
+  flyer.position.copy(fromPos);
+  flyer.renderOrder = 8;
+  scene.add(flyer);
+  setTokenValue(flyer, tile);
+  startFlight(flyer, to, {
+    onDone: () => {
+      releaseFlyer(flyer);
+      if (destMesh) {
+        hideUntil.delete(destMesh.uuid);
+        destMesh.visible = true;
+      }
+    }
+  });
+}
+
+function sourcePosFor(tile, prevDrawn, prevDiscardIds, drawnPos, discardPositions, piochePos) {
+  if (prevDrawn && tile && prevDrawn.id === tile.id) return drawnPos;
+  if (tile?.id) {
+    const di = prevDiscardIds.indexOf(tile.id);
+    if (di >= 0 && discardPositions[di]) return discardPositions[di];
+  }
+  return piochePos;
+}
+
+export function hideDrawnToken(hide) {
+  drawnDragHidden = Boolean(hide);
+  if (drawnTileMesh && !isFlying(drawnTileMesh)) {
+    drawnTileMesh.visible = Boolean(drawnTileMesh.userData.hasTile) && !drawnDragHidden;
+  }
 }
 
 function ensureScene() {
@@ -792,7 +889,7 @@ function ensureScene() {
     const now = performance.now();
     const t = now * 0.001;
     if (glowMaterial) glowMaterial.emissiveIntensity = 0.55 + 0.35 * Math.sin(t * 3);
-    updateAnimatingTokens(now);
+    advanceFlights(now);
     renderer.render(scene, camera);
   };
   tick();
@@ -820,6 +917,8 @@ export function showBoard() {
 
 export function hideBoard() {
   if (canvas) canvas.style.display = 'none';
+  hasSnapshot = false;
+  drawnDragHidden = false;
 }
 
 /**
@@ -904,62 +1003,19 @@ export function panCameraToMySeat() {
  *   (posée à mi-chemin entre le sac et l'assiette, voir plus bas), `null` si
  *   aucune tuile piochée.
  */
-let previousDiscardIds = []; // Track previous discard tiles to detect new ones
-let previousOpponentBoards = []; // Track opponent boards to detect placements
-let previousMyBoardTiles = []; // Track my board to detect new placements
-let previousDrawnTile = null; // Track drawn tile to detect when it's placed
-
 export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponents = [], discardTiles = [], stockCount = 0, drawnTile = null }) {
   if (!mounted) return;
 
-  // Détecte les jetons nouvellement ajoutés à la défausse (jetons remplacés du joueur courant)
-  // pour lancer une animation de remplacement
-  const currentIds = discardTiles.map(t => t.id);
-  const newIds = currentIds.filter(id => !previousDiscardIds.includes(id));
-
-  // Cherche la case du plateau qui a perdu un jeton (pour animer l'ancien vers la défausse)
-  if (newIds.length > 0 && boardGroups[0]) {
-    const boardGroup = boardGroups[0];
-    for (let i = 0; i < GRID_SIZE; i++) {
-      const oldTile = boardGroup.tokenMeshes[i];
-      const newTile = myBoardTiles[i];
-      // Si une case avait un jeton et n'en a plus, c'est qu'il a été remplacé
-      if (oldTile && oldTile.visible && !newTile) {
-        // Animer le jeton qui s'est fait remplacer vers la défausse
-        const startPos = oldTile.position.clone();
-        // CACHER le jeton original avant d'animer une copie
-        oldTile.visible = false;
-        // Positionner à la défausse (dernière position basée sur le nombre de jetons)
-        const lastDiscardIndex = discardTiles.length - 1;
-        const DISCARD_GRID_COLS = 4;
-        const DISCARD_SPACING = 0.25;
-        const discardRows = Math.ceil((lastDiscardIndex + 1) / DISCARD_GRID_COLS);
-        const plateCenterX = 0.85;
-        const row = Math.floor(lastDiscardIndex / DISCARD_GRID_COLS);
-        const col = lastDiscardIndex % DISCARD_GRID_COLS;
-        const colsInRow = Math.min(DISCARD_GRID_COLS, (lastDiscardIndex + 1) - row * DISCARD_GRID_COLS);
-        const endPos = new THREE.Vector3(
-          plateCenterX + (col - (colsInRow - 1) / 2) * DISCARD_SPACING,
-          pileY + ((discardRows - 1) / 2 - row) * DISCARD_SPACING,
-          pileZ
-        );
-        startTokenAnimation(oldTile, startPos, endPos);
-        break; // Une seule animation par frame
-      }
-    }
-  }
-  previousDiscardIds = currentIds;
-
-  // Détecte les NOUVEAUX placements sur mon plateau (pas des remplacements)
-  // Doit être APRÈS layoutBoardGroup() pour avoir les positions finales
-  // (voir plus bas où layoutBoardGroup() est appelée)
-
-  previousMyBoardTiles = myBoardTiles.slice();
-  previousDrawnTile = drawnTile;
-
-  // Détecte les placements des adversaires (jetons remplacés ou nouveaux sur le plateau)
-  while (previousOpponentBoards.length > opponents.length) previousOpponentBoards.pop();
-  while (previousOpponentBoards.length < opponents.length) previousOpponentBoards.push([]);
+  const animate = hasSnapshot;
+  const prevMy = previousMyBoardTiles;
+  const prevOpp = previousOpponentBoards;
+  const prevDiscardIds = previousDiscardIds;
+  const prevDrawn = previousDrawnTile;
+  const myStartPos = (boardGroups[0]?.tokenMeshes || []).map(capturePos);
+  const oppStartPos = boardGroups.slice(1).map((g) => (g.tokenMeshes || []).map(capturePos));
+  const drawnStartPos = capturePos(drawnTileMesh);
+  const discardStartPos = discardMeshes.map(capturePos);
+  const piocheStartPos = capturePos(piocheMesh);
 
   // Mon plateau reste seul, toujours à X=0, à MA place sur le cercle (angle
   // 0, jamais tournée) ; les adversaires occupent les autres sièges répartis
@@ -978,87 +1034,14 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
 
   layoutBoardGroup(boardGroups[0], myBoardTiles, { centerX: 0, centerY: MY_ROW_Y, centerZ: TABLE_Z, scale: BOARD_SCALE, placeableIndexes });
 
-  // Maintenant que layoutBoardGroup() a mis à jour les positions, animer les nouveaux placements
   const pileY = PILE_Y;
   const pileZ = TABLE_Z + 0.15;
-  const drawnTileSourcePos = new THREE.Vector3((-1.0 + 0.85) / 2, pileY, pileZ); // Position du jeton piochée
-  const piocheSourcePos = new THREE.Vector3(-1.0, pileY, pileZ - 0.05); // Position de la pioche
-
-  if (boardGroups[0]) {
-    const boardGroup = boardGroups[0];
-    for (let i = 0; i < GRID_SIZE; i++) {
-      const prevTile = previousMyBoardTiles[i];
-      const currTile = myBoardTiles[i];
-      // Nouveau jeton apparu (pas avant, oui maintenant) — animer depuis la pioche
-      if (!prevTile && currTile && boardGroup.tokenMeshes[i]) {
-        const token = boardGroup.tokenMeshes[i];
-        const endPos = token.position.clone(); // Position finale sur le plateau
-        // Animer depuis la pioche
-        const sourcePos = piocheSourcePos.clone();
-        console.log('My new placement at index', i, 'animating from pioche to', endPos);
-        startTokenAnimation(token, sourcePos, endPos);
-      }
-    }
-  }
 
   const opponentAngles = opponents.map((_, i) => opponentAngle(i, opponents.length));
   const opponentPositions = opponentAngles.map(seatPosition);
   opponents.forEach((opp, i) => {
     const { x, y } = opponentPositions[i];
-
-    // Détecte les placements de cet adversaire en comparant avec le plateau précédent
-    const prevBoard = previousOpponentBoards[i] || [];
-    for (let cellIndex = 0; cellIndex < GRID_SIZE; cellIndex++) {
-      const prevTile = prevBoard[cellIndex];
-      const currTile = opp.board[cellIndex];
-
-      // Remplacement (avant OUI, après NON le même = remplacé)
-      if (prevTile && currTile && prevTile.value !== currTile.value) {
-        console.log('Opponent', i, 'replaced token at', cellIndex, 'from', prevTile.value, 'to', currTile.value);
-        const boardGroup = boardGroups[i + 1];
-        if (boardGroup && boardGroup.tokenMeshes[cellIndex]) {
-          const tokenMesh = boardGroup.tokenMeshes[cellIndex];
-          // Cacher le jeton original avant animation
-          tokenMesh.visible = false;
-          const startPos = tokenMesh.position.clone();
-          const lastDiscardIndex = discardTiles.length - 1;
-          const DISCARD_GRID_COLS = 4;
-          const DISCARD_SPACING = 0.25;
-          const discardRows = Math.ceil((lastDiscardIndex + 1) / DISCARD_GRID_COLS);
-          const plateCenterX = 0.85;
-          const row = Math.floor(lastDiscardIndex / DISCARD_GRID_COLS);
-          const col = lastDiscardIndex % DISCARD_GRID_COLS;
-          const colsInRow = Math.min(DISCARD_GRID_COLS, (lastDiscardIndex + 1) - row * DISCARD_GRID_COLS);
-          const endPos = new THREE.Vector3(
-            plateCenterX + (col - (colsInRow - 1) / 2) * DISCARD_SPACING,
-            pileY + ((discardRows - 1) / 2 - row) * DISCARD_SPACING,
-            pileZ
-          );
-          startTokenAnimation(tokenMesh, startPos, endPos);
-        }
-      }
-    }
-
     layoutBoardGroup(boardGroups[i + 1], opp.board, { centerX: x, centerY: y, centerZ: TABLE_Z, scale: BOARD_SCALE, rotation: opponentAngles[i] });
-
-    // Animer les nouveaux placements des adversaires APRÈS layoutBoardGroup()
-    const boardGroup = boardGroups[i + 1];
-    if (boardGroup) {
-      for (let cellIndex = 0; cellIndex < GRID_SIZE; cellIndex++) {
-        const prevTile = prevBoard[cellIndex];
-        const currTile = opp.board[cellIndex];
-        // Nouveau jeton apparu (pas avant, oui maintenant)
-        if (!prevTile && currTile && boardGroup.tokenMeshes[cellIndex]) {
-          const token = boardGroup.tokenMeshes[cellIndex];
-          const endPos = token.position.clone();
-          const sourcePos = piocheSourcePos.clone();
-          console.log('Opponent', i, 'new placement at', cellIndex, 'animating to', endPos);
-          startTokenAnimation(token, sourcePos, endPos);
-        }
-      }
-    }
-
-    previousOpponentBoards[i] = opp.board.slice();
   });
 
   // Glisser horizontal/vertical bornés sur l'étendue RÉELLE du cercle pour
@@ -1119,15 +1102,17 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   ensureDiscardMeshCount(discardCount);
   discardTiles.forEach((tile, i) => {
     const mesh = discardMeshes[i];
-    mesh.visible = true;
+    mesh.visible = !hideUntil.has(mesh.uuid);
     setTokenValue(mesh, tile);
-    mesh.scale.setScalar(BOARD_SCALE); // même taille que les jetons du plateau — demande explicite
-    const row = Math.floor(i / DISCARD_GRID_COLS);
-    const col = i % DISCARD_GRID_COLS;
-    const colsInRow = Math.min(DISCARD_GRID_COLS, discardCount - row * DISCARD_GRID_COLS);
-    const x = plateCenterX + (col - (colsInRow - 1) / 2) * DISCARD_SPACING;
-    const y = pileY + ((discardRows - 1) / 2 - row) * DISCARD_SPACING;
-    mesh.position.set(x, y, pileZ);
+    mesh.scale.setScalar(BOARD_SCALE);
+    if (!isFlying(mesh)) {
+      const row = Math.floor(i / DISCARD_GRID_COLS);
+      const col = i % DISCARD_GRID_COLS;
+      const colsInRow = Math.min(DISCARD_GRID_COLS, discardCount - row * DISCARD_GRID_COLS);
+      const x = plateCenterX + (col - (colsInRow - 1) / 2) * DISCARD_SPACING;
+      const y = pileY + ((discardRows - 1) / 2 - row) * DISCARD_SPACING;
+      mesh.position.set(x, y, pileZ);
+    }
   });
 
   // Pioche décalée à gauche de l'assiette pour ne jamais s'y superposer —
@@ -1144,12 +1129,60 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
   // que "défausser" n'avait plus de sens ; à côté du sac, elle n'était elle-
   // même plus assez visible). Milieu exact entre piocheMesh.x (-1.0) et
   // plateCenterX (0.85).
-  drawnTileMesh.visible = Boolean(drawnTile);
-  if (drawnTile) {
-    setTokenValue(drawnTileMesh, drawnTile);
-    drawnTileMesh.scale.setScalar(BOARD_SCALE);
-    drawnTileMesh.position.set((-1.0 + plateCenterX) / 2, pileY, pileZ);
+  drawnTileMesh.userData.hasTile = Boolean(drawnTile);
+  if (!drawnTile) drawnDragHidden = false;
+  if (!isFlying(drawnTileMesh)) {
+    drawnTileMesh.visible = Boolean(drawnTile) && !drawnDragHidden;
+    if (drawnTile) {
+      setTokenValue(drawnTileMesh, drawnTile);
+      drawnTileMesh.scale.setScalar(BOARD_SCALE);
+      drawnTileMesh.position.set((-1.0 + plateCenterX) / 2, pileY, pileZ);
+    }
   }
+
+  if (animate) {
+    const piochePos = piocheStartPos || new THREE.Vector3(-1.0, pileY, pileZ - 0.05);
+    const drawnPos = drawnStartPos || new THREE.Vector3((-1.0 + plateCenterX) / 2, pileY, pileZ);
+
+    const playBoardDiff = (prevBoard, currBoard, group, startPosList) => {
+      if (!group) return;
+      for (let i = 0; i < GRID_SIZE; i++) {
+        const before = prevBoard[i];
+        const after = currBoard[i];
+        const dest = group.tokenMeshes[i];
+        if (!after) continue;
+        if (before && before.id === after.id) continue;
+        if (before && before.id !== after.id) {
+          flyToDiscard(before, startPosList[i] || dest?.position.clone(), discardTiles);
+        }
+        const from = sourcePosFor(after, prevDrawn, prevDiscardIds, drawnPos, discardStartPos, piochePos);
+        flyIncoming(dest, from, after);
+      }
+    };
+
+    playBoardDiff(prevMy, myBoardTiles, boardGroups[0], myStartPos);
+    opponents.forEach((opp, i) => {
+      playBoardDiff(prevOpp[i] || [], opp.board, boardGroups[i + 1], oppStartPos[i] || []);
+    });
+
+    const myUnchanged = prevMy.every((t, i) => (t?.id || null) === (myBoardTiles[i]?.id || null));
+    if (prevDrawn && !drawnTile && myUnchanged) {
+      flyToDiscard(prevDrawn, drawnPos, discardTiles);
+    }
+
+    if (!prevDrawn && drawnTile && drawnTileMesh) {
+      const dest = drawnTileMesh.position.clone();
+      drawnTileMesh.position.copy(piochePos);
+      drawnTileMesh.visible = true;
+      startFlight(drawnTileMesh, dest, { duration: 560, lift: 0.22 });
+    }
+  }
+
+  previousMyBoardTiles = myBoardTiles.map((t) => (t ? { id: t.id, value: t.value } : null));
+  previousOpponentBoards = opponents.map((o) => (o.board || []).map((t) => (t ? { id: t.id, value: t.value } : null)));
+  previousDiscardIds = discardTiles.map((t) => t.id);
+  previousDrawnTile = drawnTile ? { id: drawnTile.id, value: drawnTile.value } : null;
+  hasSnapshot = true;
 }
 
 function ensureDiscardMeshCount(count) {
@@ -1293,9 +1326,8 @@ export function getDiscardPlateRect() {
 export async function getTokenFaceDataUrl(value) {
   try {
     const texture = await getTokenFaceTexture(value);
-    if (texture.source?.data instanceof HTMLCanvasElement) {
-      return texture.source.data.toDataURL('image/png');
-    }
+    const img = texture.image || texture.source?.data;
+    if (img instanceof HTMLCanvasElement) return img.toDataURL('image/png');
   } catch (e) {
     console.error('Error converting token texture to data URL:', e);
   }

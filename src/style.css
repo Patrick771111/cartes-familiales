@@ -3776,7 +3776,8 @@ body.is-card-dragging * {
 .lucky-3d-table { position: fixed; inset: 0; width: 100vw; height: 100dvh; touch-action: none; z-index: 6; }
 .lucky-3d-cell,
 .lucky-3d-discard-tile,
-.lucky-3d-draw {
+.lucky-3d-draw,
+.lucky-3d-drawn-tile {
   position: absolute;
   opacity: 0;
   margin: 0;
@@ -3838,6 +3839,11 @@ body.is-card-dragging * {
 }
 .lucky-3d-drag-ghost--valid {
   box-shadow: 0 0 0 3px var(--brass), 0 0 14px rgba(212, 175, 55, 0.6);
+}
+.lucky-3d-drag-ghost:has(img) {
+  background: transparent;
+  border-color: transparent;
+  color: transparent;
 }
 
 .lucky-cell {
