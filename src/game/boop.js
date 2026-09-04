@@ -113,14 +113,23 @@ export function resolveBoops(board, fromIndex, pusher) {
     if (m.to >= 0) destCount[m.to] = (destCount[m.to] || 0) + 1;
   }
   const applied = moves.filter((m) => m.to < 0 || destCount[m.to] === 1);
+  const boops = [];
 
   for (const m of applied) {
     const piece = next[m.from];
     next[m.from] = null;
+    boops.push({
+      id: piece.id,
+      from: m.from,
+      to: m.to,
+      ownerId: piece.ownerId,
+      type: piece.type,
+      color: piece.color
+    });
     if (m.to < 0) toPool.push(piece);
     else next[m.to] = piece;
   }
-  return { board: next, toPool };
+  return { board: next, toPool, boops };
 }
 
 function linesOfThree(board, playerId, type) {
@@ -153,18 +162,19 @@ function linesOfThree(board, playerId, type) {
 
 function graduateKittens(board, players, playerId) {
   const lines = linesOfThree(board, playerId, 'kitten');
-  if (!lines.length) return { board, players, graduated: 0 };
+  if (!lines.length) return { board, players, graduated: [] };
   const indexes = new Set(lines.flat());
   const nextBoard = board.slice();
   const nextPlayers = players.map((p) => ({ ...p, pool: p.pool.slice() }));
   const owner = nextPlayers.find((p) => p.id === playerId);
-  let graduated = 0;
+  const graduated = [];
   for (const i of indexes) {
     const piece = nextBoard[i];
     if (!piece || piece.type !== 'kitten') continue;
     nextBoard[i] = null;
-    owner.pool.push({ ...piece, type: 'cat' });
-    graduated += 1;
+    const grown = { ...piece, type: 'cat' };
+    owner.pool.push(grown);
+    graduated.push({ id: piece.id, from: i, ownerId: piece.ownerId, color: piece.color });
   }
   return { board: nextBoard, players: nextPlayers, graduated };
 }
@@ -201,6 +211,7 @@ export function initGame(players) {
     currentPlayerId: turnOrder[0],
     board: Array(GRID_SIZE).fill(null),
     winnerId: null,
+    lastMove: null,
     log: [{ ts: Date.now(), message: 'À vos chatons ! Posez-en un sur une case vide.' }]
   };
 }
@@ -232,24 +243,47 @@ export function applyPlace(state, playerId, index, pieceType) {
   let logMessage = `${current.name} pose un ${label}`;
   if (booped.toPool.length) logMessage += ` — ${booped.toPool.length} pion${booped.toPool.length > 1 ? 's' : ''} hors du plateau`;
 
+  const lastMove = {
+    id: `${piece.id}:${index}:${state.log.length}`,
+    playerId,
+    placedId: piece.id,
+    placedType: pieceType,
+    placedIndex: index,
+    color: piece.color,
+    boops: booped.boops,
+    graduated: []
+  };
+
   if (linesOfThree(board, playerId, 'cat').length) {
-    return finishWin({ ...state, board, log: [...state.log, { ts: Date.now(), message: logMessage }].slice(-40) }, players, playerId, ' avec 3 chats alignés !');
+    return finishWin(
+      { ...state, board, lastMove, log: [...state.log, { ts: Date.now(), message: logMessage }].slice(-40) },
+      players,
+      playerId,
+      ' avec 3 chats alignés !'
+    );
   }
   if (countOnBoard(board, playerId) >= PIECES_PER_PLAYER) {
-    return finishWin({ ...state, board, log: [...state.log, { ts: Date.now(), message: logMessage }].slice(-40) }, players, playerId, ' : ses 8 pions sont sur le plateau !');
+    return finishWin(
+      { ...state, board, lastMove, log: [...state.log, { ts: Date.now(), message: logMessage }].slice(-40) },
+      players,
+      playerId,
+      ' : ses 8 pions sont sur le plateau !'
+    );
   }
 
   const graduated = graduateKittens(board, players, playerId);
   board = graduated.board;
   const nextPlayers = graduated.players;
-  if (graduated.graduated) {
-    logMessage += ` — ${graduated.graduated} chaton${graduated.graduated > 1 ? 's' : ''} devient chat`;
+  lastMove.graduated = graduated.graduated;
+  if (graduated.graduated.length) {
+    logMessage += ` — ${graduated.graduated.length} chaton${graduated.graduated.length > 1 ? 's' : ''} devient chat`;
   }
 
   return {
     ...state,
     players: nextPlayers,
     board,
+    lastMove,
     currentPlayerId: nextPlayerId(state.turnOrder, playerId),
     log: [...state.log, { ts: Date.now(), message: `${logMessage}.` }].slice(-40)
   };

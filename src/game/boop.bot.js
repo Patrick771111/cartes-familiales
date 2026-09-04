@@ -59,5 +59,5 @@ export function schedule(room) {
     } catch {
       scheduled = null;
     }
-  }, 700 + Math.random() * 500);
+  }, 2200 + Math.random() * 600);
 }

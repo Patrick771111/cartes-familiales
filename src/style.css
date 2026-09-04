@@ -4664,7 +4664,8 @@ body.is-card-dragging * {
 }
 .boop-grid {
   display: grid;
-  grid-template-columns: repeat(var(--boop-n, 6), minmax(0, 1fr));
+  grid-template-columns: repeat(var(--boop-n, 6), 1fr);
+  grid-template-rows: repeat(var(--boop-n, 6), 1fr);
   gap: 4px;
   width: min(100%, 420px);
   aspect-ratio: 1;
@@ -4682,8 +4683,13 @@ body.is-card-dragging * {
   align-items: center;
   justify-content: center;
   padding: 0;
+  position: relative;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+  aspect-ratio: 1;
 }
 .boop-cell--empty:not(:disabled) {
   cursor: pointer;
@@ -4694,22 +4700,24 @@ body.is-card-dragging * {
   box-shadow: 0 0 0 2px var(--brass-soft);
 }
 .boop-piece {
+  position: absolute;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
   line-height: 1;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
 }
 .boop-piece--kitten {
-  width: 68%;
-  height: 68%;
-  font-size: clamp(12px, 4.2vw, 22px);
+  width: 62%;
+  height: 62%;
+  font-size: 18px;
 }
 .boop-piece--cat {
-  width: 88%;
-  height: 88%;
-  font-size: clamp(16px, 5.2vw, 26px);
+  width: 82%;
+  height: 82%;
+  font-size: 22px;
 }
 .boop-piece--orange { background: radial-gradient(circle at 30% 25%, #ffd7a8, #e07a2f); }
 .boop-piece--gray { background: radial-gradient(circle at 30% 25%, #f0f0f0, #7a7e86); }
@@ -4747,4 +4755,47 @@ body.is-card-dragging * {
 .boop-pool__item.is-dragging-away {
   opacity: 1;
   background: var(--felt-700);
+}
+
+.boop-screen--3d {
+  align-items: stretch;
+  overflow: hidden;
+  touch-action: none;
+  width: 100%;
+  max-width: none;
+  padding-bottom: 64px;
+  gap: 0;
+}
+.boop-3d-table {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 280px;
+  position: relative;
+  touch-action: none;
+  cursor: grab;
+}
+.boop-3d-table:active { cursor: grabbing; }
+.boop-3d-hit {
+  position: absolute;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+  touch-action: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  z-index: 7;
+}
+.boop-3d-hit.dropzone--hover {
+  opacity: 1;
+  background: rgba(228, 199, 101, 0.22);
+  box-shadow: 0 0 0 3px var(--brass-soft);
+}
+.boop-3d-name {
+  position: relative;
+  z-index: 8;
+  text-align: center;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
 }
