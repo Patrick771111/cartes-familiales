@@ -222,6 +222,7 @@ const flights = [];
 const hideUntil = new Set();
 let hasSnapshot = false;
 let drawnDragHidden = false;
+let playerDropPending = false;
 let previousMyBoardTiles = [];
 let previousOpponentBoards = [];
 let previousDiscardIds = [];
@@ -832,6 +833,11 @@ export function hideDrawnToken(hide) {
   }
 }
 
+/** Le joueur vient de glisser un jeton : ne pas rejouer le trajet depuis l'origine. */
+export function notePlayerTokenDrop() {
+  playerDropPending = true;
+}
+
 function ensureScene() {
   if (mounted) return;
   mounted = true;
@@ -927,6 +933,7 @@ export function hideBoard() {
 export function resetBoardSnapshot() {
   hasSnapshot = false;
   drawnDragHidden = false;
+  playerDropPending = false;
   previousMyBoardTiles = [];
   previousOpponentBoards = [];
   previousDiscardIds = [];
@@ -1162,7 +1169,10 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
     const piochePos = piocheStartPos || new THREE.Vector3(-1.0, pileY, pileZ - 0.05);
     const drawnPos = drawnStartPos || new THREE.Vector3((-1.0 + plateCenterX) / 2, pileY, pileZ);
 
-    const playBoardDiff = (prevBoard, currBoard, group, startPosList) => {
+    const skipPlayerIncoming = playerDropPending;
+    playerDropPending = false;
+
+    const playBoardDiff = (prevBoard, currBoard, group, startPosList, { skipIncoming = false } = {}) => {
       if (!group) return;
       for (let i = 0; i < GRID_SIZE; i++) {
         const before = prevBoard[i];
@@ -1173,18 +1183,22 @@ export function updateScene({ myBoardTiles = [], placeableIndexes = [], opponent
         if (before && before.id !== after.id) {
           flyToDiscard(before, startPosList[i] || dest?.position.clone(), discardTiles);
         }
+        if (skipIncoming) continue;
         const from = sourcePosFor(after, prevDrawn, prevDiscardIds, drawnPos, discardStartPos, piochePos);
         flyIncoming(dest, from, after);
       }
     };
 
-    playBoardDiff(prevMy, myBoardTiles, boardGroups[0], myStartPos);
+    playBoardDiff(prevMy, myBoardTiles, boardGroups[0], myStartPos, { skipIncoming: skipPlayerIncoming });
     opponents.forEach((opp, i) => {
       playBoardDiff(prevOpp[i] || [], opp.board, boardGroups[i + 1], oppStartPos[i] || []);
     });
 
-    const myUnchanged = prevMy.every((t, i) => (t?.id || null) === (myBoardTiles[i]?.id || null));
-    if (prevDrawn && !drawnTile && myUnchanged) {
+    const tileOnBoard = (tile, board) => Boolean(tile && (board || []).some((c) => c?.id === tile.id));
+    const drawnWasPlaced =
+      prevDrawn &&
+      (tileOnBoard(prevDrawn, myBoardTiles) || opponents.some((opp) => tileOnBoard(prevDrawn, opp.board)));
+    if (prevDrawn && !drawnTile && !drawnWasPlaced && !skipPlayerIncoming) {
       flyToDiscard(prevDrawn, drawnPos, discardTiles);
     }
 

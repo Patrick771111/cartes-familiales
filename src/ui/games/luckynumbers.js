@@ -38,7 +38,8 @@ import {
   panCameraToMySeat,
   zoomCameraByFactor,
   getTokenFaceDataUrl,
-  hideDrawnToken
+  hideDrawnToken,
+  notePlayerTokenDrop
 } from '../../three/luckyNumbersScene.js';
 
 // Centre la caméra sur MON siège seulement au tout premier rendu 3D de la
@@ -602,6 +603,7 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
       let dropped = false;
       if (source === 'drawn' && pointInRect(dropX, dropY, getDiscardPlateRect())) {
         try {
+          notePlayerTokenDrop();
           await discardLuckyNumbersDrawn(room, player.id);
           dropped = true;
         } catch (err) {
@@ -616,6 +618,7 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
         return;
       }
       try {
+        notePlayerTokenDrop();
         if (source === 'drawn') {
           await placeLuckyNumbersDrawn(room, player.id, targetIndex);
         } else {
