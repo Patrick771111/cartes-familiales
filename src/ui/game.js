@@ -319,7 +319,7 @@ export function renderSpectatorGame(container, { room, player, gameLabel, onBack
   // privée en vrai jeu), le spectateur ne voit que le public — plus de bouton
   // pour tricher et regarder les mains cachées, surtout maintenant qu'il peut
   // rejoindre la partie en prenant la place d'un bot (voir plus bas).
-  const openInfoGame = ['luckynumbers', 'flip7', 'blackjack', 'skyjo', 'suiteinfernale', 'trio'].includes(room.game);
+  const openInfoGame = ['luckynumbers', 'flip7', 'blackjack', 'skyjo', 'suiteinfernale', 'trio', 'boop'].includes(room.game);
   const showBoards = openInfoGame;
 
   const pileHtml = isTrouduc
