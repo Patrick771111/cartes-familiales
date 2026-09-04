@@ -7,7 +7,7 @@ import {
 } from '../../game/skyjo.js';
 import { flipButtonImage } from '../cardThemes.js';
 import { enableDragToZone } from '../dragToZone.js';
-import { isCardDragEnabled } from '../settings.js';
+import { isCardDragEnabled, is3DEnabled } from '../settings.js';
 import { openRulesModal } from '../rules.js';
 import {
   connectionBadge,
@@ -17,8 +17,24 @@ import {
   wireEndGameActions,
   orderedOpponents,
   openLogModal,
-  shareInviteLink
+  shareInviteLink,
+  threeDToggleHtml,
+  wireThreeDToggle
 } from '../gameShared.js';
+import {
+  mountTable,
+  positionTable,
+  updateTable,
+  showTable,
+  hideTable,
+  getCardRects,
+  getRowLabelAnchors,
+  orbitCameraByScreenDelta,
+  zoomCameraByFactor,
+  resetOrbit,
+  setOverlaySync,
+  skyjoFaceUrl
+} from '../../three/skyjoScene.js';
 
 // Une carte piochée du sabot peut être posée (1 touche/glisser) ou défaussée
 // en retournant une case cachée à la place (2 touches rapprochées sur cette
@@ -34,10 +50,20 @@ let skyjoPendingMode = null;
 
 export function resetSelection() {
   skyjoPendingMode = null;
+  hideTable();
+  resetOrbit();
+}
+
+export function hide3D() {
+  hideTable();
 }
 
 export function renderTable(container, { room, player, state, onLeave }) {
-  renderSkyjoTable(container, { room, player, state, onLeave });
+  if (is3DEnabled('skyjo')) renderSkyjoTable3D(container, { room, player, state, onLeave });
+  else {
+    hideTable();
+    renderSkyjoTable(container, { room, player, state, onLeave });
+  }
 }
 
 function skyjoValueClass(v) {
@@ -175,6 +201,7 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
         <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
         <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
         <button class="game-hud__bubble game-hud__bubble--invite" id="btn-invite-game" title="Inviter un ami" aria-label="Inviter un ami">📤</button>
+        ${threeDToggleHtml('skyjo')}
         <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
       </div>
 
@@ -289,4 +316,368 @@ function renderSkyjoTable(container, { room, player, state, onLeave }) {
   container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
   container.querySelector('#btn-invite-game')?.addEventListener('click', () => shareInviteLink(room));
   wireAbandonButton(container, { room, player, state, onLeave });
+  wireThreeDToggle(container, 'skyjo', () => renderTable(container, { room, player, state, onLeave }));
+}
+
+function renderSkyjoTable3D(container, { room, player, state, onLeave }) {
+  const me = state.players.find((p) => p.id === player.id);
+  const others = orderedOpponents(state, player.id);
+  const isMyTurn = state.currentPlayerId === player.id;
+  const finished = state.status === 'finished';
+  if (!isMyTurn || !state.drawnCard) skyjoPendingMode = null;
+
+  const canDraw = isMyTurn && !state.drawnCard && !finished;
+  const canAct = isMyTurn && !!state.drawnCard && !finished;
+  const canFlip = canAct && state.drawnCard.source === 'deck';
+  const topDiscard = state.discard[state.discard.length - 1];
+  const myVisibleSum = skyjoVisibleSum(me.grid);
+
+  const cellButtons = me.grid
+    .map((cell, i) => {
+      if (!cell) return '';
+      const flipTarget = Boolean(canFlip && !cell.faceUp);
+      const drop = canAct || canDraw ? 'data-dropzone="skyjo-cell"' : '';
+      return `<button type="button" class="skyjo-3d-card ${flipTarget ? 'skyjo-cell--flip-target' : ''}" data-index="${i}" ${drop}></button>`;
+    })
+    .join('');
+
+  const drawnFace = state.drawnCard ? skyjoFaceUrl(state.drawnCard.card.value) : '';
+  const discardFace = topDiscard ? skyjoFaceUrl(topDiscard.value) : '';
+  const pileButtons = `
+    ${
+      canDraw && topDiscard
+        ? `<button type="button" class="skyjo-3d-card" data-card-id="discard-pile"${discardFace ? ` style="background-image:url('${discardFace}')"` : ''}></button>`
+        : topDiscard
+          ? `<button type="button" class="skyjo-3d-card" data-skyjo-discard="1" disabled></button>`
+          : ''
+    }
+    ${
+      canDraw && !state.drawnCard
+        ? `<button type="button" class="skyjo-3d-card" data-card-id="deck-pile" id="btn-draw-deck"></button>`
+        : ''
+    }
+    ${
+      canAct
+        ? `<button type="button" class="skyjo-3d-card" data-card-id="drawn"${drawnFace ? ` style="background-image:url('${drawnFace}')"` : ''}></button>`
+        : ''
+    }
+  `;
+
+  const labels = others
+    .map(
+      (p, i) =>
+        `<p class="skyjo-3d-label ${p.id === state.currentPlayerId ? 'skyjo-3d-label--turn' : ''}" data-opp-label="${i}">${p.name}${
+          p.isBot ? ' 🤖' : ''
+        } · ${p.score}${p.id === state.gameWinnerId ? ' 🏆' : ''}</p>`
+    )
+    .join('');
+
+  let banner = 'Manche terminée';
+  if (!finished) {
+    if (isMyTurn) {
+      if (canDraw) banner = 'Choisis la défausse ou la pioche';
+      else if (canFlip) banner = 'Glisse ta carte pour remplacer, ou touche une carte cachée pour la retourner';
+      else banner = 'Glisse ta carte sur une case pour remplacer';
+    } else banner = `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`;
+  }
+
+  container.innerHTML = `
+    <div class="screen screen--table skyjo-screen skyjo-screen--3d">
+      ${
+        state.gameWinnerId
+          ? `<p class="flip7-banner flip7-banner--winner">🏆 ${state.players.find((p) => p.id === state.gameWinnerId)?.name || '?'} gagne la partie !</p>`
+          : ''
+      }
+      <div class="turn-banner ${isMyTurn ? 'turn-banner--you' : ''}">${banner}</div>
+      <div class="skyjo-3d-table">
+        ${labels}
+        ${cellButtons}
+        ${pileButtons}
+      </div>
+      <p class="skyjo-3d-score">Ta grille · ${myVisibleSum} pts visibles · total ${me.score}</p>
+      ${finished ? endGameActionsHtml() : ''}
+      <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles">?</button>
+      <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal">📄</button>
+      <button class="game-hud__bubble game-hud__bubble--invite" id="btn-invite-game" title="Inviter">📤</button>
+      ${threeDToggleHtml('skyjo')}
+      <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}">✕</button>
+    </div>
+  `;
+
+  mountTable();
+  updateTable({
+    seats: [
+      { grid: me.grid, isTurn: isMyTurn && !finished },
+      ...others.map((p) => ({ grid: p.grid, isTurn: p.id === state.currentPlayerId }))
+    ],
+    discardTop: topDiscard || null,
+    discard: state.discard || [],
+    deckCount: state.deck.length,
+    drawn: state.drawnCard?.card || null,
+    drawnSource: state.drawnCard?.source || null
+  });
+  showTable();
+
+  const tableEl = container.querySelector('.skyjo-3d-table');
+  if (tableEl) {
+    const sync = () => {
+      positionTable(tableEl.getBoundingClientRect());
+      const rects = getCardRects();
+      tableEl.querySelectorAll('[data-index]').forEach((btn) => {
+        const r = rects.mine[Number(btn.dataset.index)];
+        if (!r) {
+          btn.style.display = 'none';
+          return;
+        }
+        btn.style.display = 'block';
+        btn.style.left = `${r.left}px`;
+        btn.style.top = `${r.top}px`;
+        btn.style.width = `${r.width}px`;
+        btn.style.height = `${r.height}px`;
+      });
+      const placePile = (sel, rect) => {
+        const btn = tableEl.querySelector(sel);
+        if (!btn || !rect) return;
+        btn.style.left = `${rect.left}px`;
+        btn.style.top = `${rect.top}px`;
+        btn.style.width = `${rect.width}px`;
+        btn.style.height = `${rect.height}px`;
+      };
+      placePile('[data-card-id="discard-pile"]', rects.discard);
+      placePile('[data-skyjo-discard]', rects.discard);
+      placePile('[data-card-id="deck-pile"]', rects.deck);
+      placePile('[data-card-id="drawn"]', rects.drawn);
+      getRowLabelAnchors().opponents.forEach((anchor, i) => {
+        const el = tableEl.querySelector(`[data-opp-label="${i}"]`);
+        if (!el || !anchor) return;
+        el.style.left = `${anchor.left}px`;
+        el.style.top = `${anchor.top}px`;
+      });
+    };
+    sync();
+    setOverlaySync(sync);
+    wireSkyjoOrbit(tableEl, sync);
+    const ro = new ResizeObserver(sync);
+    ro.observe(tableEl);
+  }
+
+  const placeCard = (index) => {
+    placeSkyjoCard(room, player.id, index).catch((err) => alert(err.message || 'Coup impossible.'));
+  };
+  const discardAndReveal = (index) => {
+    discardSkyjoAndReveal(room, player.id, index).catch((err) => alert(err.message || 'Coup impossible.'));
+  };
+
+  if (canAct) {
+    container.querySelectorAll('.skyjo-3d-table [data-index]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const index = Number(el.dataset.index);
+        const cell = me.grid[index];
+        if (canFlip && cell && !cell.faceUp) {
+          discardAndReveal(index);
+          return;
+        }
+        if (!isCardDragEnabled()) placeCard(index);
+      });
+    });
+  }
+
+  container.querySelector('#btn-draw-deck')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await drawSkyjoFromDeck(room, player.id);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de piocher.');
+    }
+  });
+
+  if (tableEl) {
+    enableDragToZone(tableEl, {
+      dragEnabled: isCardDragEnabled(),
+      onTap: async (id) => {
+        if (id === 'discard-pile') {
+          try {
+            await drawSkyjoFromDiscard(room, player.id);
+          } catch (err) {
+            alert(err.message || 'Impossible de prendre la défausse.');
+          }
+        }
+      },
+      onDrop: async (id, zone) => {
+        if (zone.dropzone !== 'skyjo-cell') return;
+        const index = Number(zone.index);
+        if (id === 'discard-pile') {
+          try {
+            const drawn = await drawSkyjoFromDiscard(room, player.id);
+            await placeSkyjoCard(drawn, player.id, index);
+          } catch (err) {
+            alert(err.message || 'Impossible de prendre la défausse et de la poser.');
+          }
+          return;
+        }
+        if (id === 'drawn') placeCard(index);
+      }
+    });
+  }
+
+  wireEndGameActions(container, room);
+  container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
+  container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
+  container.querySelector('#btn-invite-game')?.addEventListener('click', () => shareInviteLink(room));
+  wireAbandonButton(container, { room, player, state, onLeave });
+  wireThreeDToggle(container, 'skyjo', () => renderTable(container, { room, player, state, onLeave }));
+}
+
+function wireSkyjoOrbit(tableEl, onOrbit) {
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
+  let moved = false;
+  let pinching = false;
+  let pinchDist = 0;
+  const gap = (touches) =>
+    touches.length < 2 ? 0 : Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+  tableEl.addEventListener(
+    'touchstart',
+    (e) => {
+      if (e.touches.length < 2) return;
+      pinching = true;
+      dragging = false;
+      moved = true;
+      pinchDist = gap(e.touches);
+    },
+    { passive: true, capture: true }
+  );
+  tableEl.addEventListener(
+    'touchmove',
+    (e) => {
+      if (e.touches.length < 2) return;
+      e.preventDefault();
+      const d = gap(e.touches);
+      if (pinchDist > 8 && d > 8) {
+        zoomCameraByFactor(d / pinchDist);
+        onOrbit?.();
+      }
+      pinchDist = d;
+    },
+    { passive: false, capture: true }
+  );
+  tableEl.addEventListener(
+    'touchend',
+    (e) => {
+      if (e.touches.length < 2) pinching = false;
+    },
+    true
+  );
+  tableEl.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (pinching || e.target.closest('.skyjo-3d-card')) {
+        dragging = false;
+        return;
+      }
+      dragging = true;
+      moved = false;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    },
+    true
+  );
+  tableEl.addEventListener(
+    'pointermove',
+    (e) => {
+      if (pinching || !dragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) moved = true;
+      if (moved) {
+        orbitCameraByScreenDelta(dx, dy);
+        lastX = e.clientX;
+        lastY = e.clientY;
+        onOrbit?.();
+      }
+    },
+    true
+  );
+  tableEl.addEventListener('pointerup', () => {
+    dragging = false;
+  }, true);
+  tableEl.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      zoomCameraByFactor(Math.exp(-e.deltaY * 0.0015));
+      onOrbit?.();
+    },
+    { passive: false }
+  );
+}
+
+export function renderSpectator(container, args) {
+  if (!is3DEnabled('skyjo')) {
+    hideTable();
+    return false;
+  }
+  const { room, gameLabel, onBackToRooms, onRerender } = args;
+  const state = room.state;
+  const finished = state.status === 'finished';
+  const currentName = state.players.find((p) => p.id === state.currentPlayerId)?.name;
+  const topDiscard = state.discard[state.discard.length - 1];
+  const labels = state.players
+    .map(
+      (p, i) =>
+        `<p class="skyjo-3d-label ${p.id === state.currentPlayerId ? 'skyjo-3d-label--turn' : ''}" data-seat-label="${i}">${p.name}${
+          p.isBot ? ' 🤖' : ''
+        } · ${p.score}</p>`
+    )
+    .join('');
+
+  container.innerHTML = `
+    <div class="screen screen--table skyjo-screen skyjo-screen--3d">
+      <p class="eyebrow">Tu regardes — ${gameLabel || 'Skyjo'} en cours</p>
+      <button class="btn btn--link btn--small" id="btn-back-to-rooms">← Retour aux salons</button>
+      <div class="turn-banner">${currentName ? `Tour de ${currentName}` : 'En attente…'}</div>
+      <div class="skyjo-3d-table">${labels}</div>
+      <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules">?</button>
+      <button class="game-hud__bubble game-hud__bubble--log" id="btn-log">📄</button>
+      ${threeDToggleHtml('skyjo')}
+    </div>
+  `;
+
+  mountTable();
+  updateTable({
+    seats: state.players.map((p) => ({
+      grid: p.grid,
+      isTurn: p.id === state.currentPlayerId && !finished
+    })),
+    discardTop: topDiscard || null,
+    discard: state.discard || [],
+    deckCount: state.deck.length,
+    drawn: state.drawnCard?.card || null,
+    drawnSource: state.drawnCard?.source || null,
+    spectator: true
+  });
+  showTable();
+  const tableEl = container.querySelector('.skyjo-3d-table');
+  if (tableEl) {
+    const sync = () => {
+      positionTable(tableEl.getBoundingClientRect());
+      getRowLabelAnchors().seats.forEach((anchor, i) => {
+        const el = tableEl.querySelector(`[data-seat-label="${i}"]`);
+        if (!el || !anchor) return;
+        el.style.left = `${anchor.left}px`;
+        el.style.top = `${anchor.top}px`;
+      });
+    };
+    sync();
+    setOverlaySync(sync);
+    wireSkyjoOrbit(tableEl, sync);
+    new ResizeObserver(sync).observe(tableEl);
+  }
+  container.querySelector('#btn-back-to-rooms')?.addEventListener('click', () => onBackToRooms?.());
+  container.querySelector('#btn-rules')?.addEventListener('click', () => openRulesModal(room.game));
+  container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
+  wireThreeDToggle(container, 'skyjo', () => onRerender?.());
+  return true;
 }

@@ -139,6 +139,33 @@ export function choosePlacement(state, botId) {
 }
 
 let scheduled = null;
+let turnLock = null;
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function playDrawnCard(fresh, currentId) {
+  if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId) return;
+  if (!fresh.state.drawnCard) return;
+
+  const move = choosePlacement(fresh.state, currentId);
+  const grid = fresh.state.players.find((p) => p.id === currentId)?.grid || [];
+  const index = move?.index;
+  const cell = Number.isInteger(index) ? grid[index] : null;
+  if (!cell) {
+    const fallback = grid.findIndex((c) => c);
+    if (fallback < 0) return;
+    await placeSkyjoCard(fresh, currentId, fallback);
+    return;
+  }
+
+  if (move.type === 'reveal' && fresh.state.drawnCard.source === 'deck' && !cell.faceUp) {
+    await discardSkyjoAndReveal(fresh, currentId, index);
+  } else {
+    await placeSkyjoCard(fresh, currentId, index);
+  }
+}
 
 export function schedule(room) {
   if (room.state.status !== 'playing') return;
@@ -147,51 +174,43 @@ export function schedule(room) {
   const bot = room.state.players.find((p) => p.id === currentId && p.isBot);
   if (!bot) return;
 
-  // Inclure l'étape (pioche vs pose) pour pouvoir enchaîner après une pioche.
+  const lock = `${room.id}:${currentId}`;
+  if (turnLock === lock) return;
+
   const step = room.state.drawnCard ? 'place' : 'draw';
   const signature = `${room.id}:${room.version}:${currentId}:${step}`;
   if (scheduled === signature) return;
   scheduled = signature;
+
+  const delay = step === 'draw' ? 550 + Math.random() * 350 : 1100 + Math.random() * 400;
 
   window.setTimeout(async () => {
     try {
       let fresh = await fetchRoomById(room.id);
       if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId) return;
 
-      // Tour complet en un seul timeout : pioche puis pose/révélation.
-      // (Sinon, si le realtime rate un événement, le bot reste bloqué avec une carte en main.)
       if (!fresh.state.drawnCard) {
-        const source = chooseDrawSource(fresh.state, currentId);
-        if (source === 'discard' && fresh.state.discard?.length) {
-          fresh = await drawSkyjoFromDiscard(fresh, currentId);
-        } else {
-          fresh = await drawSkyjoFromDeck(fresh, currentId);
+        turnLock = lock;
+        try {
+          const source = chooseDrawSource(fresh.state, currentId);
+          if (source === 'discard' && fresh.state.discard?.length) {
+            fresh = await drawSkyjoFromDiscard(fresh, currentId);
+          } else {
+            fresh = await drawSkyjoFromDeck(fresh, currentId);
+          }
+          await wait(1100 + Math.random() * 400);
+          fresh = await fetchRoomById(room.id);
+          await playDrawnCard(fresh, currentId);
+        } finally {
+          turnLock = null;
         }
-      }
-
-      if (fresh.state.status !== 'playing' || fresh.state.currentPlayerId !== currentId) return;
-      if (!fresh.state.drawnCard) return;
-
-      const move = choosePlacement(fresh.state, currentId);
-      const grid = fresh.state.players.find((p) => p.id === currentId)?.grid || [];
-      const index = move?.index;
-      const cell = Number.isInteger(index) ? grid[index] : null;
-      if (!cell) {
-        // Aucune case valide : forcer une case encore présente
-        const fallback = grid.findIndex((c) => c);
-        if (fallback < 0) return;
-        await placeSkyjoCard(fresh, currentId, fallback);
         return;
       }
 
-      if (move.type === 'reveal' && fresh.state.drawnCard.source === 'deck' && cell && !cell.faceUp) {
-        await discardSkyjoAndReveal(fresh, currentId, index);
-      } else {
-        await placeSkyjoCard(fresh, currentId, index);
-      }
+      await playDrawnCard(fresh, currentId);
     } catch (err) {
-      // Permettre un nouvel essai sur le prochain draw()
       scheduled = null;
+      turnLock = null;
     }
-  }, 700 + Math.random() * 500);
+  }, delay);
 }
