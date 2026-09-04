@@ -454,12 +454,19 @@ function createTokenMesh() {
   return new THREE.Mesh(getTokenDiscGeometry(), material);
 }
 
+function applyTokenTexture(mesh, texture) {
+  mesh.material.map = texture;
+  mesh.material.color.set(0xffffff);
+  mesh.material.needsUpdate = true;
+}
+
 function setTokenValue(mesh, tile) {
-  getTokenFaceTexture(tile.value).then((texture) => {
-    mesh.material.map = texture;
-    mesh.material.color.set(0xffffff);
-    mesh.material.needsUpdate = true;
-  });
+  const cached = tokenFaceTextures.get(tile.value);
+  if (cached) {
+    applyTokenTexture(mesh, cached);
+    return;
+  }
+  getTokenFaceTexture(tile.value).then((texture) => applyTokenTexture(mesh, texture));
 }
 
 function getGlowGeometry() {
@@ -723,7 +730,7 @@ function discardWorldPos(index, count) {
   );
 }
 
-function startFlight(mesh, to, { duration = 720, lift = 0.38, onDone } = {}) {
+function startFlight(mesh, to, { duration = 880, lift = 0.55, onDone } = {}) {
   if (!mesh || !to) return;
   flights.push({
     mesh,
@@ -751,14 +758,16 @@ function advanceFlights(now) {
   }
 }
 
-function cloneFlyer(fromMesh) {
-  const material = fromMesh.material.clone();
+function makeFlyer(tile, fromPos) {
+  const material = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthTest: true });
   const flyer = new THREE.Mesh(getTokenDiscGeometry(), material);
-  flyer.scale.copy(fromMesh.scale);
-  flyer.rotation.copy(fromMesh.rotation);
-  flyer.renderOrder = 8;
+  flyer.scale.setScalar(BOARD_SCALE);
+  flyer.position.copy(fromPos);
+  flyer.position.z += 0.08;
+  flyer.renderOrder = 30;
   flyer.visible = true;
   scene.add(flyer);
+  if (tile) setTokenValue(flyer, tile);
   return flyer;
 }
 
@@ -772,10 +781,10 @@ function flyIncoming(destMesh, fromPos, tile) {
   if (!destMesh || !fromPos || !tile) return;
   hideUntil.add(destMesh.uuid);
   destMesh.visible = false;
-  const flyer = cloneFlyer(destMesh);
-  flyer.position.copy(fromPos);
-  setTokenValue(flyer, tile);
-  startFlight(flyer, destMesh.position.clone(), {
+  const flyer = makeFlyer(tile, fromPos);
+  const to = destMesh.position.clone();
+  to.z += 0.04;
+  startFlight(flyer, to, {
     onDone: () => {
       releaseFlyer(flyer);
       hideUntil.delete(destMesh.uuid);
@@ -790,16 +799,12 @@ function flyToDiscard(tile, fromPos, pile) {
   const destIndex = idx >= 0 ? idx : Math.max(0, pile.length - 1);
   const destMesh = discardMeshes[destIndex];
   const to = destMesh ? destMesh.position.clone() : discardWorldPos(destIndex, pile.length);
+  to.z += 0.04;
   if (destMesh) {
     hideUntil.add(destMesh.uuid);
     destMesh.visible = false;
   }
-  const flyer = createTokenMesh();
-  flyer.scale.setScalar(BOARD_SCALE);
-  flyer.position.copy(fromPos);
-  flyer.renderOrder = 8;
-  scene.add(flyer);
-  setTokenValue(flyer, tile);
+  const flyer = makeFlyer(tile, fromPos);
   startFlight(flyer, to, {
     onDone: () => {
       releaseFlyer(flyer);
@@ -917,8 +922,21 @@ export function showBoard() {
 
 export function hideBoard() {
   if (canvas) canvas.style.display = 'none';
+}
+
+export function resetBoardSnapshot() {
   hasSnapshot = false;
   drawnDragHidden = false;
+  previousMyBoardTiles = [];
+  previousOpponentBoards = [];
+  previousDiscardIds = [];
+  previousDrawnTile = null;
+  hideUntil.clear();
+  for (let i = flights.length - 1; i >= 0; i--) {
+    const mesh = flights[i].mesh;
+    flights.splice(i, 1);
+    if (mesh && mesh !== drawnTileMesh) releaseFlyer(mesh);
+  }
 }
 
 /**

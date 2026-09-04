@@ -27,6 +27,7 @@ import {
   updateScene,
   showBoard,
   hideBoard,
+  resetBoardSnapshot,
   getMyBoardCellRects,
   getDiscardTileRects,
   getDrawPileRect,
@@ -45,7 +46,9 @@ import {
 // sauter la caméra et annulerait le glisser manuel de l'utilisateur.
 let hasAutoCenteredCamera = false;
 
-export function resetSelection() {}
+export function resetSelection() {
+  resetBoardSnapshot();
+}
 
 // Hook générique lu par src/ui/game.js (hideAllThreeDScenes) — c'est CE
 // fichier qui "s'inscrit" à la 3D, les fichiers communs n'ont besoin de
