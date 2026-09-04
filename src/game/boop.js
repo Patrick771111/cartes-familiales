@@ -286,6 +286,13 @@ export function applyPlace(state, playerId, index, pieceType) {
 
   const catWinner = players.find((p) => linesOfThree(board, p.id, 'cat').length);
   if (catWinner) {
+    const cells = [...new Set(linesOfThree(board, catWinner.id, 'cat').flat())];
+    lastMove.winCats = cells.map((cell) => ({
+      id: board[cell].id,
+      index: cell,
+      color: board[cell].color,
+      ownerId: board[cell].ownerId
+    }));
     return finishWin(
       { ...state, board, lastMove, log: [...state.log, { ts: Date.now(), message: logMessage }].slice(-40) },
       players,
