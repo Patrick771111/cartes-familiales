@@ -29,11 +29,16 @@ const TABLE_TOP = TABLE_THICKNESS / 2;
 const CELL = 0.36;
 const GRID = 6;
 const BOARD = CELL * GRID;
-const DUVET_Y = TABLE_TOP + 0.16;
+const DUVET_Y = TABLE_TOP + 0.26;
 const BASKET_Y = 0.12;
 const DEFAULT_YAW = 0;
-const DEFAULT_PITCH = 0.92;
-const DEFAULT_DIST = 6.05;
+const DEFAULT_PITCH = 0.94;
+const DEFAULT_DIST = 6.2;
+const ROOM_Z_BACK = -2.58;
+const HEADBOARD_THICK = 0.11;
+const PILLOW_SHELF = 0.62;
+const BED_FRAME_W = BOARD + 0.4;
+const BOARD_Z = ROOM_Z_BACK + 0.02 + HEADBOARD_THICK + PILLOW_SHELF + BOARD / 2;
 
 let canvas;
 let renderer;
@@ -120,16 +125,16 @@ function easeSmooth(t) {
 function cellWorld(index) {
   const col = index % GRID;
   const row = Math.floor(index / GRID);
-  return new THREE.Vector3((col - 2.5) * CELL, DUVET_Y, (row - 2.5) * CELL);
+  return new THREE.Vector3((col - 2.5) * CELL, DUVET_Y, BOARD_Z + (row - 2.5) * CELL);
 }
 
 function basketWorld(seat, type) {
   if (seat === 0) {
-    const x = type === 'kitten' ? 1.35 : -1.35;
-    return new THREE.Vector3(x, TABLE_TOP + 0.04, 1.68);
+    const x = type === 'kitten' ? 1.4 : -1.4;
+    return new THREE.Vector3(x, TABLE_TOP + 0.04, BOARD_Z + BOARD / 2 + 0.52);
   }
-  const x = type === 'kitten' ? -1.55 : 1.55;
-  return new THREE.Vector3(x, TABLE_TOP + 0.04, -1.12);
+  const x = type === 'kitten' ? -1.78 : 1.78;
+  return new THREE.Vector3(x, TABLE_TOP + 0.04, BOARD_Z - BOARD / 2 + 0.22);
 }
 
 function basketScatter(id, i, n) {
@@ -250,6 +255,117 @@ function addBox(parent, w, h, d, x, y, z, mat) {
   return m;
 }
 
+function roundedRectShape(w, d, r) {
+  const s = new THREE.Shape();
+  const hw = w * 0.5;
+  const hd = d * 0.5;
+  const rr = Math.min(r, hw - 0.001, hd - 0.001);
+  s.moveTo(-hw + rr, -hd);
+  s.lineTo(hw - rr, -hd);
+  s.quadraticCurveTo(hw, -hd, hw, -hd + rr);
+  s.lineTo(hw, hd - rr);
+  s.quadraticCurveTo(hw, hd, hw - rr, hd);
+  s.lineTo(-hw + rr, hd);
+  s.quadraticCurveTo(-hw, hd, -hw, hd - rr);
+  s.lineTo(-hw, -hd + rr);
+  s.quadraticCurveTo(-hw, -hd, -hw + rr, -hd);
+  return s;
+}
+
+function makeExtrudedSlab(w, h, d, r, mat, bevel = 0.016) {
+  const inner = Math.max(0.01, h - bevel * 2);
+  const geo = new THREE.ExtrudeGeometry(roundedRectShape(w, d, r), {
+    depth: inner,
+    bevelEnabled: bevel > 0,
+    bevelThickness: bevel,
+    bevelSize: Math.min(bevel, r * 0.85),
+    bevelSegments: 12,
+    curveSegments: 28,
+    steps: 6
+  });
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  geo.translate(-(bb.min.x + bb.max.x) / 2, -(bb.min.y + bb.max.y) / 2, -(bb.min.z + bb.max.z) / 2);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = -Math.PI / 2;
+  return mesh;
+}
+
+function roundedBoxGeometry(w, h, d, r, sw = 16, sh = 10, sd = 16) {
+  const radius = Math.min(r, w / 2 - 0.001, h / 2 - 0.001, d / 2 - 0.001);
+  const geo = new THREE.BoxGeometry(w, h, d, Math.max(1, sw), Math.max(1, sh), Math.max(1, sd));
+  const arr = geo.attributes.position.array;
+  const hx = w / 2 - radius;
+  const hy = h / 2 - radius;
+  const hz = d / 2 - radius;
+  for (let i = 0; i < arr.length; i += 3) {
+    const x = arr[i];
+    const y = arr[i + 1];
+    const z = arr[i + 2];
+    const cx = Math.max(-hx, Math.min(hx, x));
+    const cy = Math.max(-hy, Math.min(hy, y));
+    const cz = Math.max(-hz, Math.min(hz, z));
+    const dx = x - cx;
+    const dy = y - cy;
+    const dz = z - cz;
+    const len = Math.hypot(dx, dy, dz);
+    if (len > 1e-8) {
+      const k = radius / len;
+      arr[i] = cx + dx * k;
+      arr[i + 1] = cy + dy * k;
+      arr[i + 2] = cz + dz * k;
+    }
+  }
+  geo.attributes.position.needsUpdate = true;
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function addRoundedBox(parent, w, h, d, r, x, y, z, mat, sw = 16, sh = 10, sd = 16) {
+  const m = new THREE.Mesh(roundedBoxGeometry(w, h, d, r, sw, sh, sd), mat);
+  m.position.set(x, y, z);
+  parent.add(m);
+  return m;
+}
+
+function pillowGeometry(w, h, d) {
+  const r = Math.min(w, h, d) * 0.4;
+  const geo = roundedBoxGeometry(w, h, d, r, 36, 22, 28);
+  const arr = geo.attributes.position.array;
+  for (let i = 0; i < arr.length; i += 3) {
+    const x = arr[i];
+    const y = arr[i + 1];
+    const z = arr[i + 2];
+    const nx = x / (w / 2);
+    const nz = z / (d / 2);
+    const crease = Math.exp(-nx * nx * 8) * 0.034;
+    const plump = (1 - nx * nx) * (1 - nz * nz) * 0.05;
+    const wrinkle = Math.sin(nx * 10.2) * Math.cos(nz * 7.4) * 0.008;
+    arr[i + 1] = y + (y >= 0 ? plump - crease : -plump * 0.32) + wrinkle;
+    arr[i] += Math.sin(nz * 4.2) * 0.007;
+  }
+  geo.attributes.position.needsUpdate = true;
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function turnedLegGeometry(height) {
+  const pts = [];
+  const n = 32;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const y = t * height;
+    let r = 0.036;
+    if (t < 0.1) r = 0.058 - t * 0.14;
+    else if (t < 0.2) r = 0.03 + (t - 0.1) * 0.04;
+    else if (t < 0.82) r = 0.034 + Math.sin(((t - 0.2) / 0.62) * Math.PI) * 0.01;
+    else if (t < 0.92) r = 0.044;
+    else r = 0.052;
+    pts.push(new THREE.Vector2(r, y));
+  }
+  return new THREE.LatheGeometry(pts, 28);
+}
+
 function createLamp() {
   const g = new THREE.Group();
   const stemWood = makeMat({ color: 0xe2b56a, roughness: 0.48 });
@@ -340,25 +456,66 @@ function createSucculent() {
 
 function createNightstand() {
   const g = new THREE.Group();
-  const white = makeMat({ color: 0xf6f1ea, roughness: 0.52 });
-  const drawer = makeMat({ color: 0xeee6dc, roughness: 0.55 });
-  const knob = makeMat({ color: 0xe8dccf, roughness: 0.4 });
-  addBox(g, 0.5, 0.38, 0.42, 0, 0.19, 0, white);
-  addBox(g, 0.52, 0.03, 0.44, 0, 0.395, 0, white);
-  addBox(g, 0.42, 0.13, 0.02, 0, 0.28, 0.211, drawer);
-  addBox(g, 0.42, 0.13, 0.02, 0, 0.13, 0.211, drawer);
-  const k1 = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), knob);
-  k1.position.set(0, 0.28, 0.23);
-  const k2 = k1.clone();
-  k2.position.y = 0.13;
-  g.add(k1, k2);
+  const painted = makeMat({ color: 0xf7f3ec, roughness: 0.46 });
+  const drawerMat = makeMat({ color: 0xeee6dc, roughness: 0.5 });
+  const panelMat = makeMat({ color: 0xe4dbd0, roughness: 0.56 });
+  const gapMat = makeMat({ color: 0xcfc4b6, roughness: 0.74 });
+  const knobMat = makeMat({ color: 0xf3eadc, roughness: 0.3, metalness: 0.1 });
+
+  for (const [fx, fz] of [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1]
+  ]) {
+    const foot = new THREE.Mesh(new THREE.SphereGeometry(0.036, 24, 18), painted);
+    foot.scale.set(1.15, 0.7, 1.15);
+    foot.position.set(fx * 0.23, 0.026, fz * 0.19);
+    g.add(foot);
+  }
+
+  const plinth = makeExtrudedSlab(0.54, 0.045, 0.48, 0.04, painted, 0.012);
+  plinth.position.y = 0.055;
+  g.add(plinth);
+
+  const body = makeExtrudedSlab(0.58, 0.37, 0.5, 0.055, painted, 0.02);
+  body.position.y = 0.25;
+  g.add(body);
+
+  const top = makeExtrudedSlab(0.66, 0.055, 0.56, 0.06, painted, 0.02);
+  top.position.y = 0.458;
+  g.add(top);
+
+  const divider = makeExtrudedSlab(0.52, 0.018, 0.03, 0.006, painted, 0.004);
+  divider.position.set(0, 0.248, 0.248);
+  g.add(divider);
+
+  const addDrawer = (y) => {
+    const recess = new THREE.Mesh(roundedBoxGeometry(0.5, 0.155, 0.03, 0.012, 20, 10, 6), gapMat);
+    recess.position.set(0, y, 0.238);
+    g.add(recess);
+    const front = makeExtrudedSlab(0.49, 0.142, 0.05, 0.024, drawerMat, 0.012);
+    front.position.set(0, y, 0.242);
+    g.add(front);
+    const panel = makeExtrudedSlab(0.4, 0.086, 0.016, 0.016, panelMat, 0.007);
+    panel.position.set(0, y, 0.268);
+    g.add(panel);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.009, 0.038, 20), knobMat);
+    stem.rotation.x = Math.PI / 2;
+    stem.position.set(0, y, 0.282);
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.018, 24, 20), knobMat);
+    knob.position.set(0, y, 0.302);
+    g.add(stem, knob);
+  };
+  addDrawer(0.338);
+  addDrawer(0.158);
   return g;
 }
 
 function createRoom() {
   const g = new THREE.Group();
   const W = 6.8;
-  const zBack = -2.58;
+  const zBack = ROOM_Z_BACK;
   const zFront = 3.35;
   const D = zFront - zBack;
   const zMid = (zBack + zFront) / 2;
@@ -440,97 +597,152 @@ function createRoom() {
   succulent.position.set(0.42, winY - winH / 2 - 0.05, zBack + 0.2);
   g.add(succulent);
 
+  const rugZ = BOARD_Z + 0.38;
   const rug = new THREE.Mesh(new THREE.CircleGeometry(1.78, 48), makeMat({ color: 0xf6e9b8, roughness: 0.95 }));
   rug.rotation.x = -Math.PI / 2;
-  rug.position.set(0, 0.006, 0.18);
+  rug.position.set(0, 0.006, rugZ);
   g.add(rug);
   const stitch = new THREE.Mesh(
     new THREE.RingGeometry(1.42, 1.46, 48),
     makeMat({ color: 0xe8d48a, roughness: 0.9, side: THREE.DoubleSide })
   );
   stitch.rotation.x = -Math.PI / 2;
-  stitch.position.set(0, 0.008, 0.18);
+  stitch.position.set(0, 0.008, rugZ);
   g.add(stitch);
   const fringe = makeMat({ color: 0xf4edd4, roughness: 0.9 });
   for (let i = 0; i < 36; i++) {
     const a = (i / 36) * Math.PI * 2;
     const tassel = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.01, 0.12), fringe);
-    tassel.position.set(Math.cos(a) * 1.84, 0.007, 0.18 + Math.sin(a) * 1.84);
+    tassel.position.set(Math.cos(a) * 1.84, 0.007, rugZ + Math.sin(a) * 1.84);
     tassel.rotation.y = -a;
     g.add(tassel);
   }
 
-  const standZ = -1.95;
+  const standX = BED_FRAME_W / 2 + 0.34;
+  const standZ = ROOM_Z_BACK + 0.29;
   const nsL = createNightstand();
-  nsL.position.set(-2.42, 0, standZ);
+  nsL.position.set(-standX, 0, standZ);
   const nsR = createNightstand();
-  nsR.position.set(2.42, 0, standZ);
+  nsR.position.set(standX, 0, standZ);
   g.add(nsL, nsR);
   const fern = createFern();
-  fern.position.set(-2.52, 0.4, standZ);
+  fern.position.set(-standX - 0.08, 0.475, standZ - 0.04);
   g.add(fern);
   const pothos = createPothos();
-  pothos.position.set(2.55, 0.4, standZ);
+  pothos.position.set(standX + 0.1, 0.475, standZ - 0.02);
   g.add(pothos);
   const lampL = createLamp();
-  lampL.position.set(-2.28, 0.4, standZ);
+  lampL.position.set(-standX + 0.12, 0.475, standZ + 0.04);
   g.add(lampL);
   const lampR = createLamp();
-  lampR.position.set(2.28, 0.4, standZ);
+  lampR.position.set(standX - 0.12, 0.475, standZ + 0.04);
   g.add(lampR);
   return g;
 }
 
 function createBoard() {
   const g = new THREE.Group();
-  const honey = makeMat({ map: loadMap(floorUrl, 2.4, 2.4), roughness: 0.58, color: 0xf0d4a0 });
-  const linen = makeMat({ color: 0xf6ead8, roughness: 0.9 });
-  const frameW = BOARD + 0.4;
-  const frameD = BOARD + 0.52;
-  const mattress = new THREE.Mesh(new THREE.BoxGeometry(frameW, 0.12, frameD), honey);
-  mattress.position.set(0, TABLE_TOP + 0.06, -0.05);
-  g.add(mattress);
-  const hz = -frameD / 2 - 0.05;
-  addBox(g, frameW, 0.07, 0.08, 0, TABLE_TOP + 0.5, hz, honey);
-  addBox(g, frameW, 0.07, 0.08, 0, TABLE_TOP + 0.16, hz, honey);
-  addBox(g, 0.08, 0.42, 0.08, -frameW / 2 + 0.04, TABLE_TOP + 0.33, hz, honey);
-  addBox(g, 0.08, 0.42, 0.08, frameW / 2 - 0.04, TABLE_TOP + 0.33, hz, honey);
-  for (let i = 0; i < 6; i++) {
-    const slat = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.34, 0.035), honey);
-    slat.position.set((i - 2.5) * 0.3, TABLE_TOP + 0.33, hz + 0.02);
-    g.add(slat);
-  }
-  const foot = new THREE.Mesh(new THREE.BoxGeometry(frameW, 0.14, 0.08), honey);
-  foot.position.set(0, TABLE_TOP + 0.13, frameD / 2 - 0.05);
-  g.add(foot);
+  const honey = makeMat({ map: loadMap(floorUrl, 2.6, 2.6), roughness: 0.56, color: 0xf0d4a0 });
+  const honeySide = makeMat({ map: loadMap(floorUrl, 3.4, 1.1), roughness: 0.6, color: 0xe8c888 });
+  const honeyDark = makeMat({ map: loadMap(floorUrl, 2.2, 0.8), roughness: 0.64, color: 0xd9b56e });
+  const linen = makeMat({ color: 0xf7eedf, roughness: 0.88 });
+  const sheet = makeMat({ color: 0xf3e6d4, roughness: 0.9 });
+  const frameW = BED_FRAME_W;
+  const headInnerZ = BOARD_Z - BOARD / 2 - PILLOW_SHELF;
+  const footZ = BOARD_Z + BOARD / 2 + 0.12;
+  const deckD = footZ - headInnerZ;
+  const deckZ = (footZ + headInnerZ) / 2;
+  const slatY = 0.175;
+
   const addLeg = (x, z) => {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.09, TABLE_TOP, 0.09), honey);
-    leg.position.set(x, TABLE_TOP / 2, z);
+    const leg = new THREE.Mesh(turnedLegGeometry(0.18), honey);
+    leg.position.set(x, 0, z);
     g.add(leg);
   };
-  addLeg(-frameW / 2 + 0.08, -frameD / 2 + 0.08);
-  addLeg(frameW / 2 - 0.08, -frameD / 2 + 0.08);
-  addLeg(-frameW / 2 + 0.08, frameD / 2 - 0.08);
-  addLeg(frameW / 2 - 0.08, frameD / 2 - 0.08);
+  const inset = 0.1;
+  addLeg(-frameW / 2 + inset, headInnerZ + inset);
+  addLeg(frameW / 2 - inset, headInnerZ + inset);
+  addLeg(-frameW / 2 + inset, footZ - inset);
+  addLeg(frameW / 2 - inset, footZ - inset);
+
+  const sommier = makeExtrudedSlab(frameW, 0.14, deckD, 0.055, honey, 0.022);
+  sommier.position.set(0, 0.2, deckZ);
+  g.add(sommier);
+
+  const leftRail = makeExtrudedSlab(0.1, 0.16, deckD + 0.04, 0.03, honeySide, 0.014);
+  leftRail.position.set(-frameW / 2 + 0.028, 0.22, deckZ);
+  const rightRail = makeExtrudedSlab(0.1, 0.16, deckD + 0.04, 0.03, honeySide, 0.014);
+  rightRail.position.set(frameW / 2 - 0.028, 0.22, deckZ);
+  g.add(leftRail, rightRail);
+
+  const leftInset = makeExtrudedSlab(0.02, 0.07, deckD - 0.28, 0.01, honeyDark, 0.005);
+  leftInset.position.set(-frameW / 2 - 0.012, 0.2, deckZ);
+  const rightInset = makeExtrudedSlab(0.02, 0.07, deckD - 0.28, 0.01, honeyDark, 0.005);
+  rightInset.position.set(frameW / 2 + 0.012, 0.2, deckZ);
+  g.add(leftInset, rightInset);
+
+  const footboard = makeExtrudedSlab(frameW + 0.06, 0.22, 0.11, 0.032, honey, 0.016);
+  footboard.position.set(0, 0.24, footZ + 0.02);
+  g.add(footboard);
+
+  const slatCount = 20;
+  const slatSpan = deckD - 0.2;
+  for (let i = 0; i < slatCount; i++) {
+    const t = (i + 0.5) / slatCount;
+    const z = headInnerZ + 0.1 + t * slatSpan;
+    const slat = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, frameW - 0.22, 16), honey);
+    slat.rotation.z = Math.PI / 2;
+    slat.position.set(0, slatY, z);
+    g.add(slat);
+  }
+
+  const mattressH = 0.07;
+  const mattress = new THREE.Mesh(
+    roundedBoxGeometry(frameW - 0.18, mattressH, deckD - 0.12, 0.04, 36, 10, 48),
+    sheet
+  );
+  mattress.position.set(0, DUVET_Y - 0.055 - mattressH / 2, deckZ);
+  g.add(mattress);
+
+  const hz = headInnerZ - HEADBOARD_THICK / 2;
+  const headH = 0.88;
+  const headY = 0.52;
+  const post = (x) => {
+    addRoundedBox(g, 0.1, headH, HEADBOARD_THICK, 0.03, x, headY, hz, honey, 14, 32, 12);
+  };
+  post(-frameW / 2 + 0.055);
+  post(frameW / 2 - 0.055);
+  addRoundedBox(g, frameW - 0.06, 0.1, 0.085, 0.028, 0, headY + 0.37, hz + 0.012, honey, 32, 10, 12);
+  addRoundedBox(g, frameW - 0.06, 0.075, 0.075, 0.022, 0, headY - 0.35, hz + 0.012, honey, 32, 8, 10);
+  for (let i = 0; i < 9; i++) {
+    const x = (i - 4) * 0.22;
+    addRoundedBox(g, 0.042, 0.64, 0.042, 0.014, x, headY + 0.02, hz + 0.022, honey, 10, 24, 10);
+  }
 
   const tex = textureLoader.load(duvetUrl);
   tex.colorSpace = THREE.SRGBColorSpace;
   const duvet = new THREE.Mesh(
-    new THREE.PlaneGeometry(BOARD, BOARD),
+    roundedBoxGeometry(BOARD, 0.042, BOARD, 0.03, 28, 8, 28),
     new THREE.MeshBasicMaterial({ map: tex })
   );
-  duvet.rotation.x = -Math.PI / 2;
-  duvet.position.y = DUVET_Y - 0.002;
+  duvet.position.set(0, DUVET_Y - 0.02, BOARD_Z);
   g.add(duvet);
 
-  const addPillow = (x) => {
-    const p = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), linen);
-    p.scale.set(1.45, 0.38, 0.55);
-    p.position.set(x, TABLE_TOP + 0.2, -BOARD / 2 + 0.02);
+  const pillowW = 0.7;
+  const pillowH = 0.2;
+  const pillowD = 0.42;
+  const pillowGeo = pillowGeometry(pillowW, pillowH, pillowD);
+  const pillowZ = BOARD_Z - BOARD / 2 - pillowD / 2 - 0.08;
+  const pillowY = DUVET_Y + 0.07;
+  const addPillow = (x, yaw, roll) => {
+    const p = new THREE.Mesh(pillowGeo, linen);
+    p.position.set(x, pillowY, pillowZ);
+    p.rotation.y = yaw;
+    p.rotation.z = roll;
     g.add(p);
   };
-  addPillow(-0.4);
-  addPillow(0.4);
+  addPillow(-0.48, 0.12, -0.04);
+  addPillow(0.48, -0.12, 0.04);
   return g;
 }
 
@@ -851,7 +1063,7 @@ function advanceDances(now) {
 
 function applyOrbit() {
   if (!camera) return;
-  _look.set(0, 0.08, 0);
+  _look.set(0, 0.16, BOARD_Z);
   const horiz = Math.cos(orbitPitch) * orbitDistance;
   camera.position.set(
     _look.x + Math.sin(orbitYaw) * horiz,
