@@ -12,8 +12,8 @@ import duvetUrl from '../assets/games/boop/duvet.jpg';
 /**
  * Scène 3D Boop — plateau 6×6 au centre, paniers chatons/chats en bord de
  * table. Un pion saute depuis son panier ; le rebond à l'atterrissage
- * pousse les voisins (boop). Trois chatons alignés grossissent en chats
- * puis rejoignent le panier des chats.
+ * pousse les voisins (boop). Un alignement de 3 avec au moins un chaton :
+ * les chatons grandissent, puis toute la ligne rejoint le panier des chats.
  */
 
 const CAMERA_FOV = 46;
@@ -107,9 +107,12 @@ function cellWorld(index) {
 }
 
 function basketWorld(seat, type) {
-  const z = seat === 0 ? 1.72 : -1.72;
-  const x = type === 'kitten' ? (seat === 0 ? 1.15 : -1.15) : seat === 0 ? -1.15 : 1.15;
-  return new THREE.Vector3(x, TABLE_TOP + 0.04, z);
+  if (seat === 0) {
+    const x = type === 'kitten' ? 1.15 : -1.15;
+    return new THREE.Vector3(x, TABLE_TOP + 0.04, 1.72);
+  }
+  const x = type === 'kitten' ? -1.68 : 1.68;
+  return new THREE.Vector3(x, TABLE_TOP + 0.04, -1.02);
 }
 
 function basketScatter(id, i, n) {
@@ -287,6 +290,18 @@ function createBoard() {
   duvet.rotation.x = -Math.PI / 2;
   duvet.position.y = DUVET_Y - 0.002;
   g.add(duvet);
+
+  const linen = makeMat({ color: 0xf4f0e8, roughness: 0.9 });
+  const addPillow = (x, yaw) => {
+    const p = new THREE.Mesh(new THREE.SphereGeometry(0.28, 18, 14), linen);
+    p.scale.set(1.42, 0.4, 0.88);
+    p.position.set(x, DUVET_Y + 0.1, -BOARD / 2 + 0.2);
+    p.rotation.y = yaw;
+    p.rotation.z = x > 0 ? -0.1 : 0.1;
+    g.add(p);
+  };
+  addPillow(-0.4, 0.22);
+  addPillow(0.4, -0.22);
   return g;
 }
 
@@ -517,10 +532,20 @@ function playMove(move, seatOf) {
 function playGraduation(move, seatOf) {
   const list = move.graduated || [];
   if (!list.length) return;
+  const goToCatBasket = (mesh, g) => {
+    const seat = seatOf.get(g.ownerId) ?? 0;
+    const to = basketWorld(seat, 'cat');
+    to.y = TABLE_TOP + 0.12;
+    startTravel(mesh, to);
+  };
   list.forEach((g, i) => {
     const mesh = pieceMeshes.get(g.id);
     if (!mesh) return;
     window.setTimeout(() => {
+      if (g.fromType === 'cat') {
+        goToCatBasket(mesh, g);
+        return;
+      }
       setAnimalType(mesh, 'cat');
       const here = mesh.position.clone();
       here.y = DUVET_Y;
@@ -529,12 +554,7 @@ function playGraduation(move, seatOf) {
         lift: 0.22,
         scaleTo: mesh.userData.kawaii ? 1 : 1,
         clip: 'idle',
-        onDone: () => {
-          const seat = seatOf.get(g.ownerId) ?? 0;
-          const to = basketWorld(seat, 'cat');
-          to.y = TABLE_TOP + 0.12;
-          startTravel(mesh, to);
-        }
+        onDone: () => goToCatBasket(mesh, g)
       });
     }, i * 90);
   });

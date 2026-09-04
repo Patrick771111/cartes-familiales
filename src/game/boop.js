@@ -132,44 +132,13 @@ export function resolveBoops(board, fromIndex, pusher) {
   return { board: next, toPool, boops };
 }
 
-/**
- * Le pion qui vient d'arriver pousse ses 8 voisins ; chaque pion qui
- * atterrit pousse à son tour, jusqu'à ce que plus rien ne bouge.
- * La promotion (3 chatons) se calcule seulement après.
- */
-export function resolveChainBoops(board, startIndex, startPiece) {
-  let current = board.slice();
-  const allBoops = [];
-  const allToPool = [];
-  const queue = [{ index: startIndex, piece: startPiece }];
-  const didPush = new Set();
-  let waves = 0;
-  while (queue.length && waves < 32) {
-    waves += 1;
-    const { index, piece } = queue.shift();
-    if (!piece || didPush.has(piece.id)) continue;
-    if (current[index]?.id !== piece.id) continue;
-    didPush.add(piece.id);
-    const wave = resolveBoops(current, index, piece);
-    current = wave.board;
-    allToPool.push(...wave.toPool);
-    for (const b of wave.boops) {
-      allBoops.push(b);
-      if (b.to >= 0) {
-        const landed = current[b.to];
-        if (landed && !didPush.has(landed.id)) queue.push({ index: b.to, piece: landed });
-      }
-    }
-  }
-  return { board: current, toPool: allToPool, boops: allBoops };
-}
-
-function linesOfThree(board, playerId, type) {
+function collectLines(board, playerId, pred) {
   const lines = [];
   for (let r = 0; r < GRID; r++) {
     for (let c = 0; c < GRID; c++) {
       for (const [dr, dc] of LINE_DIRS) {
         const cells = [];
+        const pieces = [];
         let ok = true;
         for (let k = 0; k < 3; k++) {
           const rr = r + dr * k;
@@ -179,21 +148,31 @@ function linesOfThree(board, playerId, type) {
             break;
           }
           const p = board[cellIndex(rr, cc)];
-          if (!p || p.ownerId !== playerId || p.type !== type) {
+          if (!p || p.ownerId !== playerId) {
             ok = false;
             break;
           }
           cells.push(cellIndex(rr, cc));
+          pieces.push(p);
         }
-        if (ok) lines.push(cells);
+        if (ok && pred(pieces)) lines.push(cells);
       }
     }
   }
   return lines;
 }
 
-function graduateKittens(board, players, playerId) {
-  const lines = linesOfThree(board, playerId, 'kitten');
+function linesOfThree(board, playerId, type) {
+  return collectLines(board, playerId, (pieces) => pieces.every((p) => p.type === type));
+}
+
+/** 3 pions du même joueur, dont au moins un chaton (3 chatons, ou mélange chats + chatons). */
+function promotionLines(board, playerId) {
+  return collectLines(board, playerId, (pieces) => pieces.some((p) => p.type === 'kitten'));
+}
+
+function graduatePlayer(board, players, playerId) {
+  const lines = promotionLines(board, playerId);
   if (!lines.length) return { board, players, graduated: [] };
   const indexes = new Set(lines.flat());
   const nextBoard = board.slice();
@@ -202,11 +181,17 @@ function graduateKittens(board, players, playerId) {
   const graduated = [];
   for (const i of indexes) {
     const piece = nextBoard[i];
-    if (!piece || piece.type !== 'kitten') continue;
+    if (!piece) continue;
     nextBoard[i] = null;
     const grown = { ...piece, type: 'cat' };
     owner.pool.push(grown);
-    graduated.push({ id: piece.id, from: i, ownerId: piece.ownerId, color: piece.color });
+    graduated.push({
+      id: piece.id,
+      from: i,
+      ownerId: piece.ownerId,
+      color: piece.color,
+      fromType: piece.type
+    });
   }
   return { board: nextBoard, players: nextPlayers, graduated };
 }
@@ -216,7 +201,7 @@ function graduateAllPlayers(board, players) {
   let nextPlayers = players;
   const graduated = [];
   for (const p of players) {
-    const g = graduateKittens(nextBoard, nextPlayers, p.id);
+    const g = graduatePlayer(nextBoard, nextPlayers, p.id);
     nextBoard = g.board;
     nextPlayers = g.players;
     graduated.push(...g.graduated);
@@ -277,7 +262,7 @@ export function applyPlace(state, playerId, index, pieceType) {
   let board = state.board.slice();
   board[index] = piece;
 
-  const booped = resolveChainBoops(board, index, piece);
+  const booped = resolveBoops(board, index, piece);
   board = booped.board;
   for (const bounced of booped.toPool) {
     const owner = players.find((p) => p.id === bounced.ownerId);
@@ -299,11 +284,12 @@ export function applyPlace(state, playerId, index, pieceType) {
     graduated: []
   };
 
-  if (linesOfThree(board, playerId, 'cat').length) {
+  const catWinner = players.find((p) => linesOfThree(board, p.id, 'cat').length);
+  if (catWinner) {
     return finishWin(
       { ...state, board, lastMove, log: [...state.log, { ts: Date.now(), message: logMessage }].slice(-40) },
       players,
-      playerId,
+      catWinner.id,
       ' avec 3 chats alignés !'
     );
   }
@@ -321,7 +307,13 @@ export function applyPlace(state, playerId, index, pieceType) {
   const nextPlayers = graduated.players;
   lastMove.graduated = graduated.graduated;
   if (graduated.graduated.length) {
-    logMessage += ` — ${graduated.graduated.length} chaton${graduated.graduated.length > 1 ? 's' : ''} devient chat`;
+    const kittens = graduated.graduated.filter((g) => g.fromType === 'kitten').length;
+    const cats = graduated.graduated.length - kittens;
+    if (kittens && cats) {
+      logMessage += ` — ${kittens} chaton${kittens > 1 ? 's' : ''} devient chat, ${graduated.graduated.length} pions au panier`;
+    } else {
+      logMessage += ` — ${kittens} chaton${kittens > 1 ? 's' : ''} devient chat`;
+    }
   }
 
   return {
