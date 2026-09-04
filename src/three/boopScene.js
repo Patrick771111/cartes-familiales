@@ -31,6 +31,8 @@ const GRID = 6;
 const BOARD = CELL * GRID;
 const DUVET_Y = TABLE_TOP + 0.26;
 const BASKET_Y = 0.12;
+const CAT_SPRITE = 0.58;
+const KITTEN_SPRITE = 0.352;
 const DEFAULT_YAW = 0;
 const DEFAULT_PITCH = 0.94;
 const DEFAULT_DIST = 6.2;
@@ -198,7 +200,7 @@ function applyClip(mesh, clip) {
 
 function createAnimal(type, color) {
   const g = new THREE.Group();
-  const s = type === 'cat' ? 0.58 : 0.44;
+  const s = type === 'cat' ? CAT_SPRITE : KITTEN_SPRITE;
   const mat = new THREE.MeshBasicMaterial({
     transparent: true,
     alphaTest: 0.12,
@@ -223,7 +225,7 @@ function createAnimal(type, color) {
 function setAnimalType(mesh, type) {
   if (!mesh || mesh.userData.type === type) return;
   mesh.userData.type = type;
-  mesh.userData.spriteSize = type === 'cat' ? 0.58 : 0.44;
+  mesh.userData.spriteSize = type === 'cat' ? CAT_SPRITE : KITTEN_SPRITE;
   applyClip(mesh, mesh.userData.clip || 'idle');
 }
 
@@ -828,7 +830,7 @@ function advanceSprites(now) {
     const plane = mesh.userData.plane;
     if (!plane) continue;
     plane.quaternion.copy(camera.quaternion);
-    const size = mesh.userData.spriteSize || 0.44;
+    const size = mesh.userData.spriteSize || KITTEN_SPRITE;
     const facing = mesh.userData.facing || 1;
     plane.scale.set(size * facing, size, 1);
     const clip = mesh.userData.clip || 'idle';
@@ -1005,7 +1007,7 @@ function resetPose(mesh) {
   if (!mesh) return;
   mesh.userData.dancing = false;
   mesh.rotation.z = 0;
-  mesh.userData.spriteSize = mesh.userData.type === 'cat' ? 0.58 : 0.44;
+  mesh.userData.spriteSize = mesh.userData.type === 'cat' ? CAT_SPRITE : KITTEN_SPRITE;
   const plane = mesh.userData.plane;
   if (plane) plane.position.y = mesh.userData.spriteSize * 0.42;
   if (mesh.userData.clip === 'dance') applyClip(mesh, 'idle');
