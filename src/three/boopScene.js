@@ -13,9 +13,10 @@ import duvetUrl from '../assets/games/boop/duvet.jpg';
 import wallpaperUrl from '../assets/games/boop/wallpaper.jpg';
 import floorUrl from '../assets/games/boop/floor.jpg';
 import windowUrl from '../assets/games/boop/window.jpg';
+import curtainUrl from '../assets/games/boop/curtain.jpg';
 
 /**
- * Scène 3D Boop — chambre kawaii, lit 6×6 au centre, paniers autour.
+ * Scène 3D Boop — chambre kawaii (style illustration), lit 6×6 et paniers.
  * Un pion saute depuis son panier ; le rebond à l'atterrissage
  * pousse les voisins (boop). Un alignement de 3 avec au moins un chaton :
  * les chatons grandissent, puis toute la ligne rejoint le panier des chats.
@@ -30,6 +31,9 @@ const GRID = 6;
 const BOARD = CELL * GRID;
 const DUVET_Y = TABLE_TOP + 0.16;
 const BASKET_Y = 0.12;
+const DEFAULT_YAW = 0;
+const DEFAULT_PITCH = 0.92;
+const DEFAULT_DIST = 6.05;
 
 let canvas;
 let renderer;
@@ -61,9 +65,9 @@ const sheetCache = new Map();
 const _corner = new THREE.Vector3();
 const _look = new THREE.Vector3();
 
-let orbitYaw = 0;
-let orbitPitch = 1.02;
-let orbitDistance = 6.2;
+let orbitYaw = DEFAULT_YAW;
+let orbitPitch = DEFAULT_PITCH;
+let orbitDistance = DEFAULT_DIST;
 let orbitYawLimited = true;
 
 function teardown() {
@@ -121,11 +125,11 @@ function cellWorld(index) {
 
 function basketWorld(seat, type) {
   if (seat === 0) {
-    const x = type === 'kitten' ? 1.15 : -1.15;
-    return new THREE.Vector3(x, TABLE_TOP + 0.04, 1.72);
+    const x = type === 'kitten' ? 1.35 : -1.35;
+    return new THREE.Vector3(x, TABLE_TOP + 0.04, 1.68);
   }
-  const x = type === 'kitten' ? -1.68 : 1.68;
-  return new THREE.Vector3(x, TABLE_TOP + 0.04, -1.02);
+  const x = type === 'kitten' ? -1.55 : 1.55;
+  return new THREE.Vector3(x, TABLE_TOP + 0.04, -1.12);
 }
 
 function basketScatter(id, i, n) {
@@ -246,43 +250,108 @@ function addBox(parent, w, h, d, x, y, z, mat) {
   return m;
 }
 
-function createLamp(shadeColor) {
+function createLamp() {
   const g = new THREE.Group();
-  const wood = makeMat({ color: 0xe8d5b5, roughness: 0.55 });
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.28, 8), wood);
+  const stemWood = makeMat({ color: 0xe2b56a, roughness: 0.48 });
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, 0.22, 10), stemWood);
   stem.position.y = 0.14;
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.03, 12), wood);
-  base.position.y = 0.015;
-  const shade = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.08, 0.12, 0.14, 12, 1, true),
-    makeMat({ color: shadeColor, roughness: 0.7, emissive: shadeColor, emissiveIntensity: 0.18, side: THREE.DoubleSide })
-  );
-  shade.position.y = 0.32;
-  const glow = new THREE.PointLight(shadeColor, 0.35, 2.4);
-  glow.position.y = 0.3;
-  g.add(stem, base, shade, glow);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.025, 12), stemWood);
+  base.position.y = 0.012;
+  const pink = makeMat({ color: 0xf4a8c0, roughness: 0.7, emissive: 0xf4a8c0, emissiveIntensity: 0.14, side: THREE.DoubleSide });
+  const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.125, 0.12, 16, 1, true), pink);
+  shade.position.y = 0.3;
+  const cap = new THREE.Mesh(new THREE.CircleGeometry(0.06, 16), pink);
+  cap.rotation.x = -Math.PI / 2;
+  cap.position.y = 0.36;
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2;
+    const scallop = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), pink);
+    scallop.position.set(Math.cos(a) * 0.12, 0.245, Math.sin(a) * 0.12);
+    g.add(scallop);
+  }
+  const glow = new THREE.PointLight(0xffd4e4, 0.32, 2.4);
+  glow.position.y = 0.28;
+  g.add(stem, base, shade, cap, glow);
   return g;
 }
 
-function createPottedPlant() {
+function createPot() {
   const g = new THREE.Group();
   const pot = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.08, 0.06, 0.12, 10),
-    makeMat({ color: 0xf2b8c6, roughness: 0.55 })
+    new THREE.CylinderGeometry(0.07, 0.055, 0.1, 12),
+    makeMat({ color: 0xf7f2ea, roughness: 0.52 })
   );
-  pot.position.y = 0.06;
-  const dirt = new THREE.Mesh(new THREE.CircleGeometry(0.07, 10), makeMat({ color: 0x6b4a32, roughness: 1 }));
+  pot.position.y = 0.05;
+  const dirt = new THREE.Mesh(new THREE.CircleGeometry(0.06, 12), makeMat({ color: 0x6b4a32, roughness: 1 }));
   dirt.rotation.x = -Math.PI / 2;
-  dirt.position.y = 0.121;
-  const leafMat = makeMat({ color: 0x7ecf9a, roughness: 0.55 });
-  for (let i = 0; i < 5; i++) {
-    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), leafMat);
-    const a = (i / 5) * Math.PI * 2;
-    leaf.position.set(Math.cos(a) * 0.05, 0.2 + (i % 2) * 0.04, Math.sin(a) * 0.05);
-    leaf.scale.set(1.1, 0.7, 0.85);
-    g.add(leaf);
-  }
+  dirt.position.y = 0.102;
   g.add(pot, dirt);
+  return g;
+}
+
+function createFern() {
+  const g = createPot();
+  const leaf = makeMat({ color: 0x4f9a55, roughness: 0.55 });
+  for (let i = 0; i < 9; i++) {
+    const frond = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), leaf);
+    const a = (i / 9) * Math.PI * 2;
+    frond.scale.set(0.35, 0.22, 1.15);
+    frond.position.set(Math.cos(a) * 0.06, 0.16, Math.sin(a) * 0.06);
+    frond.lookAt(Math.cos(a) * 0.4, 0.28, Math.sin(a) * 0.4);
+    g.add(frond);
+  }
+  return g;
+}
+
+function createPothos() {
+  const g = createPot();
+  const leaf = makeMat({ color: 0x63b36a, roughness: 0.52 });
+  const spots = [
+    [0.04, 0.2, 0.02],
+    [-0.05, 0.22, 0.04],
+    [0.02, 0.26, -0.05],
+    [-0.03, 0.18, -0.04],
+    [0.06, 0.24, 0.05],
+    [-0.06, 0.28, 0]
+  ];
+  for (const [x, y, z] of spots) {
+    const l = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), leaf);
+    l.scale.set(1.2, 0.35, 0.85);
+    l.position.set(x, y, z);
+    l.rotation.z = x > 0 ? -0.4 : 0.4;
+    g.add(l);
+  }
+  return g;
+}
+
+function createSucculent() {
+  const g = createPot();
+  g.scale.setScalar(0.7);
+  const leaf = makeMat({ color: 0x7db86a, roughness: 0.5 });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const l = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), leaf);
+    l.scale.set(0.55, 0.9, 0.4);
+    l.position.set(Math.cos(a) * 0.035, 0.14, Math.sin(a) * 0.035);
+    g.add(l);
+  }
+  return g;
+}
+
+function createNightstand() {
+  const g = new THREE.Group();
+  const white = makeMat({ color: 0xf6f1ea, roughness: 0.52 });
+  const drawer = makeMat({ color: 0xeee6dc, roughness: 0.55 });
+  const knob = makeMat({ color: 0xe8dccf, roughness: 0.4 });
+  addBox(g, 0.5, 0.38, 0.42, 0, 0.19, 0, white);
+  addBox(g, 0.52, 0.03, 0.44, 0, 0.395, 0, white);
+  addBox(g, 0.42, 0.13, 0.02, 0, 0.28, 0.211, drawer);
+  addBox(g, 0.42, 0.13, 0.02, 0, 0.13, 0.211, drawer);
+  const k1 = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), knob);
+  k1.position.set(0, 0.28, 0.23);
+  const k2 = k1.clone();
+  k2.position.y = 0.13;
+  g.add(k1, k2);
   return g;
 }
 
@@ -297,11 +366,15 @@ function createRoom() {
   const xL = -W / 2;
   const xR = W / 2;
 
-  const wallMat = makeMat({ map: loadMap(wallpaperUrl, 3.4, 1.6), roughness: 0.94, color: 0xffffff });
-  const trim = makeMat({ color: 0xfff8f0, roughness: 0.62 });
-  const wood = makeMat({ color: 0xe2c49a, roughness: 0.55 });
-  const blush = makeMat({ color: 0xf4b8c9, roughness: 0.7 });
-  const cream = makeMat({ color: 0xfff4e8, roughness: 0.75 });
+  const wallMat = makeMat({ map: loadMap(wallpaperUrl, 3.1, 1.55), roughness: 0.94, color: 0xffffff });
+  const trim = makeMat({ color: 0xfffaf4, roughness: 0.62 });
+  const honey = makeMat({ map: loadMap(floorUrl, 1.8, 1.8), roughness: 0.6, color: 0xf2d7a8 });
+  const curtainMat = makeMat({
+    map: loadMap(curtainUrl, 2.2, 3.2),
+    roughness: 0.84,
+    side: THREE.DoubleSide,
+    color: 0xffffff
+  });
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(W, D),
@@ -323,143 +396,141 @@ function createRoom() {
   right.position.set(xR, H / 2, zMid);
   g.add(right);
 
-  addBox(g, W, 0.1, 0.05, 0, 0.05, zBack + 0.025, trim);
-  addBox(g, 0.05, 0.1, D, xL + 0.025, 0.05, zMid, trim);
-  addBox(g, 0.05, 0.1, D, xR - 0.025, 0.05, zMid, trim);
-  addBox(g, W, 0.06, 0.05, 0, H - 0.03, zBack + 0.025, trim);
+  addBox(g, W, 0.12, 0.06, 0, 0.06, zBack + 0.03, trim);
+  addBox(g, 0.06, 0.12, D, xL + 0.03, 0.06, zMid, trim);
+  addBox(g, 0.06, 0.12, D, xR - 0.03, 0.06, zMid, trim);
 
-  const winW = 1.55;
-  const winH = 1.05;
-  const winY = 1.58;
+  const winW = 1.72;
+  const winH = 1.12;
+  const winY = 1.64;
   const skyMap = loadMap(windowUrl, 1, 1);
   skyMap.wrapS = THREE.ClampToEdgeWrapping;
   skyMap.wrapT = THREE.ClampToEdgeWrapping;
-  const sky = new THREE.Mesh(
-    new THREE.PlaneGeometry(winW, winH),
-    new THREE.MeshBasicMaterial({ map: skyMap })
-  );
+  const sky = new THREE.Mesh(new THREE.PlaneGeometry(winW, winH), new THREE.MeshBasicMaterial({ map: skyMap }));
   sky.position.set(0, winY, zBack + 0.03);
   g.add(sky);
-  addBox(g, winW + 0.16, 0.07, 0.08, 0, winY + winH / 2, zBack + 0.05, trim);
-  addBox(g, winW + 0.16, 0.07, 0.08, 0, winY - winH / 2, zBack + 0.05, trim);
-  addBox(g, 0.07, winH + 0.14, 0.08, -winW / 2, winY, zBack + 0.05, trim);
-  addBox(g, 0.07, winH + 0.14, 0.08, winW / 2, winY, zBack + 0.05, trim);
-  addBox(g, 0.04, winH, 0.04, 0, winY, zBack + 0.05, trim);
-  addBox(g, winW, 0.04, 0.04, 0, winY, zBack + 0.05, trim);
+  addBox(g, winW + 0.2, 0.08, 0.1, 0, winY + winH / 2 + 0.02, zBack + 0.07, trim);
+  addBox(g, winW + 0.2, 0.08, 0.1, 0, winY - winH / 2 - 0.02, zBack + 0.07, trim);
+  addBox(g, 0.08, winH + 0.2, 0.1, -winW / 2 - 0.02, winY, zBack + 0.07, trim);
+  addBox(g, 0.08, winH + 0.2, 0.1, winW / 2 + 0.02, winY, zBack + 0.07, trim);
+  addBox(g, winW + 0.28, 0.06, 0.18, 0, winY - winH / 2 - 0.08, zBack + 0.14, trim);
 
-  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 2.15, 8), wood);
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 2.4, 8), honey);
   rod.rotation.z = Math.PI / 2;
-  rod.position.set(0, winY + winH / 2 + 0.1, zBack + 0.12);
+  rod.position.set(0, winY + winH / 2 + 0.1, zBack + 0.16);
   g.add(rod);
-  const curtainMat = makeMat({ color: 0xf3b7c8, roughness: 0.85, side: THREE.DoubleSide });
-  const addCurtain = (x) => {
-    const c = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 1.55), curtainMat);
-    c.position.set(x, winY - 0.18, zBack + 0.1);
-    g.add(c);
+  const addCurtain = (side) => {
+    const x = side * 1.08;
+    const p1 = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 1.72), curtainMat);
+    p1.position.set(x - side * 0.08, winY - 0.24, zBack + 0.14);
+    p1.rotation.y = side * 0.28;
+    const p2 = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 1.72), curtainMat);
+    p2.position.set(x + side * 0.1, winY - 0.24, zBack + 0.18);
+    p2.rotation.y = -side * 0.18;
+    g.add(p1, p2);
+    const tie = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.012, 6, 12), makeMat({ color: 0xf2c2d0, roughness: 0.6 }));
+    tie.position.set(x, winY - 0.05, zBack + 0.2);
+    tie.rotation.y = Math.PI / 2;
+    g.add(tie);
   };
-  addCurtain(-0.95);
-  addCurtain(0.95);
+  addCurtain(-1);
+  addCurtain(1);
 
-  const rug = new THREE.Mesh(new THREE.CircleGeometry(1.85, 48), makeMat({ color: 0xf7c6d6, roughness: 0.95 }));
+  const succulent = createSucculent();
+  succulent.position.set(0.42, winY - winH / 2 - 0.05, zBack + 0.2);
+  g.add(succulent);
+
+  const rug = new THREE.Mesh(new THREE.CircleGeometry(1.78, 48), makeMat({ color: 0xf6e9b8, roughness: 0.95 }));
   rug.rotation.x = -Math.PI / 2;
-  rug.position.set(0, 0.006, -0.08);
+  rug.position.set(0, 0.006, 0.18);
   g.add(rug);
-  const rugIn = new THREE.Mesh(new THREE.CircleGeometry(1.58, 48), makeMat({ color: 0xffeef4, roughness: 0.95 }));
-  rugIn.rotation.x = -Math.PI / 2;
-  rugIn.position.set(0, 0.008, -0.08);
-  g.add(rugIn);
-
-  const standH = 0.34;
-  const addStand = (x) => {
-    addBox(g, 0.42, standH, 0.38, x, standH / 2, -1.92, wood);
-    addBox(g, 0.44, 0.03, 0.4, x, standH + 0.015, -1.92, cream);
-    addBox(g, 0.34, 0.1, 0.02, x, 0.17, -1.73, makeMat({ color: 0xd7b48c, roughness: 0.6 }));
-  };
-  addStand(-2.52);
-  addStand(2.52);
-  const plant = createPottedPlant();
-  plant.position.set(-2.52, standH + 0.03, -1.92);
-  g.add(plant);
-  const lamp = createLamp(0xffd4e2);
-  lamp.position.set(2.52, standH + 0.03, -1.92);
-  g.add(lamp);
-
-  const frameMat = makeMat({ color: 0xf0c36a, roughness: 0.45 });
-  const addFrame = (x, y, col) => {
-    addBox(g, 0.36, 0.44, 0.05, x, y, zBack + 0.04, frameMat);
-    addBox(g, 0.28, 0.36, 0.02, x, y, zBack + 0.07, makeMat({ color: col, roughness: 0.8 }));
-  };
-  addFrame(-2.2, 1.52, 0xb8e0f5);
-  addFrame(2.2, 1.52, 0xf7c9a8);
-
-  const lightMat = makeMat({ color: 0xffe7a8, emissive: 0xffd978, emissiveIntensity: 0.85, roughness: 0.4 });
-  for (let i = 0; i < 11; i++) {
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), lightMat);
-    const t = i / 10;
-    bulb.position.set((t - 0.5) * 4.8, H - 0.28, zBack + 0.1);
-    bulb.position.y += Math.sin(t * Math.PI) * 0.08;
-    g.add(bulb);
+  const stitch = new THREE.Mesh(
+    new THREE.RingGeometry(1.42, 1.46, 48),
+    makeMat({ color: 0xe8d48a, roughness: 0.9, side: THREE.DoubleSide })
+  );
+  stitch.rotation.x = -Math.PI / 2;
+  stitch.position.set(0, 0.008, 0.18);
+  g.add(stitch);
+  const fringe = makeMat({ color: 0xf4edd4, roughness: 0.9 });
+  for (let i = 0; i < 36; i++) {
+    const a = (i / 36) * Math.PI * 2;
+    const tassel = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.01, 0.12), fringe);
+    tassel.position.set(Math.cos(a) * 1.84, 0.007, 0.18 + Math.sin(a) * 1.84);
+    tassel.rotation.y = -a;
+    g.add(tassel);
   }
 
-  const pouf = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 10), blush);
-  pouf.scale.set(1.15, 0.42, 1.15);
-  pouf.position.set(-2.35, 0.09, 1.55);
-  g.add(pouf);
-
-  const book = makeMat({ color: 0x9fd6ea, roughness: 0.7 });
-  addBox(g, 0.18, 0.04, 0.14, 2.4, 0.04, 1.7, book);
-  addBox(g, 0.16, 0.035, 0.13, 2.42, 0.08, 1.72, blush);
+  const standZ = -1.95;
+  const nsL = createNightstand();
+  nsL.position.set(-2.42, 0, standZ);
+  const nsR = createNightstand();
+  nsR.position.set(2.42, 0, standZ);
+  g.add(nsL, nsR);
+  const fern = createFern();
+  fern.position.set(-2.52, 0.4, standZ);
+  g.add(fern);
+  const pothos = createPothos();
+  pothos.position.set(2.55, 0.4, standZ);
+  g.add(pothos);
+  const lampL = createLamp();
+  lampL.position.set(-2.28, 0.4, standZ);
+  g.add(lampL);
+  const lampR = createLamp();
+  lampR.position.set(2.28, 0.4, standZ);
+  g.add(lampR);
   return g;
 }
 
 function createBoard() {
   const g = new THREE.Group();
-  const frame = makeMat({ color: 0x6b4423, roughness: 0.68 });
-  const rail = makeMat({ color: 0x8a6234, roughness: 0.7 });
-  const mattress = new THREE.Mesh(new THREE.BoxGeometry(BOARD + 0.34, 0.12, BOARD + 0.46), frame);
+  const honey = makeMat({ map: loadMap(floorUrl, 2.4, 2.4), roughness: 0.58, color: 0xf0d4a0 });
+  const linen = makeMat({ color: 0xf6ead8, roughness: 0.9 });
+  const frameW = BOARD + 0.4;
+  const frameD = BOARD + 0.52;
+  const mattress = new THREE.Mesh(new THREE.BoxGeometry(frameW, 0.12, frameD), honey);
   mattress.position.set(0, TABLE_TOP + 0.06, -0.05);
   g.add(mattress);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(BOARD + 0.38, 0.46, 0.09), frame);
-  head.position.set(0, TABLE_TOP + 0.28, -(BOARD + 0.46) / 2 - 0.05);
-  g.add(head);
-  const foot = new THREE.Mesh(new THREE.BoxGeometry(BOARD + 0.38, 0.18, 0.07), rail);
-  foot.position.set(0, TABLE_TOP + 0.14, (BOARD + 0.46) / 2 - 0.05);
+  const hz = -frameD / 2 - 0.05;
+  addBox(g, frameW, 0.07, 0.08, 0, TABLE_TOP + 0.5, hz, honey);
+  addBox(g, frameW, 0.07, 0.08, 0, TABLE_TOP + 0.16, hz, honey);
+  addBox(g, 0.08, 0.42, 0.08, -frameW / 2 + 0.04, TABLE_TOP + 0.33, hz, honey);
+  addBox(g, 0.08, 0.42, 0.08, frameW / 2 - 0.04, TABLE_TOP + 0.33, hz, honey);
+  for (let i = 0; i < 6; i++) {
+    const slat = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.34, 0.035), honey);
+    slat.position.set((i - 2.5) * 0.3, TABLE_TOP + 0.33, hz + 0.02);
+    g.add(slat);
+  }
+  const foot = new THREE.Mesh(new THREE.BoxGeometry(frameW, 0.14, 0.08), honey);
+  foot.position.set(0, TABLE_TOP + 0.13, frameD / 2 - 0.05);
   g.add(foot);
-
-  const legGeo = new THREE.CylinderGeometry(0.045, 0.05, TABLE_TOP, 10);
-  const legMat = makeMat({ color: 0x5a381c, roughness: 0.78 });
   const addLeg = (x, z) => {
-    const leg = new THREE.Mesh(legGeo, legMat);
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.09, TABLE_TOP, 0.09), honey);
     leg.position.set(x, TABLE_TOP / 2, z);
     g.add(leg);
   };
-  addLeg(-1.05, -1.16);
-  addLeg(1.05, -1.16);
-  addLeg(-1.05, 1.06);
-  addLeg(1.05, 1.06);
+  addLeg(-frameW / 2 + 0.08, -frameD / 2 + 0.08);
+  addLeg(frameW / 2 - 0.08, -frameD / 2 + 0.08);
+  addLeg(-frameW / 2 + 0.08, frameD / 2 - 0.08);
+  addLeg(frameW / 2 - 0.08, frameD / 2 - 0.08);
 
   const tex = textureLoader.load(duvetUrl);
   tex.colorSpace = THREE.SRGBColorSpace;
   const duvet = new THREE.Mesh(
-    new THREE.PlaneGeometry(BOARD + 0.04, BOARD + 0.04),
-    new THREE.MeshStandardMaterial({ map: tex, roughness: 0.94, metalness: 0, color: 0xffffff })
+    new THREE.PlaneGeometry(BOARD, BOARD),
+    new THREE.MeshBasicMaterial({ map: tex })
   );
   duvet.rotation.x = -Math.PI / 2;
   duvet.position.y = DUVET_Y - 0.002;
   g.add(duvet);
 
-  const linen = makeMat({ color: 0xf4f0e8, roughness: 0.9 });
-  const addPillow = (x, yaw) => {
-    const p = new THREE.Mesh(new THREE.SphereGeometry(0.28, 18, 14), linen);
-    p.scale.set(1.42, 0.3, 0.38);
-    // Contre la tête de lit, hors des cases (léger débord visuel seulement).
-    p.position.set(x, TABLE_TOP + 0.2, -1.24);
-    p.rotation.y = yaw;
-    p.rotation.z = x > 0 ? -0.08 : 0.08;
+  const addPillow = (x) => {
+    const p = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), linen);
+    p.scale.set(1.45, 0.38, 0.55);
+    p.position.set(x, TABLE_TOP + 0.2, -BOARD / 2 + 0.02);
     g.add(p);
   };
-  addPillow(-0.4, 0.18);
-  addPillow(0.4, -0.18);
+  addPillow(-0.4);
+  addPillow(0.4);
   return g;
 }
 
@@ -743,8 +814,6 @@ function startVictoryDance(move) {
   const list = move.winCats || [];
   victoryQueued = false;
   if (!list.length) return;
-  orbitPitch = Math.min(orbitPitch, 0.72);
-  applyOrbit();
   list.forEach((c, i) => {
     const mesh = pieceMeshes.get(c.id);
     if (!mesh) return;
@@ -801,15 +870,15 @@ function ensureScene() {
   canvas.style.cssText = 'position:fixed;pointer-events:none;display:none;z-index:5';
   document.body.appendChild(canvas);
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf6e4d4);
+  scene.background = new THREE.Color(0xf4ead8);
   camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 80);
-  scene.add(new THREE.HemisphereLight(0xffeef5, 0xc4b29a, 0.55));
-  scene.add(new THREE.AmbientLight(0xfff6ea, 0.28));
+  scene.add(new THREE.HemisphereLight(0xfff4ea, 0xc4b29a, 0.55));
+  scene.add(new THREE.AmbientLight(0xfff6ea, 0.32));
   const key = new THREE.DirectionalLight(0xfff3d8, 0.42);
-  key.position.set(1.2, 5.5, 3.2);
+  key.position.set(1.6, 6.2, 3.8);
   scene.add(key);
-  const windowLight = new THREE.DirectionalLight(0xfff0c8, 0.3);
-  windowLight.position.set(0, 2.4, -3.4);
+  const windowLight = new THREE.DirectionalLight(0xfff0c8, 0.22);
+  windowLight.position.set(0, 2.4, -3.2);
   scene.add(windowLight);
   scene.add(createRoom());
   scene.add(createBoard());
@@ -827,7 +896,7 @@ function ensureScene() {
   b1c.position.set(p1c.x, BASKET_Y, p1c.z);
   scene.add(b0k, b0c, b1k, b1c);
   renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-  renderer.setClearColor(0xf6e4d4, 1);
+  renderer.setClearColor(0xf4ead8, 1);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   applyOrbit();
   const tick = () => {
@@ -889,9 +958,9 @@ export function hideTable() {
 }
 
 export function resetOrbit() {
-  orbitYaw = 0;
-  orbitPitch = 1.02;
-  orbitDistance = 6.2;
+  orbitYaw = DEFAULT_YAW;
+  orbitPitch = DEFAULT_PITCH;
+  orbitDistance = DEFAULT_DIST;
   if (mounted) applyOrbit();
 }
 
