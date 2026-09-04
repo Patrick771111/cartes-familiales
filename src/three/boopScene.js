@@ -31,11 +31,6 @@ const BOARD = CELL * GRID;
 const DUVET_Y = TABLE_TOP + 0.16;
 const BASKET_Y = 0.12;
 
-const FUR = { orange: 0xd9782c, gray: 0x8b9098 };
-const BELLY = { orange: 0xf3d5a8, gray: 0xe8e8ea };
-const BOARD_WOOD = 0xb08958;
-const CELL_DARK = 0x8a6234;
-
 let canvas;
 let renderer;
 let scene;
@@ -59,7 +54,6 @@ const busy = new Set();
 const motions = [];
 const dancers = new Map();
 let lastAnimatedId = null;
-let kawaiiMode = false;
 let victoryQueued = false;
 const textureLoader = new THREE.TextureLoader();
 const sheetCache = new Map();
@@ -193,7 +187,7 @@ function applyClip(mesh, clip) {
   }
 }
 
-function createKawaiiAnimal(type, color) {
+function createAnimal(type, color) {
   const g = new THREE.Group();
   const s = type === 'cat' ? 0.58 : 0.44;
   const mat = new THREE.MeshBasicMaterial({
@@ -213,96 +207,15 @@ function createKawaiiAnimal(type, color) {
   g.userData.spriteSize = s;
   g.userData.facing = 1;
   g.userData.clip = 'idle';
-  g.userData.kawaii = true;
   applyClip(g, 'idle');
-  return g;
-}
-
-function makeLeg(fur, x, z) {
-  const leg = new THREE.Group();
-  const bone = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.016, 0.09, 8), fur);
-  bone.position.y = -0.045;
-  const paw = new THREE.Mesh(new THREE.SphereGeometry(0.024, 8, 6), fur);
-  paw.scale.set(1.15, 0.5, 1.35);
-  paw.position.y = -0.09;
-  leg.position.set(x, 0.095, z);
-  leg.add(bone, paw);
-  return leg;
-}
-
-function createAnimal(type, color) {
-  if (kawaiiMode) return createKawaiiAnimal(type, color);
-  const fur = makeMat({ color: FUR[color] || FUR.orange, roughness: 0.78 });
-  const pale = makeMat({ color: BELLY[color] || BELLY.orange, roughness: 0.8 });
-  const dark = makeMat({ color: 0x2a221c, roughness: 0.6 });
-  const g = new THREE.Group();
-  const pivot = new THREE.Group();
-  pivot.position.set(0, 0.02, -0.12);
-  g.add(pivot);
-  const rig = new THREE.Group();
-  rig.position.set(0, 0, 0.12);
-  pivot.add(rig);
-  const s = type === 'cat' ? 1 : 0.72;
-
-  const body = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 12), fur);
-  body.scale.set(1.05, 0.78, 1.28);
-  body.position.y = 0.12;
-  rig.add(body);
-
-  const tummy = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 10), pale);
-  tummy.position.set(0, 0.08, 0.08);
-  tummy.scale.set(0.9, 0.7, 0.7);
-  rig.add(tummy);
-
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12), fur);
-  head.position.set(0, 0.28, 0.12);
-  rig.add(head);
-
-  const earGeo = new THREE.ConeGeometry(0.045, 0.08, 8);
-  const earL = new THREE.Mesh(earGeo, fur);
-  earL.position.set(-0.07, 0.38, 0.1);
-  earL.rotation.z = 0.25;
-  const earR = new THREE.Mesh(earGeo, fur);
-  earR.position.set(0.07, 0.38, 0.1);
-  earR.rotation.z = -0.25;
-  rig.add(earL, earR);
-
-  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), dark);
-  eyeL.position.set(-0.04, 0.3, 0.21);
-  const eyeR = eyeL.clone();
-  eyeR.position.x = 0.04;
-  rig.add(eyeL, eyeR);
-
-  const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.012, 0.18, 8), fur);
-  tail.position.set(0.08, 0.16, -0.16);
-  tail.rotation.x = 0.9;
-  tail.rotation.z = -0.4;
-  rig.add(tail);
-
-  const frontL = makeLeg(fur, -0.055, 0.1);
-  const frontR = makeLeg(fur, 0.055, 0.1);
-  const hindL = makeLeg(fur, -0.055, -0.11);
-  const hindR = makeLeg(fur, 0.055, -0.11);
-  rig.add(frontL, frontR, hindL, hindR);
-
-  g.scale.setScalar(s);
-  g.userData.type = type;
-  g.userData.color = color;
-  g.userData.baseScale = s;
-  g.userData.pivot = pivot;
-  g.userData.parts = { tail, frontL, frontR, hindL, hindR };
   return g;
 }
 
 function setAnimalType(mesh, type) {
   if (!mesh || mesh.userData.type === type) return;
   mesh.userData.type = type;
-  if (mesh.userData.kawaii) {
-    mesh.userData.spriteSize = type === 'cat' ? 0.58 : 0.44;
-    applyClip(mesh, mesh.userData.clip || 'idle');
-  } else {
-    mesh.userData.baseScale = type === 'cat' ? 1 : 0.72;
-  }
+  mesh.userData.spriteSize = type === 'cat' ? 0.58 : 0.44;
+  applyClip(mesh, mesh.userData.clip || 'idle');
 }
 
 function createBasket(kind = 'kitten') {
@@ -558,7 +471,7 @@ function faceToward(mesh, from, to) {
 function startJump(mesh, to, { duration = 720, lift = 0.72, scaleTo, clip, keepBusy = false, onDone } = {}) {
   if (!mesh) return;
   busy.add(mesh.userData.pieceId);
-  if (clip && mesh.userData.kawaii) applyClip(mesh, clip);
+  if (clip) applyClip(mesh, clip);
   faceToward(mesh, mesh.position, to);
   motions.push({
     mesh,
@@ -582,7 +495,7 @@ function startTravel(mesh, to, { onDone } = {}) {
   }
   const from = mesh.position.clone();
   const dist = Math.hypot(to.x - from.x, to.z - from.z);
-  if (!mesh.userData.kawaii || dist < 0.32) {
+  if (dist < 0.32) {
     startJump(mesh, to, { duration: dist < 0.32 ? 420 : 780, lift: dist < 0.32 ? 0.38 : 0.9, clip: 'jump', onDone });
     return;
   }
@@ -610,9 +523,8 @@ function advanceMotions(now) {
     const k = easeSmooth(t);
     m.mesh.position.lerpVectors(m.from, m.to, k);
     m.mesh.position.y += Math.sin(t * Math.PI) * m.lift;
-    const squash = m.mesh.userData.kawaii ? 1 : t > 0.82 ? 1 - 0.18 * Math.sin(((t - 0.82) / 0.18) * Math.PI) : 1;
     const s = m.scaleFrom + (m.scaleTo - m.scaleFrom) * k;
-    m.mesh.scale.set(s, s * squash, s);
+    m.mesh.scale.setScalar(s);
     if (t >= 1) {
       m.mesh.position.copy(m.to);
       m.mesh.scale.setScalar(m.scaleTo);
@@ -620,7 +532,7 @@ function advanceMotions(now) {
       const id = m.mesh.userData.pieceId;
       if (!m.keepBusy) {
         if (id) busy.delete(id);
-        if (m.mesh.userData.kawaii) applyClip(m.mesh, 'idle');
+        applyClip(m.mesh, 'idle');
       }
       m.onDone?.();
     }
@@ -648,11 +560,6 @@ function advanceSprites(now) {
 
 function ensurePiece(piece) {
   let mesh = pieceMeshes.get(piece.id);
-  if (mesh && Boolean(mesh.userData.kawaii) !== kawaiiMode) {
-    scene.remove(mesh);
-    pieceMeshes.delete(piece.id);
-    mesh = null;
-  }
   if (!mesh) {
     mesh = createAnimal(piece.type, piece.color);
     mesh.userData.pieceId = piece.id;
@@ -660,7 +567,6 @@ function ensurePiece(piece) {
     pieceMeshes.set(piece.id, mesh);
   } else if (mesh.userData.type !== piece.type) {
     setAnimalType(mesh, piece.type);
-    if (!busy.has(piece.id) && !mesh.userData.kawaii) mesh.scale.setScalar(mesh.userData.baseScale);
   }
   mesh.visible = true;
   return mesh;
@@ -685,7 +591,6 @@ function layoutIdle(board, players, seatOf) {
         const scatter = basketScatter(piece.id, i, shown);
         mesh.position.set(base.x + scatter.x, BASKET_Y, base.z + scatter.z);
         mesh.scale.setScalar(mesh.userData.baseScale);
-        if (!mesh.userData.kawaii) mesh.rotation.y = seat === 0 ? 0 : Math.PI;
       });
     });
   });
@@ -779,8 +684,7 @@ function playMove(move, seatOf) {
       if (move.winCats?.length) startVictoryDance(move);
     }, wait);
   };
-  if (kawaiiMode) startTravel(jumper, dest, { onDone: afterLand });
-  else startJump(jumper, dest, { duration: 780, lift: 0.9, onDone: afterLand });
+  startTravel(jumper, dest, { onDone: afterLand });
 }
 
 function playGraduation(move, seatOf) {
@@ -806,7 +710,7 @@ function playGraduation(move, seatOf) {
       startJump(mesh, here, {
         duration: 620,
         lift: 0.22,
-        scaleTo: mesh.userData.kawaii ? 1 : 1,
+        scaleTo: 1,
         clip: 'idle',
         onDone: () => goToCatBasket(mesh, g)
       });
@@ -817,24 +721,11 @@ function playGraduation(move, seatOf) {
 function resetPose(mesh) {
   if (!mesh) return;
   mesh.userData.dancing = false;
-  mesh.rotation.x = 0;
   mesh.rotation.z = 0;
-  if (mesh.userData.pivot) mesh.userData.pivot.rotation.set(0, 0, 0);
-  const parts = mesh.userData.parts;
-  if (parts) {
-    if (parts.frontL) parts.frontL.rotation.set(0, 0, 0);
-    if (parts.frontR) parts.frontR.rotation.set(0, 0, 0);
-    if (parts.tail) {
-      parts.tail.rotation.x = 0.9;
-      parts.tail.rotation.z = -0.4;
-    }
-  }
-  if (mesh.userData.kawaii) {
-    mesh.userData.spriteSize = mesh.userData.type === 'cat' ? 0.58 : 0.44;
-    const plane = mesh.userData.plane;
-    if (plane) plane.position.y = mesh.userData.spriteSize * 0.42;
-    if (mesh.userData.clip === 'dance') applyClip(mesh, 'idle');
-  }
+  mesh.userData.spriteSize = mesh.userData.type === 'cat' ? 0.58 : 0.44;
+  const plane = mesh.userData.plane;
+  if (plane) plane.position.y = mesh.userData.spriteSize * 0.42;
+  if (mesh.userData.clip === 'dance') applyClip(mesh, 'idle');
   mesh.scale.setScalar(mesh.userData.baseScale || 1);
 }
 
@@ -863,10 +754,8 @@ function startVictoryDance(move) {
     home.y = DUVET_Y;
     mesh.position.copy(home);
     mesh.visible = true;
-    if (mesh.userData.kawaii) {
-      mesh.userData.spriteSize = 0.72;
-      applyClip(mesh, 'dance');
-    }
+    mesh.userData.spriteSize = 0.72;
+    applyClip(mesh, 'dance');
     dancers.set(c.id, {
       mesh,
       home,
@@ -885,31 +774,9 @@ function advanceDances(now) {
     const sway = Math.sin((t + d.phase) * 5.4) * 0.26 * e;
     d.mesh.position.copy(d.home);
     d.mesh.position.y = d.home.y + 0.12 * e + bounce;
-    if (d.mesh.userData.kawaii) {
-      d.mesh.rotation.z = sway * 0.35;
-      const plane = d.mesh.userData.plane;
-      if (plane) plane.position.y = (d.mesh.userData.spriteSize || 0.72) * (0.42 + 0.08 * e);
-    } else {
-      const pivot = d.mesh.userData.pivot;
-      if (pivot) {
-        pivot.rotation.x = -1.32 * e;
-        pivot.rotation.z = sway;
-      } else {
-        d.mesh.rotation.x = -1.32 * e;
-        d.mesh.rotation.z = sway;
-      }
-      d.mesh.rotation.y = 0;
-      const parts = d.mesh.userData.parts;
-      if (parts) {
-        const wave = Math.sin((t + d.phase) * 9.5) * 0.55 * e;
-        if (parts.frontL) parts.frontL.rotation.x = -1.15 * e + wave;
-        if (parts.frontR) parts.frontR.rotation.x = -1.15 * e - wave;
-        if (parts.tail) {
-          parts.tail.rotation.z = -0.4 + Math.sin((t + d.phase) * 7) * 0.55 * e;
-          parts.tail.rotation.x = 0.9 - 0.45 * e;
-        }
-      }
-    }
+    d.mesh.rotation.z = sway * 0.35;
+    const plane = d.mesh.userData.plane;
+    if (plane) plane.position.y = (d.mesh.userData.spriteSize || 0.72) * (0.42 + 0.08 * e);
   }
 }
 
@@ -1028,17 +895,8 @@ export function resetOrbit() {
   if (mounted) applyOrbit();
 }
 
-export function updateTable({ board = [], players = [], lastMove = null, spectator = false, kawaii = false } = {}) {
+export function updateTable({ board = [], players = [], lastMove = null, spectator = false } = {}) {
   if (!mounted) return;
-  if (kawaiiMode !== kawaii) {
-    kawaiiMode = kawaii;
-    stopVictoryDance();
-    for (const mesh of pieceMeshes.values()) scene.remove(mesh);
-    pieceMeshes.clear();
-    busy.clear();
-    motions.length = 0;
-    lastAnimatedId = lastMove?.id || 'init';
-  }
   if (!lastMove?.winCats?.length) stopVictoryDance();
   orbitYawLimited = !spectator;
   const seatOf = new Map();
