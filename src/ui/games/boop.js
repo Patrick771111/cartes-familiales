@@ -41,11 +41,7 @@ export function hide3D() {
 }
 
 export function renderTable(container, { room, player, state, onLeave }) {
-  if (is3DEnabled('boop')) renderBoopTable3D(container, { room, player, state, onLeave });
-  else {
-    hideTable();
-    renderBoopTable2D(container, { room, player, state, onLeave });
-  }
+  renderBoopTable3D(container, { room, player, state, onLeave, kawaii: is3DEnabled('boop') });
 }
 
 function pieceClass(piece) {
@@ -205,7 +201,7 @@ function renderBoopTable2D(container, { room, player, state, onLeave }) {
   wireThreeDToggle(container, 'boop', () => renderTable(container, { room, player, state, onLeave }));
 }
 
-function renderBoopTable3D(container, { room, player, state, onLeave }) {
+function renderBoopTable3D(container, { room, player, state, onLeave, kawaii = false }) {
   const me = state.players.find((p) => p.id === player.id);
   const others = orderedOpponents(state, player.id);
   const isMyTurn = state.status === 'playing' && state.currentPlayerId === player.id;
@@ -228,8 +224,12 @@ function renderBoopTable3D(container, { room, player, state, onLeave }) {
   if (!finished) {
     banner = isMyTurn
       ? selectedType === 'cat'
-        ? 'Pose un chat : touche une case, ou glisse depuis le panier'
-        : 'Pose un chaton : touche une case, ou glisse depuis le panier'
+        ? kawaii
+          ? 'Les chats courent : touche une case ou glisse depuis le panier'
+          : 'Pose un chat : touche une case, ou glisse depuis le panier'
+        : kawaii
+          ? 'Les chatons courent : touche une case ou glisse depuis le panier'
+          : 'Pose un chaton : touche une case, ou glisse depuis le panier'
       : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`;
   }
 
@@ -269,7 +269,8 @@ function renderBoopTable3D(container, { room, player, state, onLeave }) {
   updateTable({
     board: state.board,
     players: seats,
-    lastMove: state.lastMove || null
+    lastMove: state.lastMove || null,
+    kawaii
   });
   showTable();
 

@@ -1,4 +1,12 @@
 import * as THREE from 'three';
+import idleKittenOrange from '../assets/games/boop/idle-kitten-orange.png';
+import idleKittenGray from '../assets/games/boop/idle-kitten-gray.png';
+import idleCatOrange from '../assets/games/boop/idle-cat-orange.png';
+import idleCatGray from '../assets/games/boop/idle-cat-gray.png';
+import runOrange from '../assets/games/boop/run-orange.png';
+import runGray from '../assets/games/boop/run-gray.png';
+import jumpOrange from '../assets/games/boop/jump-orange.png';
+import jumpGray from '../assets/games/boop/jump-gray.png';
 
 /**
  * Scène 3D Boop — plateau 6×6 au centre, paniers chatons/chats en bord de
@@ -30,10 +38,22 @@ let mounted = false;
 let animationHandle = null;
 let overlaySync = null;
 
+const IDLE_URL = {
+  'kitten-orange': idleKittenOrange,
+  'kitten-gray': idleKittenGray,
+  'cat-orange': idleCatOrange,
+  'cat-gray': idleCatGray
+};
+const RUN_URL = { orange: runOrange, gray: runGray };
+const JUMP_URL = { orange: jumpOrange, gray: jumpGray };
+
 const pieceMeshes = new Map();
 const busy = new Set();
 const motions = [];
 let lastAnimatedId = null;
+let kawaiiMode = false;
+const textureLoader = new THREE.TextureLoader();
+const sheetCache = new Map();
 
 const _corner = new THREE.Vector3();
 const _look = new THREE.Vector3();
@@ -97,7 +117,75 @@ function basketScatter(id, i, n) {
   return { x: Math.cos(a) * r, z: Math.sin(a) * r };
 }
 
+function loadSheet(url) {
+  if (sheetCache.has(url)) return sheetCache.get(url);
+  const tex = textureLoader.load(url);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  sheetCache.set(url, tex);
+  return tex;
+}
+
+function spriteUrl(type, color, clip) {
+  if (clip === 'run') return RUN_URL[color] || RUN_URL.orange;
+  if (clip === 'jump') return JUMP_URL[color] || JUMP_URL.orange;
+  return IDLE_URL[`${type}-${color}`] || IDLE_URL['kitten-orange'];
+}
+
+function applyClip(mesh, clip) {
+  if (!mesh?.userData.plane) return;
+  mesh.userData.clip = clip;
+  mesh.userData.animT = 0;
+  const url = spriteUrl(mesh.userData.type, mesh.userData.color, clip);
+  const base = loadSheet(url);
+  const tex = base.clone();
+  tex.needsUpdate = true;
+  if (clip === 'idle') {
+    tex.repeat.set(1, 1);
+    tex.offset.set(0, 0);
+  } else {
+    tex.repeat.set(0.25, 1);
+    tex.offset.set(0, 0);
+  }
+  const prev = mesh.userData.plane.material.map;
+  mesh.userData.plane.material.map = tex;
+  mesh.userData.plane.material.needsUpdate = true;
+  if (prev && prev !== base && !sheetCache.has(prev.image?.src)) {
+    /* cloned frame textures are cheap; leave them */
+  }
+}
+
+function createKawaiiAnimal(type, color) {
+  const g = new THREE.Group();
+  const s = type === 'cat' ? 0.58 : 0.44;
+  const mat = new THREE.MeshBasicMaterial({
+    transparent: true,
+    alphaTest: 0.12,
+    depthWrite: true,
+    color: 0xffffff
+  });
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+  plane.scale.set(s, s, 1);
+  plane.position.y = s * 0.42;
+  g.add(plane);
+  g.userData.plane = plane;
+  g.userData.type = type;
+  g.userData.color = color;
+  g.userData.baseScale = 1;
+  g.userData.spriteSize = s;
+  g.userData.facing = 1;
+  g.userData.clip = 'idle';
+  g.userData.kawaii = true;
+  applyClip(g, 'idle');
+  return g;
+}
+
 function createAnimal(type, color) {
+  if (kawaiiMode) return createKawaiiAnimal(type, color);
   const fur = makeMat({ color: FUR[color] || FUR.orange, roughness: 0.78 });
   const pale = makeMat({ color: BELLY[color] || BELLY.orange, roughness: 0.8 });
   const dark = makeMat({ color: 0x2a221c, roughness: 0.6 });
@@ -149,7 +237,12 @@ function createAnimal(type, color) {
 function setAnimalType(mesh, type) {
   if (!mesh || mesh.userData.type === type) return;
   mesh.userData.type = type;
-  mesh.userData.baseScale = type === 'cat' ? 1 : 0.72;
+  if (mesh.userData.kawaii) {
+    mesh.userData.spriteSize = type === 'cat' ? 0.58 : 0.44;
+    applyClip(mesh, mesh.userData.clip || 'idle');
+  } else {
+    mesh.userData.baseScale = type === 'cat' ? 1 : 0.72;
+  }
 }
 
 function createBasket() {
@@ -199,9 +292,16 @@ function createTable() {
   return g;
 }
 
-function startJump(mesh, to, { duration = 720, lift = 0.72, scaleTo, onDone } = {}) {
+function faceToward(mesh, from, to) {
+  const dx = to.x - from.x;
+  if (Math.abs(dx) > 0.02) mesh.userData.facing = dx >= 0 ? 1 : -1;
+}
+
+function startJump(mesh, to, { duration = 720, lift = 0.72, scaleTo, clip, keepBusy = false, onDone } = {}) {
   if (!mesh) return;
   busy.add(mesh.userData.pieceId);
+  if (clip && mesh.userData.kawaii) applyClip(mesh, clip);
+  faceToward(mesh, mesh.position, to);
   motions.push({
     mesh,
     from: mesh.position.clone(),
@@ -211,7 +311,37 @@ function startJump(mesh, to, { duration = 720, lift = 0.72, scaleTo, onDone } = 
     lift,
     scaleFrom: mesh.scale.x,
     scaleTo: scaleTo ?? mesh.scale.x,
+    clip,
+    keepBusy,
     onDone
+  });
+}
+
+function startTravel(mesh, to, { onDone } = {}) {
+  if (!mesh) {
+    onDone?.();
+    return;
+  }
+  const from = mesh.position.clone();
+  const dist = Math.hypot(to.x - from.x, to.z - from.z);
+  if (!mesh.userData.kawaii || dist < 0.32) {
+    startJump(mesh, to, { duration: dist < 0.32 ? 420 : 780, lift: dist < 0.32 ? 0.38 : 0.9, clip: 'jump', onDone });
+    return;
+  }
+  const ground = to.clone();
+  ground.y = TABLE_TOP + 0.07;
+  const runFrom = from.clone();
+  runFrom.y = TABLE_TOP + 0.07;
+  mesh.position.copy(runFrom);
+  const runDur = Math.min(1300, 380 + dist * 480);
+  startJump(mesh, ground, {
+    duration: runDur,
+    lift: 0.05,
+    clip: 'run',
+    keepBusy: true,
+    onDone: () => {
+      startJump(mesh, to, { duration: 440, lift: 0.42, clip: 'jump', onDone });
+    }
   });
 }
 
@@ -222,7 +352,7 @@ function advanceMotions(now) {
     const k = easeSmooth(t);
     m.mesh.position.lerpVectors(m.from, m.to, k);
     m.mesh.position.y += Math.sin(t * Math.PI) * m.lift;
-    const squash = t > 0.82 ? 1 - 0.18 * Math.sin(((t - 0.82) / 0.18) * Math.PI) : 1;
+    const squash = m.mesh.userData.kawaii ? 1 : t > 0.82 ? 1 - 0.18 * Math.sin(((t - 0.82) / 0.18) * Math.PI) : 1;
     const s = m.scaleFrom + (m.scaleTo - m.scaleFrom) * k;
     m.mesh.scale.set(s, s * squash, s);
     if (t >= 1) {
@@ -230,14 +360,41 @@ function advanceMotions(now) {
       m.mesh.scale.setScalar(m.scaleTo);
       motions.splice(i, 1);
       const id = m.mesh.userData.pieceId;
-      if (id) busy.delete(id);
+      if (!m.keepBusy) {
+        if (id) busy.delete(id);
+        if (m.mesh.userData.kawaii) applyClip(m.mesh, 'idle');
+      }
       m.onDone?.();
     }
   }
 }
 
+function advanceSprites(now) {
+  if (!camera) return;
+  for (const mesh of pieceMeshes.values()) {
+    const plane = mesh.userData.plane;
+    if (!plane) continue;
+    plane.quaternion.copy(camera.quaternion);
+    const size = mesh.userData.spriteSize || 0.44;
+    const facing = mesh.userData.facing || 1;
+    plane.scale.set(size * facing, size, 1);
+    const clip = mesh.userData.clip || 'idle';
+    const frames = clip === 'idle' ? 1 : 4;
+    if (frames === 1) continue;
+    const fps = clip === 'run' ? 11 : 9;
+    const frame = Math.floor((now / 1000) * fps) % frames;
+    const map = plane.material.map;
+    if (map) map.offset.x = frame * 0.25;
+  }
+}
+
 function ensurePiece(piece) {
   let mesh = pieceMeshes.get(piece.id);
+  if (mesh && Boolean(mesh.userData.kawaii) !== kawaiiMode) {
+    scene.remove(mesh);
+    pieceMeshes.delete(piece.id);
+    mesh = null;
+  }
   if (!mesh) {
     mesh = createAnimal(piece.type, piece.color);
     mesh.userData.pieceId = piece.id;
@@ -245,7 +402,7 @@ function ensurePiece(piece) {
     pieceMeshes.set(piece.id, mesh);
   } else if (mesh.userData.type !== piece.type) {
     setAnimalType(mesh, piece.type);
-    if (!busy.has(piece.id)) mesh.scale.setScalar(mesh.userData.baseScale);
+    if (!busy.has(piece.id) && !mesh.userData.kawaii) mesh.scale.setScalar(mesh.userData.baseScale);
   }
   mesh.visible = true;
   return mesh;
@@ -265,7 +422,7 @@ function layoutIdle(board, players, seatOf) {
         const scatter = basketScatter(piece.id, i, byType[type].length);
         mesh.position.set(base.x + scatter.x, TABLE_TOP + 0.12, base.z + scatter.z);
         mesh.scale.setScalar(mesh.userData.baseScale);
-        mesh.rotation.y = seat === 0 ? 0 : Math.PI;
+        if (!mesh.userData.kawaii) mesh.rotation.y = seat === 0 ? 0 : Math.PI;
       });
     });
   });
@@ -317,31 +474,28 @@ function playMove(move, seatOf) {
   jumper.visible = true;
   jumper.scale.setScalar(jumper.userData.baseScale);
 
-  startJump(jumper, dest, {
-    duration: 780,
-    lift: 0.9,
-    onDone: () => {
-      move.boops.forEach((b, i) => {
-        const mesh = pieceMeshes.get(b.id);
-        if (!mesh) return;
-        const delay = i * 30;
-        window.setTimeout(() => {
-          if (b.to < 0) {
-            const ownerSeat = seatOf.get(b.ownerId) ?? 0;
-            const to = basketWorld(ownerSeat, b.type);
-            to.y = TABLE_TOP + 0.12;
-            startJump(mesh, to, { duration: 560, lift: 0.55 });
-          } else {
-            const to = cellWorld(b.to);
-            to.y = TABLE_TOP + 0.07;
-            startJump(mesh, to, { duration: 480, lift: 0.42 });
-          }
-        }, delay);
-      });
-      const wait = 120 + Math.max(0, move.boops.length) * 40 + (move.boops.length ? 520 : 0);
-      window.setTimeout(() => playGraduation(move, seatOf), wait);
-    }
-  });
+  const afterLand = () => {
+    move.boops.forEach((b, i) => {
+      const mesh = pieceMeshes.get(b.id);
+      if (!mesh) return;
+      window.setTimeout(() => {
+        if (b.to < 0) {
+          const ownerSeat = seatOf.get(b.ownerId) ?? 0;
+          const to = basketWorld(ownerSeat, b.type);
+          to.y = TABLE_TOP + 0.12;
+          startTravel(mesh, to);
+        } else {
+          const to = cellWorld(b.to);
+          to.y = TABLE_TOP + 0.07;
+          startJump(mesh, to, { duration: 480, lift: 0.42, clip: 'jump' });
+        }
+      }, i * 40);
+    });
+    const wait = 140 + Math.max(0, move.boops.length) * 50 + (move.boops.length ? 700 : 0);
+    window.setTimeout(() => playGraduation(move, seatOf), wait);
+  };
+  if (kawaiiMode) startTravel(jumper, dest, { onDone: afterLand });
+  else startJump(jumper, dest, { duration: 780, lift: 0.9, onDone: afterLand });
 }
 
 function playGraduation(move, seatOf) {
@@ -357,12 +511,13 @@ function playGraduation(move, seatOf) {
       startJump(mesh, here, {
         duration: 620,
         lift: 0.22,
-        scaleTo: 1,
+        scaleTo: mesh.userData.kawaii ? 1 : 1,
+        clip: 'idle',
         onDone: () => {
           const seat = seatOf.get(g.ownerId) ?? 0;
           const to = basketWorld(seat, 'cat');
           to.y = TABLE_TOP + 0.12;
-          startJump(mesh, to, { duration: 720, lift: 0.7 });
+          startTravel(mesh, to);
         }
       });
     }, i * 90);
@@ -418,7 +573,9 @@ function ensureScene() {
   const tick = () => {
     animationHandle = requestAnimationFrame(tick);
     if (renderer && scene && camera) {
-      advanceMotions(performance.now());
+      const now = performance.now();
+      advanceMotions(now);
+      advanceSprites(now);
       renderer.render(scene, camera);
       if (motions.length && overlaySync) overlaySync();
     }
@@ -477,8 +634,16 @@ export function resetOrbit() {
   if (mounted) applyOrbit();
 }
 
-export function updateTable({ board = [], players = [], lastMove = null, spectator = false } = {}) {
+export function updateTable({ board = [], players = [], lastMove = null, spectator = false, kawaii = false } = {}) {
   if (!mounted) return;
+  if (kawaiiMode !== kawaii) {
+    kawaiiMode = kawaii;
+    for (const mesh of pieceMeshes.values()) scene.remove(mesh);
+    pieceMeshes.clear();
+    busy.clear();
+    motions.length = 0;
+    lastAnimatedId = lastMove?.id || 'init';
+  }
   orbitYawLimited = !spectator;
   const seatOf = new Map();
   players.forEach((p, i) => seatOf.set(p.id, i));
