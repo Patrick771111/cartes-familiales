@@ -7,6 +7,7 @@ import runOrange from '../assets/games/boop/run-orange.png';
 import runGray from '../assets/games/boop/run-gray.png';
 import jumpOrange from '../assets/games/boop/jump-orange.png';
 import jumpGray from '../assets/games/boop/jump-gray.png';
+import duvetUrl from '../assets/games/boop/duvet.jpg';
 
 /**
  * Scène 3D Boop — plateau 6×6 au centre, paniers chatons/chats en bord de
@@ -22,6 +23,7 @@ const TABLE_TOP = TABLE_THICKNESS / 2;
 const CELL = 0.36;
 const GRID = 6;
 const BOARD = CELL * GRID;
+const DUVET_Y = TABLE_TOP + 0.16;
 
 const FUR = { orange: 0xd9782c, gray: 0x8b9098 };
 const BELLY = { orange: 0xf3d5a8, gray: 0xe8e8ea };
@@ -101,7 +103,7 @@ function easeSmooth(t) {
 function cellWorld(index) {
   const col = index % GRID;
   const row = Math.floor(index / GRID);
-  return new THREE.Vector3((col - 2.5) * CELL, TABLE_TOP + 0.06, (row - 2.5) * CELL);
+  return new THREE.Vector3((col - 2.5) * CELL, DUVET_Y, (row - 2.5) * CELL);
 }
 
 function basketWorld(seat, type) {
@@ -264,18 +266,27 @@ function createBasket() {
 
 function createBoard() {
   const g = new THREE.Group();
-  const wood = makeMat({ color: BOARD_WOOD, roughness: 0.72 });
-  const plank = new THREE.Mesh(new THREE.BoxGeometry(BOARD + 0.22, 0.08, BOARD + 0.22), wood);
-  plank.position.y = TABLE_TOP + 0.04;
-  g.add(plank);
-  const cellMat = makeMat({ color: CELL_DARK, roughness: 0.85 });
-  for (let i = 0; i < 36; i++) {
-    const sq = new THREE.Mesh(new THREE.PlaneGeometry(CELL * 0.88, CELL * 0.88), cellMat);
-    const p = cellWorld(i);
-    sq.rotation.x = -Math.PI / 2;
-    sq.position.set(p.x, TABLE_TOP + 0.081, p.z);
-    g.add(sq);
-  }
+  const frame = makeMat({ color: 0x6b4423, roughness: 0.68 });
+  const rail = makeMat({ color: 0x8a6234, roughness: 0.7 });
+  const mattress = new THREE.Mesh(new THREE.BoxGeometry(BOARD + 0.34, 0.12, BOARD + 0.46), frame);
+  mattress.position.set(0, TABLE_TOP + 0.06, -0.05);
+  g.add(mattress);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(BOARD + 0.38, 0.46, 0.09), frame);
+  head.position.set(0, TABLE_TOP + 0.28, -(BOARD + 0.46) / 2 - 0.05);
+  g.add(head);
+  const foot = new THREE.Mesh(new THREE.BoxGeometry(BOARD + 0.38, 0.18, 0.07), rail);
+  foot.position.set(0, TABLE_TOP + 0.14, (BOARD + 0.46) / 2 - 0.05);
+  g.add(foot);
+
+  const tex = textureLoader.load(duvetUrl);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const duvet = new THREE.Mesh(
+    new THREE.PlaneGeometry(BOARD + 0.04, BOARD + 0.04),
+    new THREE.MeshStandardMaterial({ map: tex, roughness: 0.94, metalness: 0, color: 0xffffff })
+  );
+  duvet.rotation.x = -Math.PI / 2;
+  duvet.position.y = DUVET_Y - 0.002;
+  g.add(duvet);
   return g;
 }
 
@@ -329,9 +340,9 @@ function startTravel(mesh, to, { onDone } = {}) {
     return;
   }
   const ground = to.clone();
-  ground.y = TABLE_TOP + 0.07;
+  ground.y = DUVET_Y;
   const runFrom = from.clone();
-  runFrom.y = TABLE_TOP + 0.07;
+  runFrom.y = DUVET_Y;
   mesh.position.copy(runFrom);
   const runDur = Math.min(1300, 380 + dist * 480);
   startJump(mesh, ground, {
@@ -414,12 +425,17 @@ function layoutIdle(board, players, seatOf) {
     const byType = { kitten: [], cat: [] };
     p.pool.forEach((piece) => byType[piece.type]?.push(piece));
     ['kitten', 'cat'].forEach((type) => {
+      const shown = Math.min(2, byType[type].length);
       byType[type].forEach((piece, i) => {
         if (busy.has(piece.id)) return;
         const mesh = ensurePiece(piece);
+        if (i >= shown) {
+          mesh.visible = false;
+          return;
+        }
         const seat = seatOf.get(p.id) ?? 0;
         const base = basketWorld(seat, type);
-        const scatter = basketScatter(piece.id, i, byType[type].length);
+        const scatter = basketScatter(piece.id, i, shown);
         mesh.position.set(base.x + scatter.x, TABLE_TOP + 0.12, base.z + scatter.z);
         mesh.scale.setScalar(mesh.userData.baseScale);
         if (!mesh.userData.kawaii) mesh.rotation.y = seat === 0 ? 0 : Math.PI;
@@ -431,7 +447,7 @@ function layoutIdle(board, players, seatOf) {
     const mesh = ensurePiece(piece);
     const p = cellWorld(i);
     mesh.position.copy(p);
-    mesh.position.y = TABLE_TOP + 0.07;
+    mesh.position.y = DUVET_Y;
     mesh.scale.setScalar(mesh.userData.baseScale);
   });
   const live = new Set();
@@ -450,7 +466,7 @@ function playMove(move, seatOf) {
     const mesh = pieceMeshes.get(b.id);
     if (!mesh) return;
     const p = cellWorld(b.from);
-    p.y = TABLE_TOP + 0.07;
+    p.y = DUVET_Y;
     mesh.position.copy(p);
     mesh.visible = true;
   });
@@ -459,7 +475,7 @@ function playMove(move, seatOf) {
     const mesh = pieceMeshes.get(g.id);
     if (!mesh) return;
     const p = cellWorld(g.from);
-    p.y = TABLE_TOP + 0.07;
+    p.y = DUVET_Y;
     mesh.position.copy(p);
     mesh.visible = true;
   });
@@ -468,7 +484,7 @@ function playMove(move, seatOf) {
   const seat = seatOf.get(move.playerId) ?? 0;
   const from = basketWorld(seat, move.placedType);
   const dest = cellWorld(move.placedIndex);
-  dest.y = TABLE_TOP + 0.07;
+  dest.y = DUVET_Y;
   jumper.position.copy(from);
   jumper.position.y = TABLE_TOP + 0.12;
   jumper.visible = true;
@@ -486,7 +502,7 @@ function playMove(move, seatOf) {
           startTravel(mesh, to);
         } else {
           const to = cellWorld(b.to);
-          to.y = TABLE_TOP + 0.07;
+          to.y = DUVET_Y;
           startJump(mesh, to, { duration: 480, lift: 0.42, clip: 'jump' });
         }
       }, i * 40);
@@ -507,7 +523,7 @@ function playGraduation(move, seatOf) {
     window.setTimeout(() => {
       setAnimalType(mesh, 'cat');
       const here = mesh.position.clone();
-      here.y = TABLE_TOP + 0.07;
+      here.y = DUVET_Y;
       startJump(mesh, here, {
         duration: 620,
         lift: 0.22,
@@ -691,10 +707,13 @@ export function getCellRects() {
 }
 
 export function getBasketRects() {
-  const kit = basketWorld(0, 'kitten');
-  const cat = basketWorld(0, 'cat');
-  return [
-    { type: 'kitten', ...(projectAt(kit.x, TABLE_TOP + 0.16, kit.z, 0.38) || {}) },
-    { type: 'cat', ...(projectAt(cat.x, TABLE_TOP + 0.16, cat.z, 0.38) || {}) }
-  ];
+  const out = [];
+  for (const seat of [0, 1]) {
+    for (const type of ['kitten', 'cat']) {
+      const p = basketWorld(seat, type);
+      const r = projectAt(p.x, TABLE_TOP + 0.16, p.z, 0.38);
+      out.push({ seat, type, ...(r || {}) });
+    }
+  }
+  return out;
 }

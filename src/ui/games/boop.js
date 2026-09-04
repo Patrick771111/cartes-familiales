@@ -248,12 +248,16 @@ function renderBoopTable3D(container, { room, player, state, onLeave, kawaii = f
       ${opponent ? `<p class="boop-3d-name" data-opp="1">${opponent.name}${opponent.isBot ? ' 🤖' : ''}</p>` : ''}
       <div class="boop-3d-table">
         ${cellButtons}
-        <button type="button" class="boop-3d-hit" data-card-id="kitten" data-piece-type="kitten" ${
+        <button type="button" class="boop-3d-hit" data-card-id="kitten" data-piece-type="kitten" data-seat="0" ${
           isMyTurn && !finished && poolCounts(me?.pool || []).kitten ? '' : 'disabled'
         }></button>
-        <button type="button" class="boop-3d-hit" data-card-id="cat" data-piece-type="cat" ${
+        <button type="button" class="boop-3d-hit" data-card-id="cat" data-piece-type="cat" data-seat="0" ${
           isMyTurn && !finished && poolCounts(me?.pool || []).cat ? '' : 'disabled'
         }></button>
+        <p class="boop-3d-basket-label" data-basket="0-kitten"></p>
+        <p class="boop-3d-basket-label" data-basket="0-cat"></p>
+        <p class="boop-3d-basket-label" data-basket="1-kitten"></p>
+        <p class="boop-3d-basket-label" data-basket="1-cat"></p>
       </div>
       ${finished ? endGameActionsHtml() : ''}
       <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles">?</button>
@@ -292,12 +296,24 @@ function renderBoopTable3D(container, { room, player, state, onLeave, kawaii = f
       btn.style.height = `${r.height}px`;
     });
     getBasketRects().forEach((r) => {
-      const btn = tableEl.querySelector(`[data-piece-type="${r.type}"]`);
-      if (!btn || r.left == null) return;
-      btn.style.left = `${r.left}px`;
-      btn.style.top = `${r.top}px`;
-      btn.style.width = `${r.width}px`;
-      btn.style.height = `${r.height}px`;
+      if (r.left == null) return;
+      if (r.seat === 0) {
+        const btn = tableEl.querySelector(`[data-seat="0"][data-piece-type="${r.type}"]`);
+        if (btn) {
+          btn.style.left = `${r.left}px`;
+          btn.style.top = `${r.top}px`;
+          btn.style.width = `${r.width}px`;
+          btn.style.height = `${r.height}px`;
+        }
+      }
+      const label = tableEl.querySelector(`[data-basket="${r.seat}-${r.type}"]`);
+      if (!label) return;
+      const pool = seats[r.seat]?.pool || [];
+      const n = poolCounts(pool)[r.type] || 0;
+      const word = r.type === 'cat' ? 'chat' : 'chaton';
+      label.textContent = `${n} ${word}${n > 1 ? 's' : ''}`;
+      label.style.left = `${r.left + r.width / 2}px`;
+      label.style.top = `${r.top + r.height + 4}px`;
     });
   };
   sync();

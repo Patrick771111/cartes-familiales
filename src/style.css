@@ -4666,19 +4666,19 @@ body.is-card-dragging * {
   display: grid;
   grid-template-columns: repeat(var(--boop-n, 6), 1fr);
   grid-template-rows: repeat(var(--boop-n, 6), 1fr);
-  gap: 4px;
+  gap: 0;
   width: min(100%, 420px);
   aspect-ratio: 1;
-  padding: 10px;
-  border-radius: 16px;
-  background: #c4a574;
-  box-shadow: inset 0 0 0 3px #8a6234, 0 8px 18px rgba(0, 0, 0, 0.35);
+  padding: 8px;
+  border-radius: 8px 8px 14px 14px;
+  background: #f3ebe0 url('./assets/games/boop/duvet.jpg') center / cover no-repeat;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35), inset 0 0 0 6px #6b4423;
 }
 .boop-cell {
   appearance: none;
   border: none;
-  border-radius: 10px;
-  background: rgba(90, 58, 28, 0.18);
+  border-radius: 0;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4798,4 +4798,18 @@ body.is-card-dragging * {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
+}
+.boop-3d-basket-label {
+  position: absolute;
+  transform: translate(-50%, 0);
+  pointer-events: none;
+  margin: 0;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cream);
+  white-space: nowrap;
+  z-index: 8;
 }
