@@ -411,6 +411,7 @@ window.setInterval(async () => {
   try {
     currentRoomRef = await pingHostPresence(currentRoomRef, currentPlayer);
     currentRoomRef = await pingPlayerPresence(currentRoomRef, currentPlayer);
+    currentRoomRef = await reclaimStaleHost(currentRoomRef, currentPlayer);
     const afterSweep = await reclaimStalePlayers(currentRoomRef, currentPlayer);
     if (afterSweep === null) {
       await resetRoomSessionAndShowList();

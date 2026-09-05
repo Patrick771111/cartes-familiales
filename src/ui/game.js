@@ -79,8 +79,9 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   const isHost = state.hostId === player.id;
   const currentHost = state.players.find((p) => p.id === state.hostId);
   const hostIsBot = currentHost?.isBot === true;
+  const hostMissing = !state.hostId || !currentHost;
   const hostIsStale = !hostIsBot && Date.now() - (state.hostLastSeen || 0) > HOST_STALE_MS;
-  const hostUnavailable = hostIsBot || hostIsStale;
+  const hostUnavailable = hostMissing || hostIsBot || hostIsStale;
 
   container.innerHTML = `
     <div class="screen screen--waiting">
@@ -93,8 +94,8 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
           ${
             hostIsBot
               ? "L'hôte est un bot — quelqu'un doit reprendre la main pour lancer la partie."
-              : hostIsStale
-                ? "L'hôte semble inactif depuis un moment — tu peux reprendre la main."
+              : hostMissing || hostIsStale
+                ? "L'hôte n'est plus là — tu peux reprendre la main."
                 : isHost
                   ? "Attends que les autres arrivent, choisis le jeu, puis lance la partie."
                   : "En attente que l'hôte lance la partie…"

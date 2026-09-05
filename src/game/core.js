@@ -242,8 +242,11 @@ export async function ensureMembership(room, profile) {
       const botMatch = fresh.state.players.find((p) => p.isBot && p.replacedHuman && p.name === profile.name);
       if (botMatch) {
         const reassigned = reassignPlayerId(fresh.state, botMatch.id, profile.id);
+        const takeHost = hostShouldYield(reassigned) || reassigned.hostId === profile.id;
         const newState = {
           ...reassigned,
+          hostId: takeHost ? profile.id : reassigned.hostId,
+          hostLastSeen: takeHost ? Date.now() : reassigned.hostLastSeen,
           players: reassigned.players.map((p) => (p.id === profile.id ? { ...p, isBot: false, replacedHuman: false, lastSeen: Date.now() } : p)),
           log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} reprend la place du bot qui le remplaçait.` }]
         };
@@ -258,13 +261,22 @@ export async function ensureMembership(room, profile) {
       return fresh;
     }
 
-    const becomesHost = !fresh.state.hostId;
+    const takeHost = hostShouldYield(fresh.state);
     const newState = {
       ...fresh.state,
-      hostId: fresh.state.hostId || profile.id,
-      hostLastSeen: becomesHost ? Date.now() : fresh.state.hostLastSeen,
+      hostId: takeHost ? profile.id : fresh.state.hostId,
+      hostLastSeen: takeHost ? Date.now() : fresh.state.hostLastSeen,
       players: [...fresh.state.players, { id: profile.id, name: profile.name, hand: [], lastSeen: Date.now() }],
-      log: [...fresh.state.log, { ts: Date.now(), message: `${profile.name} a rejoint la table.` }]
+      log: [
+        ...fresh.state.log,
+        {
+          ts: Date.now(),
+          message:
+            takeHost && fresh.state.hostId && fresh.state.hostId !== profile.id
+              ? `${profile.name} a rejoint la table et reprend le rôle d'hôte.`
+              : `${profile.name} a rejoint la table.`
+        }
+      ]
     };
 
     try {
@@ -291,8 +303,11 @@ export async function replaceBotWithPlayer(room, botId, profile) {
     if (!bot || !bot.isBot) throw new Error("Ce bot n'est plus disponible — réessaie.");
 
     const reassigned = reassignPlayerId(fresh.state, botId, profile.id);
+    const takeHost = hostShouldYield(reassigned) || reassigned.hostId === profile.id;
     const newState = {
       ...reassigned,
+      hostId: takeHost ? profile.id : reassigned.hostId,
+      hostLastSeen: takeHost ? Date.now() : reassigned.hostLastSeen,
       players: reassigned.players.map((p) =>
         p.id === profile.id ? { ...p, name: profile.name, isBot: false, replacedHuman: false, lastSeen: Date.now() } : p
       ),
@@ -321,12 +336,10 @@ function pickNewHost(remainingPlayers) {
  * repli sur inactivité appliquent exactement le même sort :
  * - **Plus aucun humain ne resterait** (que des bots, ou personne) : le
  *   salon n'a plus de raison d'exister → fermeture (`closeRoom: true`).
- * - **L'hôte part en pleine partie** : le perdre casserait la table pour
- *   tout le monde (relais WebRTC, voir webrtc/relay.js) — la manche est
- *   interrompue, tout le monde retourne en salle d'attente avec un nouvel
- *   hôte humain. Les bots qui ne faisaient que remplacer un humain absent
- *   (`replacedHuman`) sont purgés au passage : ils ne représentent personne
- *   dans une salle d'attente.
+ * - **L'hôte part en pleine partie** alors qu'il reste des humains : le
+ *   perdre casserait la table (relais WebRTC) — manche interrompue, retour
+ *   en salle d'attente avec un nouvel hôte humain. Les bots `replacedHuman`
+ *   sont purgés : ils ne représentent personne dans une salle d'attente.
  * - **Un autre joueur part en pleine partie** : remplacé par un bot à sa
  *   place (marqué `replacedHuman` pour pouvoir le reprendre plus tard, voir
  *   `ensureMembership`), pour ne pas bloquer les autres.
@@ -334,7 +347,8 @@ function pickNewHost(remainingPlayers) {
  *   classique.
  */
 function computeLeaveOutcome(state, leavingId, leavingName, reasonSuffix = '') {
-  const remainingHumans = state.players.filter((p) => p.id !== leavingId && !p.isBot);
+  const remainingPlayers = state.players.filter((p) => p.id !== leavingId);
+  const remainingHumans = remainingPlayers.filter((p) => !p.isBot);
   if (remainingHumans.length === 0) {
     return { closeRoom: true };
   }
@@ -370,7 +384,6 @@ function computeLeaveOutcome(state, leavingId, leavingName, reasonSuffix = '') {
     };
   }
 
-  const remainingPlayers = state.players.filter((p) => p.id !== leavingId);
   const hostChanged = state.hostId === leavingId;
   return {
     closeRoom: false,
@@ -517,6 +530,16 @@ function isHostStale(state) {
   return Date.now() - (state.hostLastSeen || 0) > HOST_STALE_MS;
 }
 
+/** Hôte absent, bot, ou inactif : le prochain humain peut (et doit) reprendre. */
+function hostShouldYield(state) {
+  if (!state?.hostId) return true;
+  const host = (state.players || []).find((p) => p.id === state.hostId);
+  if (!host || host.isBot) return true;
+  if (isHostStale(state)) return true;
+  if (isPlayerStale(host, state)) return true;
+  return false;
+}
+
 /**
  * Permet à un humain de reprendre le rôle d'hôte si celui-ci est actuellement
  * un bot, ou un humain inactif depuis plus de 2 minutes. Porte de sortie pour
@@ -528,8 +551,7 @@ export async function claimHost(room, profile) {
     if (fresh.state.status === 'playing') throw new Error("Impossible de changer d'hôte en pleine partie.");
     if (!fresh.state.players.some((p) => p.id === profile.id)) throw new Error("Tu n'es pas (encore) à cette table.");
 
-    const currentHost = fresh.state.players.find((p) => p.id === fresh.state.hostId);
-    if (currentHost && !currentHost.isBot && !isHostStale(fresh.state)) {
+    if (!hostShouldYield(fresh.state) && fresh.state.hostId !== profile.id) {
       throw new Error('Il y a déjà un hôte actif à la table.');
     }
 
@@ -565,9 +587,7 @@ export async function reclaimStaleHost(room, profile) {
     if (fresh.state.status !== 'lobby') return fresh;
     if (fresh.state.hostId === profile.id) return fresh;
 
-    const currentHost = fresh.state.players.find((p) => p.id === fresh.state.hostId);
-    const shouldReclaim = !currentHost || currentHost.isBot || isHostStale(fresh.state);
-    if (!shouldReclaim) return fresh;
+    if (!hostShouldYield(fresh.state)) return fresh;
 
     const newState = {
       ...fresh.state,
@@ -766,12 +786,13 @@ export async function playAgain(room) {
   const players = room.state.players
     .filter((p) => !p.replacedHuman)
     .map((p) => ({ id: p.id, name: p.name, isBot: p.isBot || false, lastSeen: p.lastSeen }));
+  const hostStillHere = players.some((p) => p.id === room.state.hostId && !p.isBot);
 
   const newState = {
     ...room.state,
     status: 'lobby',
     players: players.map((p) => ({ ...p, hand: [] })),
-    hostId: room.state.hostId,
+    hostId: hostStillHere ? room.state.hostId : pickNewHost(players),
     hostLastSeen: Date.now(),
     turnOrder: [],
     currentPlayerId: null,
