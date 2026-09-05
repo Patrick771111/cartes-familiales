@@ -8,7 +8,7 @@ import {
   DIAGONAL_INDEXES as LUCKY_DIAGONAL
 } from '../../game/luckynumbers.js';
 import { enableDragToZone } from '../dragToZone.js';
-import { isCardDragEnabled, is3DEnabled } from '../settings.js';
+import { isCardDragEnabled } from '../settings.js';
 import { openRulesModal } from '../rules.js';
 import {
   endGameActionsHtml,
@@ -29,6 +29,8 @@ import {
   hideBoard,
   resetBoardSnapshot,
   getMyBoardCellRects,
+  getFocusBoardCellRects,
+  getBoardHitRects,
   getDiscardTileRects,
   getDrawPileRect,
   getDiscardPlateRect,
@@ -39,13 +41,29 @@ import {
   zoomCameraByFactor,
   getTokenFaceDataUrl,
   hideDrawnToken,
-  notePlayerTokenDrop
+  notePlayerTokenDrop,
+  setFocusedSeat,
+  getFocusedSeat
 } from '../../three/luckyNumbersScene.js';
 
 // Centre la caméra sur MON siège seulement au tout premier rendu 3D de la
 // partie — sinon chaque re-rendu (après un coup, y compris d'un bot) ferait
 // sauter la caméra et annulerait le glisser manuel de l'utilisateur.
 let hasAutoCenteredCamera = false;
+
+function applyLuckyFocus(players) {
+  if (getFocusedSeat() >= players.length) setFocusedSeat(0);
+  const focusIdx = getFocusedSeat();
+  return { home: 0, focusIdx, inspecting: focusIdx !== 0 };
+}
+
+function returnLuckyHome() {
+  setFocusedSeat(0);
+}
+
+function inspectLuckySeat(index) {
+  setFocusedSeat(index);
+}
 
 export function resetSelection() {
   resetBoardSnapshot();
@@ -59,8 +77,7 @@ export function hide3D() {
 }
 
 export function renderTable(container, { room, player, state, onLeave }) {
-  if (is3DEnabled('luckynumbers')) renderLuckyNumbersTable3D(container, { room, player, state, onLeave });
-  else renderLuckyNumbersTable(container, { room, player, state, onLeave });
+  renderLuckyNumbersTable3D(container, { room, player, state, onLeave });
 }
 
 function luckyTileHtml(tile, { selected = false, placeable = false, compact = false } = {}) {
@@ -89,6 +106,7 @@ function luckyBoardHtml(board, { interactive = false, placeableIndexes = [], sel
   return `<div class="lucky-grid">${cells}</div>`;
 }
 
+// Vue 2D conservée mais plus exposée : renderTable passe toujours par la 3D.
 function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
   const isMyTurn = state.status === 'playing' && state.currentPlayerId === player.id;
@@ -320,20 +338,19 @@ function renderLuckyNumbersTable(container, { room, player, state, onLeave }) {
 }
 
 /**
- * Rendu 3D : mon plateau en bois avec vraies encoches en bas (grand),
- * plateaux adversaires plus petits/loin en haut, pioche + défausse au
- * milieu (voir src/three/luckyNumbersScene.js). Le sélecteur n'existe pas
- * ici (pas de Joker/couleur comme au Uno) ; le glisser-déposer n'est pas
- * repris pour cette première tranche (le clic couvre déjà tout le flux
- * existant — même simplification que la 1ère tranche du Uno).
+ * Rendu 3D : grand jardin du joueur, pioche/assiette au-dessus, miniatures
+ * des autres jardins en haut (voir src/three/luckyNumbersScene.js).
  */
 function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) {
   const me = state.players.find((p) => p.id === player.id);
+  const others = orderedOpponents(state, player.id);
+  const boardPlayers = [me, ...others].filter(Boolean);
+  const { home, focusIdx, inspecting } = applyLuckyFocus(boardPlayers);
+  const focusPlayer = boardPlayers[focusIdx] || me;
   const isMyTurn = state.status === 'playing' && state.currentPlayerId === player.id;
   const hasDrawn = Boolean(state.drawnTile);
-  const others = orderedOpponents(state, player.id);
   const finished = state.status === 'finished';
-  const placeableForDrawn = isMyTurn && hasDrawn ? luckyValidPlacements(me?.board || [], state.drawnTile.value) : [];
+  const placeableForDrawn = isMyTurn && hasDrawn && !inspecting ? luckyValidPlacements(me?.board || [], state.drawnTile.value) : [];
 
   const winnerBanner =
     finished && state.winnerIds?.length
@@ -342,42 +359,43 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
           .join(', ')} gagne${state.winnerIds.length > 1 ? 'nt' : ''} !</p>`
       : '';
   const myEmpty = me ? me.board.filter((c) => !c).length : 0;
-  const statusText = !me
-    ? ''
-    : isMyTurn
-      ? hasDrawn
-        ? `Trèfle piochée : ${state.drawnTile.value}`
-        : `Ton jardin · ${myEmpty} case${myEmpty > 1 ? 's' : ''} libre${myEmpty > 1 ? 's' : ''}`
-      : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`;
+  const statusText = inspecting
+    ? `Jardin de ${focusPlayer?.name || '…'} · touche pour revenir`
+    : !me
+      ? ''
+      : isMyTurn
+        ? hasDrawn
+          ? `Trèfle piochée : ${state.drawnTile.value}`
+          : `Ton jardin · ${myEmpty} case${myEmpty > 1 ? 's' : ''} libre${myEmpty > 1 ? 's' : ''}`
+        : `Tour de ${state.players.find((p) => p.id === state.currentPlayerId)?.name || '…'}`;
 
-  // Un plateau à l'écran = un joueur : boardGroups[0] = moi, boardGroups[1..]
-  // = adversaires dans l'ordre des sièges déjà calculé (voir `others` /
-  // orderedOpponents) — même ordre utilisé pour les bulles de nom que pour
-  // le placement des plateaux dans updateScene, sinon un nom se retrouverait
-  // sous le mauvais plateau.
-  const boardPlayers = [me, ...others].filter(Boolean);
   const nameLabelsHtml = boardPlayers
-    .map(
-      (p, i) =>
-        `<div class="lucky-3d-name ${p.id === state.currentPlayerId ? 'lucky-3d-name--turn' : ''}" data-board-index="${i}">${p.name}</div>`
+    .map((p, i) =>
+      i === focusIdx
+        ? ''
+        : `<div class="lucky-3d-name ${p.id === state.currentPlayerId ? 'lucky-3d-name--turn' : ''}" data-board-index="${i}">${p.name}</div>`
     )
     .join('');
+  const miniButtonsHtml = boardPlayers
+    .map((_, i) => (i === focusIdx ? '' : `<button type="button" class="lucky-3d-mini" data-mini-seat="${i}" aria-label="Voir le jardin"></button>`))
+    .join('');
+
+  const redraw = () => renderLuckyNumbersTable3D(container, { room, player, state, onLeave });
 
   container.innerHTML = `
     <div class="screen screen--table lucky-screen lucky-screen--3d">
       ${winnerBanner}
       <p class="lucky-3d-status">${statusText}</p>
 
-      <div class="lucky-3d-table">${nameLabelsHtml}</div>
+      <div class="lucky-3d-table ${inspecting ? 'lucky-3d-table--inspecting' : ''}">${nameLabelsHtml}${miniButtonsHtml}</div>
 
-      ${isMyTurn && hasDrawn ? `<button type="button" class="btn btn--ghost btn--small" id="btn-lucky-discard-drawn">Défausser</button>` : ''}
+      ${isMyTurn && hasDrawn && !inspecting ? `<button type="button" class="btn btn--ghost btn--small" id="btn-lucky-discard-drawn">Défausser</button>` : ''}
 
       ${finished ? endGameActionsHtml() : ''}
 
       <button class="game-hud__bubble game-hud__bubble--help" id="btn-rules" title="Règles du jeu" aria-label="Règles du jeu">?</button>
       <button class="game-hud__bubble game-hud__bubble--log" id="btn-log" title="Journal de la partie" aria-label="Journal de la partie">📄</button>
       <button class="game-hud__bubble game-hud__bubble--invite" id="btn-invite-game" title="Inviter un ami" aria-label="Inviter un ami">📤</button>
-      ${threeDToggleHtml('luckynumbers')}
       <button class="game-hud__bubble game-hud__bubble--quit" id="btn-abandon" title="${abandonButtonLabel(state, player)}" aria-label="${abandonButtonLabel(state, player)}">✕</button>
     </div>
   `;
@@ -407,13 +425,26 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
   // pas seulement une fois au rendu initial — la caméra peut désormais bouger.
   const repositionOverlayButtons = () => {
     if (!tableEl) return;
-    getMyBoardCellRects().forEach((r, i) => {
+    getFocusBoardCellRects().forEach((r, i) => {
       const btn = tableEl.querySelectorAll('.lucky-3d-cell')[i];
       if (!btn || !r) return;
       btn.style.left = `${r.left}px`;
       btn.style.top = `${r.top}px`;
       btn.style.width = `${r.width}px`;
       btn.style.height = `${r.height}px`;
+    });
+    getBoardHitRects().forEach((hit) => {
+      const el = tableEl.querySelector(`[data-mini-seat="${hit.seat}"]`);
+      if (!el) return;
+      if (hit.focused || hit.width < 8) {
+        el.style.display = 'none';
+        return;
+      }
+      el.style.display = 'block';
+      el.style.left = `${hit.left}px`;
+      el.style.top = `${hit.top}px`;
+      el.style.width = `${hit.width}px`;
+      el.style.height = `${hit.height}px`;
     });
     getDiscardTileRects().forEach((r, i) => {
       const btn = tableEl.querySelectorAll('.lucky-3d-discard-tile')[i];
@@ -445,18 +476,24 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
     }
     getBoardLabelRects().forEach((r, i) => {
       const label = tableEl.querySelector(`.lucky-3d-name[data-board-index="${i}"]`);
-      if (!label || !r) return;
+      if (!label || !r || i === focusIdx) {
+        if (label) label.style.display = 'none';
+        return;
+      }
+      label.style.display = 'block';
       label.style.left = `${r.left + r.width / 2}px`;
       label.style.top = `${r.top}px`;
     });
   };
 
   if (tableEl) {
-    const cellButtonsHtml = Array.from({ length: me?.board.length || 16 }, (_, i) => `<button type="button" class="lucky-3d-cell" data-board-index="${i}"></button>`).join('');
-    const discardButtonsHtml = state.discard.map((t) => `<button type="button" class="lucky-3d-discard-tile" data-tile-id="${t.id}"></button>`).join('');
-    const canDraw = isMyTurn && !hasDrawn && state.stock.length > 0;
+    const cellButtonsHtml = Array.from({ length: focusPlayer?.board.length || 16 }, (_, i) => `<button type="button" class="lucky-3d-cell" data-board-index="${i}"></button>`).join('');
+    const discardButtonsHtml = inspecting
+      ? ''
+      : state.discard.map((t) => `<button type="button" class="lucky-3d-discard-tile" data-tile-id="${t.id}"></button>`).join('');
+    const canDraw = isMyTurn && !hasDrawn && !inspecting && state.stock.length > 0;
     const drawButtonHtml = canDraw ? `<button type="button" class="lucky-3d-draw" id="btn-lucky-draw"></button>` : '';
-    const drawnTileHtml = hasDrawn ? `<button type="button" class="lucky-3d-drawn-tile"></button>` : '';
+    const drawnTileHtml = !inspecting && hasDrawn ? `<button type="button" class="lucky-3d-drawn-tile"></button>` : '';
     tableEl.insertAdjacentHTML('beforeend', cellButtonsHtml + discardButtonsHtml + drawButtonHtml + drawnTileHtml);
     repositionOverlayButtons();
 
@@ -540,6 +577,7 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
     };
 
     const startTileDrag = (e) => {
+      if (inspecting) return false;
       if (hasDrawn) {
         const rect = getDrawnTileRect();
         if (!pointInRect(e.clientX, e.clientY, rect)) return false;
@@ -635,6 +673,7 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
     tableEl.addEventListener(
       'pointerdown',
       (e) => {
+        if (e.target.closest('.lucky-3d-mini')) return;
         activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         if (activePointers.size >= 2) {
           if (tileDrag) {
@@ -696,10 +735,27 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
           e.stopPropagation();
           e.preventDefault();
           suppressNextClick = false;
+          return;
+        }
+        if (e.target.closest('.lucky-3d-mini')) return;
+        if (inspecting) {
+          e.stopPropagation();
+          returnLuckyHome();
+          redraw();
         }
       },
       true
     );
+
+    tableEl.querySelectorAll('[data-mini-seat]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const seat = Number(el.dataset.miniSeat);
+        if (inspecting || seat === home) returnLuckyHome();
+        else inspectLuckySeat(seat);
+        redraw();
+      });
+    });
   }
 
   wireEndGameActions(container, room);
@@ -707,8 +763,6 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
   container.querySelector('#btn-log')?.addEventListener('click', () => openLogModal(state));
   container.querySelector('#btn-invite-game')?.addEventListener('click', () => shareInviteLink(room));
   wireAbandonButton(container, { room, player, state, onLeave });
-  wireThreeDToggle(container, 'luckynumbers', () => renderTable(container, { room, player, state, onLeave }));
-
   container.querySelector('#btn-lucky-draw')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
     try {
@@ -729,7 +783,7 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
     }
   });
 
-  if (isMyTurn && !hasDrawn && me) {
+  if (!inspecting && isMyTurn && !hasDrawn && me) {
     container.querySelectorAll('.lucky-3d-discard-tile').forEach((btn) => {
       btn.addEventListener('click', () => {
         pendingDiscardTileId = btn.dataset.tileId;
@@ -746,7 +800,7 @@ function renderLuckyNumbersTable3D(container, { room, player, state, onLeave }) 
     });
   }
 
-  if (isMyTurn) {
+  if (!inspecting && isMyTurn) {
     container.querySelectorAll('.lucky-3d-cell').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const index = Number(btn.dataset.boardIndex);
