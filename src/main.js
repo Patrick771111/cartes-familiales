@@ -344,7 +344,7 @@ applySettings();
 mountSettingsButton();
 
 async function boot() {
-  if ('serviceWorker' in navigator) {
+  if ('serviceWorker' in navigator && import.meta.env.PROD) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 

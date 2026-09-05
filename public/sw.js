@@ -23,6 +23,8 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.hostname.includes('supabase.co')) return;
   if (url.origin !== self.location.origin) return;
+  // Vite sert les modules sans hash : un cache-first ici fige le code local.
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return;
 
   const isHtmlPage = request.mode === 'navigate' || request.headers.get('accept')?.includes('text/html');
 

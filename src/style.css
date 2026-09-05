@@ -4283,10 +4283,39 @@ body.is-card-dragging * {
   cursor: pointer;
   touch-action: none;
   border: none;
+  outline: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
   background: transparent;
+  box-shadow: none;
   padding: 0;
   z-index: 7;
   pointer-events: auto;
+}
+.skyjo-3d-card:focus,
+.skyjo-3d-card:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.skyjo-3d-mini {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  z-index: 8;
+  pointer-events: auto;
+  border-radius: 10px;
+}
+.skyjo-3d-mini:hover,
+.skyjo-3d-mini:focus-visible {
+  box-shadow: 0 0 0 2px var(--brass-soft);
+  background: rgba(247, 241, 225, 0.08);
+}
+.skyjo-3d-table--inspecting {
+  cursor: pointer;
 }
 .skyjo-3d-card.skyjo-cell--flip-target {
   opacity: 1;

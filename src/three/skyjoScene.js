@@ -9,11 +9,12 @@ for (const [path, url] of Object.entries(FACE_URLS)) {
 }
 
 /**
- * Scène 3D Skyjo — même table ronde / orbite que Trio, mais chaque joueur
- * a sa grille 3×4 posée à plat devant lui (pas de chevalet). Pioche et
- * défausse au centre. Clics = boutons DOM superposés (getCardRects).
+ * Scène 3D Skyjo — tableau centré sur une grille 3×4 (joueur local par
+ * défaut) avec pioche et défausse juste au-dessus. Les autres mains sont
+ * des miniatures au fond ; un clic les agrandit à la place de la grille
+ * principale. Clics = boutons DOM superposés (getCardRects).
  *
- * Siège 0 = joueur local au +Z. Orbite yaw bornée en joueur, 360° spectateur.
+ * Siège 0 = joueur local. Orbite yaw bornée.
  *
  * Pioche : le tas reste ; la carte du dessus se retourne et se pose à côté.
  * Pose : la carte remplacée saute vers la défausse (flip si elle était cachée).
@@ -21,34 +22,28 @@ for (const [path, url] of Object.entries(FACE_URLS)) {
  */
 
 const CARD_ASPECT = 120 / 186;
-const CAMERA_FOV = 46;
-const TABLE_RADIUS = 2.7;
-const TABLE_THICKNESS = 0.14;
-const TABLE_TOP = TABLE_THICKNESS / 2;
-const GRID_RADIUS = 1.95;
-const CARD_SCALE = 0.32;
-const CENTER_SCALE = 0.36;
+const CAMERA_FOV = 42;
+const CARD_SCALE = 0.36;
+const CENTER_SCALE = 0.34;
+const MINI_SCALE = 0.175;
 const CARD_GEO = new THREE.PlaneGeometry(CARD_ASPECT, 1);
 const COLS = 4;
 const ROWS = 3;
-const SPACING_X = CARD_ASPECT * CARD_SCALE * 1.14;
-const SPACING_Z = CARD_SCALE * 1.16;
-const GRID_WIDTH = (COLS - 1) * SPACING_X;
+
+const MAIN_GROUP_Z = 1.05;
+const MINI_GROUP_Z = -0.98;
+const MINI_SPACING = 0.78;
 
 const DECK_X = 0.42;
-const DECK_Z = 0;
-const DRAWN_X = 0.42;
-const DRAWN_Z = 0.52;
+const DECK_Z = -0.42;
+const DRAWN_X = 0;
+const DRAWN_Z = -0.42;
 const DISCARD_X = -0.42;
-const DISCARD_Z = 0;
+const DISCARD_Z = -0.42;
 const DECK_VISIBLE = 8;
 const DISCARD_VISIBLE = 12;
-const CARD_Y = TABLE_TOP + 0.012;
+const CARD_Y = 0.01;
 const CARD_TINT = 0xb3aea6;
-
-const FELT = 0x1f4d3a;
-const WOOD = 0x6b4423;
-const BRASS = 0xc9a227;
 
 let canvas;
 let renderer;
@@ -56,7 +51,6 @@ let scene;
 let camera;
 let mounted = false;
 let animationHandle = null;
-let tableGroup = null;
 let seatGroups = [];
 let deckMeshes = [];
 let discardMeshes = [];
@@ -75,9 +69,10 @@ const textureLoader = new THREE.TextureLoader();
 const _world = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const _corner = new THREE.Vector3();
+const _scale = new THREE.Vector3();
 
-const BASE_ELEV = 1.05;
-const BASE_DIST = 5.5;
+const BASE_ELEV = 1.08;
+const BASE_DIST = 4.55;
 const PITCH_MIN = 0.42;
 const PITCH_MAX = 1.28;
 const DIST_MIN = 2.6;
@@ -89,7 +84,8 @@ let orbitDistance = BASE_DIST;
 let fittedDistance = BASE_DIST;
 let userZoomed = false;
 let orbitYawLimited = true;
-let orbitYawLimit = 0.7;
+let orbitYawLimit = 0.48;
+let focusedSeat = 0;
 
 let hasSnapshot = false;
 let prev = { drawnId: null, drawnSource: null, drawn: null, discardIds: [], grids: [] };
@@ -104,7 +100,6 @@ function teardown() {
   renderer = null;
   scene = null;
   camera = null;
-  tableGroup = null;
   seatGroups = [];
   deckMeshes = [];
   discardMeshes = [];
@@ -116,6 +111,7 @@ function teardown() {
   hiddenUntil.clear();
   flightPool.length = 0;
   hasSnapshot = false;
+  focusedSeat = 0;
   prev = { drawnId: null, drawnSource: null, drawn: null, discardIds: [], grids: [] };
   lastPile = [];
 }
@@ -209,6 +205,12 @@ function layFlat(mesh, y) {
   if (!busy(mesh)) mesh.position.y = y;
 }
 
+function meshWorldScale(mesh) {
+  if (!mesh) return CARD_SCALE;
+  mesh.updateMatrixWorld(true);
+  return mesh.getWorldScale(_scale).x;
+}
+
 function hashId(id) {
   let h = 2166136261;
   const s = String(id);
@@ -226,11 +228,10 @@ function unitNoise(h, shift) {
 function discardPose(cardId, stackIndex, pileLen = stackIndex + 1) {
   const h = hashId(cardId || `d-${stackIndex}`);
   const spread = 0.048 + Math.min(0.04, pileLen * 0.0012);
-  const buried = Math.max(0, pileLen - DISCARD_VISIBLE);
   const visibleIndex = Math.min(stackIndex, DISCARD_VISIBLE - 1);
   return {
     x: DISCARD_X + unitNoise(h, 0) * spread,
-    y: CARD_Y + buried * 0.0035 + visibleIndex * 0.0072,
+    y: CARD_Y + visibleIndex * 0.0028,
     z: DISCARD_Z + unitNoise(h, 10) * spread * 0.88,
     yaw: unitNoise(h, 20) * 0.34
   };
@@ -241,7 +242,7 @@ function discardEuler(yaw) {
 }
 
 function drawnRestPos() {
-  return new THREE.Vector3(DRAWN_X, CARD_Y + 0.02, DRAWN_Z);
+  return new THREE.Vector3(DRAWN_X, CARD_Y + 0.004, DRAWN_Z);
 }
 
 function drawnRestEuler() {
@@ -250,56 +251,32 @@ function drawnRestEuler() {
 
 function deckTopPos(deckCount) {
   const n = Math.min(DECK_VISIBLE, Math.max(0, deckCount));
-  const buried = Math.max(0, deckCount - DECK_VISIBLE);
-  return new THREE.Vector3(DECK_X, CARD_Y + buried * 0.0025 + n * 0.007 + 0.006, DECK_Z);
+  return new THREE.Vector3(DECK_X, CARD_Y + Math.max(0, n - 1) * 0.0028 + 0.003, DECK_Z);
 }
 
-function createTable() {
-  const group = new THREE.Group();
-  const rim = new THREE.Mesh(
-    new THREE.CylinderGeometry(TABLE_RADIUS, TABLE_RADIUS, TABLE_THICKNESS, 64, 1, true),
-    makeMat({ color: WOOD, roughness: 0.7, side: THREE.DoubleSide })
-  );
-  group.add(rim);
-  const felt = new THREE.Mesh(new THREE.CircleGeometry(TABLE_RADIUS, 96), makeMat({ color: FELT, roughness: 0.9 }));
-  felt.rotation.x = -Math.PI / 2;
-  felt.position.y = TABLE_TOP + 0.002;
-  group.add(felt);
-  return group;
-}
-
-function createSeatMarker() {
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.22, 0.28, 32),
-    makeMat({ color: BRASS, roughness: 0.4, metalness: 0.3, side: THREE.DoubleSide, emissive: BRASS, emissiveIntensity: 0.18 })
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.006;
-  ring.visible = false;
-  return ring;
-}
-
-function layoutGrid(meshes, grid) {
+function layoutGrid(meshes, scale = CARD_SCALE) {
   const y = CARD_Y;
+  const sx = CARD_ASPECT * scale * 1.12;
+  const sz = scale * 1.14;
   meshes.forEach((mesh, i) => {
     if (busy(mesh)) return;
     const col = i % COLS;
     const row = Math.floor(i / COLS);
-    mesh.position.x = (col - 1.5) * SPACING_X;
-    mesh.position.z = -0.22 - (ROWS - 1 - row) * SPACING_Z;
+    mesh.position.x = (col - 1.5) * sx;
+    mesh.position.z = -0.18 - (ROWS - 1 - row) * sz;
     layFlat(mesh, y);
+    if (!busy(mesh)) mesh.scale.setScalar(scale);
     mesh.renderOrder = 10 + i;
   });
 }
 
 function layoutDeck(deckCount) {
   const n = deckMeshes.length;
-  const buried = Math.max(0, deckCount - DECK_VISIBLE);
   deckMeshes.forEach((m, i) => {
     const h = hashId(`deck-${i}`);
     m.position.set(
       DECK_X + unitNoise(h, 0) * 0.006,
-      CARD_Y + buried * 0.0025 + i * 0.007,
+      CARD_Y + i * 0.0028,
       DECK_Z + unitNoise(h, 10) * 0.005
     );
     m.rotation.set(-Math.PI / 2, 0, unitNoise(h, 20) * 0.045);
@@ -496,14 +473,47 @@ function flyCardToDiscard(card, fromPose, { wasFaceUp, pile, scaleFrom = CARD_SC
   });
 }
 
-function placeSeats(total) {
-  lastSeatCount = total;
-  for (let i = 0; i < seatGroups.length; i++) {
-    const theta = -i * ((Math.PI * 2) / total);
-    const seat = seatGroups[i];
-    seat.group.position.set(Math.sin(theta) * GRID_RADIUS, 0, Math.cos(theta) * GRID_RADIUS);
-    seat.group.rotation.set(0, theta, 0);
+function layoutTableau() {
+  const n = seatGroups.length;
+  if (!n) return;
+  lastSeatCount = n;
+  focusedSeat = Math.max(0, Math.min(n - 1, focusedSeat));
+  const others = [];
+  for (let i = 0; i < n; i++) if (i !== focusedSeat) others.push(i);
+
+  const main = seatGroups[focusedSeat];
+  main.group.position.set(0, 0, MAIN_GROUP_Z);
+  main.group.rotation.set(0, 0, 0);
+  main.group.scale.setScalar(1);
+  main.cardScale = CARD_SCALE;
+
+  const count = others.length;
+  const span = MINI_SPACING * Math.max(0, count - 1);
+  others.forEach((si, k) => {
+    const seat = seatGroups[si];
+    const x = count <= 1 ? 0 : -span / 2 + k * MINI_SPACING;
+    seat.group.position.set(x, 0, MINI_GROUP_Z);
+    seat.group.rotation.set(0, 0, 0);
+    seat.group.scale.setScalar(1);
+    seat.cardScale = MINI_SCALE;
+  });
+}
+
+export function setFocusedSeat(index) {
+  const next = Math.max(0, Math.floor(Number(index) || 0));
+  if (next === focusedSeat) return focusedSeat;
+  focusedSeat = next;
+  if (mounted && seatGroups.length) {
+    layoutTableau();
+    seatGroups.forEach((seat) => layoutGrid(seat.meshes, seat.cardScale || CARD_SCALE));
+    applyOrbitCamera();
+    overlaySync?.();
   }
+  return focusedSeat;
+}
+
+export function getFocusedSeat() {
+  return focusedSeat;
 }
 
 function ensureSeats(count) {
@@ -514,8 +524,6 @@ function ensureSeats(count) {
   }
   while (seatGroups.length < count) {
     const group = new THREE.Group();
-    const marker = createSeatMarker();
-    group.add(marker);
     const meshes = [];
     for (let i = 0; i < 12; i++) {
       const m = createCardMesh();
@@ -523,7 +531,7 @@ function ensureSeats(count) {
       meshes.push(m);
     }
     scene.add(group);
-    seatGroups.push({ group, meshes, marker });
+    seatGroups.push({ group, meshes });
   }
 }
 
@@ -548,22 +556,8 @@ function ensureCenterMeshes(deckCount, discardCount) {
   }
 }
 
-function neighborSpacing() {
-  return (Math.PI * 2) / Math.max(lastSeatCount, 2);
-}
-
-function facePeekHalf() {
-  const horiz = Math.abs(Math.cos(orbitPitch) * orbitDistance);
-  if (horiz <= GRID_RADIUS + 0.08) return 0;
-  return Math.acos(Math.min(0.999, GRID_RADIUS / horiz));
-}
-
-function refreshPlayerYawLimit(seatCount) {
-  if (Number.isFinite(seatCount) && seatCount >= 2) lastSeatCount = seatCount;
-  const spacing = neighborSpacing();
-  const peek = facePeekHalf();
-  const gridHalf = Math.atan(GRID_WIDTH / 2 / GRID_RADIUS);
-  orbitYawLimit = Math.max(0.08, spacing - peek - gridHalf * 0.35);
+function refreshPlayerYawLimit() {
+  orbitYawLimit = 0.48;
   if (orbitYawLimited) {
     if (orbitYaw > orbitYawLimit) orbitYaw = orbitYawLimit;
     else if (orbitYaw < -orbitYawLimit) orbitYaw = -orbitYawLimit;
@@ -572,7 +566,7 @@ function refreshPlayerYawLimit(seatCount) {
 
 function applyOrbitCamera() {
   if (!camera) return;
-  _look.set(0, 0.06, 0);
+  _look.set(0, 0.05, 0.08);
   const horiz = Math.cos(orbitPitch) * orbitDistance;
   camera.position.set(
     _look.x + Math.sin(orbitYaw) * horiz,
@@ -586,8 +580,9 @@ function computeFittedDistance() {
   if (!camera) return BASE_DIST;
   const halfVFov = (CAMERA_FOV * Math.PI) / 360;
   const halfHFov = Math.atan(Math.tan(halfVFov) * Math.max(camera.aspect, 0.05));
-  const margin = TABLE_RADIUS + 0.45;
-  return Math.max(BASE_DIST, margin / Math.tan(halfHFov), margin / Math.tan(halfVFov));
+  const marginX = 1.45;
+  const marginZ = 1.55;
+  return Math.max(BASE_DIST, marginX / Math.tan(halfHFov), marginZ / Math.tan(halfVFov));
 }
 
 function fitCamera() {
@@ -619,8 +614,6 @@ function ensureScene() {
   const fill = new THREE.DirectionalLight(0xb7c9c0, 0.1);
   fill.position.set(-3, 3, -2);
   scene.add(fill);
-  tableGroup = createTable();
-  scene.add(tableGroup);
   renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
   renderer.setClearColor(0x000000, 0);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -664,6 +657,7 @@ export function resetOrbit() {
   orbitYaw = 0;
   orbitPitch = BASE_ELEV;
   userZoomed = false;
+  focusedSeat = 0;
   orbitDistance = fittedDistance || BASE_DIST;
   if (orbitYawLimited) refreshPlayerYawLimit();
   if (mounted) applyOrbitCamera();
@@ -713,7 +707,7 @@ function snapshotOf(seats, pile, drawn, drawnSource) {
 /**
  * `seats` : [{ grid, isTurn }] dans l'ordre local d'abord, puis adversaires.
  * `grid[i]` = `{ card: {id,value}, faceUp }` ou `null`.
- * `spectator` : tous les sièges autour de la table, orbite 360°.
+ * `spectator` : mêmes sièges, orbite un peu plus libre.
  */
 export function updateTable({
   seats = [],
@@ -725,7 +719,7 @@ export function updateTable({
   spectator = false
 } = {}) {
   if (!mounted) return;
-  orbitYawLimited = !spectator;
+  orbitYawLimited = true;
   const pile = discard.length ? discard : discardTop ? [discardTop] : [];
   const animate = hasSnapshot;
 
@@ -776,9 +770,9 @@ export function updateTable({
 
   ensureSeats(Math.max(seats.length, 1));
   ensureCenterMeshes(deckCount, pile.length);
-  placeSeats(seatGroups.length);
+  layoutTableau();
   fitCamera();
-  refreshPlayerYawLimit(seatGroups.length);
+  refreshPlayerYawLimit();
 
   seats.forEach((p, i) => {
     const seat = seatGroups[i];
@@ -788,7 +782,7 @@ export function updateTable({
     seat.meshes.forEach((mesh, j) => {
       const cell = grid[j];
       const before = prevGrid[j];
-      applyCard(mesh, cell?.card, { faceUp: Boolean(cell?.faceUp) });
+      applyCard(mesh, cell?.card, { faceUp: Boolean(cell?.faceUp), scale: seat.cardScale || CARD_SCALE });
       if (
         animate &&
         cell?.faceUp &&
@@ -800,8 +794,7 @@ export function updateTable({
         startFlip(mesh, cell.card.value);
       }
     });
-    layoutGrid(seat.meshes, grid);
-    if (seat.marker) seat.marker.visible = Boolean(p.isTurn);
+    layoutGrid(seat.meshes, seat.cardScale || CARD_SCALE);
   });
 
   lastPile = pile;
@@ -853,7 +846,7 @@ export function updateTable({
           flyCardToDiscard(ev.old, captures[`${ev.si}-${ev.j}`], {
             wasFaceUp: Boolean(ev.old.faceUp),
             pile,
-            scaleFrom: CARD_SCALE
+            scaleFrom: meshWorldScale(captures[`${ev.si}-${ev.j}`]?.mesh)
           });
         }
         if (ev.thenCleared) {
@@ -883,7 +876,7 @@ export function updateTable({
               duration: 640,
               lift: 0.26,
               scaleFrom: CENTER_SCALE,
-              scaleTo: CARD_SCALE,
+              scaleTo: meshWorldScale(cellMesh),
               onDone: () => {
                 hiddenUntil.delete(cellMesh.uuid);
                 cellMesh.visible = true;
@@ -904,7 +897,7 @@ export function updateTable({
         flyCardToDiscard(ev.old, captures[`${ev.si}-${ev.j}`], {
           wasFaceUp: Boolean(ev.old.faceUp),
           pile,
-          scaleFrom: CARD_SCALE
+          scaleFrom: meshWorldScale(captures[`${ev.si}-${ev.j}`]?.mesh)
         });
       }
     }
@@ -946,19 +939,36 @@ function projectMesh(mesh) {
   };
 }
 
-export function getCardRects() {
-  const mine = (seatGroups[0]?.meshes || []).map((m, i) => {
+function projectSeatMeshes(meshes) {
+  return (meshes || []).map((m, i) => {
     const r = projectMesh(m);
     return r ? { ...r, index: i } : null;
   });
+}
+
+export function getCardRects() {
   const topDeck = [...deckMeshes].reverse().find((m) => m.visible);
   const topDiscard = [...discardMeshes].reverse().find((m) => m.visible);
   return {
-    mine,
+    mine: projectSeatMeshes(seatGroups[0]?.meshes),
+    focus: projectSeatMeshes(seatGroups[focusedSeat]?.meshes),
     deck: projectMesh(topDeck),
     discard: projectMesh(topDiscard),
     drawn: projectMesh(drawnMesh)
   };
+}
+
+export function getSeatHitRects() {
+  if (!mounted) return [];
+  return seatGroups.map((seat, i) => {
+    const rects = (seat.meshes || []).map(projectMesh).filter(Boolean);
+    if (!rects.length) return { seat: i, focused: i === focusedSeat, left: 0, top: 0, width: 0, height: 0 };
+    const left = Math.min(...rects.map((r) => r.left));
+    const top = Math.min(...rects.map((r) => r.top));
+    const right = Math.max(...rects.map((r) => r.left + r.width));
+    const bottom = Math.max(...rects.map((r) => r.top + r.height));
+    return { seat: i, focused: i === focusedSeat, left, top, width: right - left, height: bottom - top };
+  });
 }
 
 export function getRowLabelAnchors() {
@@ -966,16 +976,18 @@ export function getRowLabelAnchors() {
   camera.updateMatrixWorld();
   const w = parseFloat(canvas.style.width) || 1;
   const h = parseFloat(canvas.style.height) || 1;
-  const fromGroup = (group) => {
+  const fromGroup = (group, mini) => {
     if (!group) return null;
     group.updateMatrixWorld();
-    _world.set(0, 0.22, 0.35).applyMatrix4(group.matrixWorld).project(camera);
+    _world.set(0, mini ? 0.12 : 0.2, mini ? -0.22 : 0.42).applyMatrix4(group.matrixWorld).project(camera);
     return { left: (_world.x * 0.5 + 0.5) * w, top: (-_world.y * 0.5 + 0.5) * h };
   };
+  const seats = seatGroups.map((s, i) => fromGroup(s.group, i !== focusedSeat));
   return {
-    mine: fromGroup(seatGroups[0]?.group),
-    opponents: seatGroups.slice(1).map((s) => fromGroup(s.group)),
-    seats: seatGroups.map((s) => fromGroup(s.group))
+    mine: seats[0] || null,
+    opponents: seats.slice(1),
+    seats,
+    focused: focusedSeat
   };
 }
 
