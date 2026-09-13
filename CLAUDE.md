@@ -39,11 +39,13 @@ Un plan vague produit une exécution vague : plus les étapes et les critères s
 
 Une fois le plan validé, mentionner `@local go` en commentaire sur la même issue déclenche l'exécution **gratuite**, sur le matériel local (hubert + gamer), sans consommer de quota Claude :
 
-- Si un plan existe (`docs/plans/issue-<numéro>.md`), c'est son contenu qui sert de consigne à qwen — pas le corps brut de l'issue
+- Si un plan existe, c'est son contenu qui sert de consigne à qwen — pas le corps brut de l'issue. Recherché dans l'ordre : `docs/plans/issue-<numéro>.md` sur `main`, puis sur la branche non fusionnée `claude/issue-<numéro>-*`, puis dans le dernier commentaire de l'issue contenant « Plan complet » (repli si le push de la branche a échoué — voir note ci-dessous)
 - Sinon (tâche simple, sans passage par Claude), le titre et le corps de l'issue servent directement de consigne
 - L'exécution tourne sur le runner auto-hébergé `hubert` (label `local`), via Aider + qwen2.5-coder dans Docker, pointant vers l'Ollama de gamer
 - Une pull request est ouverte automatiquement si des changements ont été produits
-- qwen improvise mal : réservé aux tâches simples ou aux plans suffisamment précis
+- qwen improvise mal, et peine à reproduire de longs blocs de texte exacts (format diff) sur de gros fichiers : réservé aux tâches simples ou aux plans suffisamment précis et ciblés
+
+**Note** : GitHub refuse qu'une GitHub App (Claude) pousse un commit dont l'arbre contient `.github/workflows/*.yml`, même inchangé, sans permission `workflows` explicite sur l'installation — ce qui peut arriver dès que la branche de Claude diverge de `main` sur ces fichiers (ex. si `main` a été modifié pendant que Claude travaillait). Dans ce cas, le plan n'atteint jamais le dépôt distant en Git ; le commentaire de l'issue reste alors la seule source, d'où le repli ci-dessus.
 
 ## Restitution des pull requests
 

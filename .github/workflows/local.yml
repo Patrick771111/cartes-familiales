@@ -53,6 +53,12 @@ jobs:
                && git show "origin/$PLAN_BRANCH:$PLAN_FILE" > .local-task.txt 2>/dev/null; then
             echo "Plan trouvé sur la branche $PLAN_BRANCH (non fusionnée)."
             echo "source=plan" >> "$GITHUB_OUTPUT"
+          elif PLAN_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+                 --paginate --jq '[.[] | select(.body | contains("Plan complet"))] | last | .body // empty') \
+               && [ -n "$PLAN_COMMENT" ]; then
+            echo "Plan trouvé dans un commentaire (repli après échec de synchronisation Git de la branche du plan)."
+            printf '%s\n' "$PLAN_COMMENT" > .local-task.txt
+            echo "source=plan" >> "$GITHUB_OUTPUT"
           else
             echo "Aucun plan trouvé : exécution directe de l'issue."
             cat > .local-task.txt << 'TASK_EOF'
@@ -65,7 +71,8 @@ jobs:
 
       - name: Exécuter qwen via Aider
         run: |
-          timeout 600 docker run --rm \
+          CONTAINER_NAME="aider-${{ github.run_id }}"
+          docker run -d --name "$CONTAINER_NAME" \
             -v "$PWD":/app \
             -e OLLAMA_API_BASE="$OLLAMA_API_BASE" \
             paulgauthier/aider \
@@ -78,6 +85,15 @@ jobs:
             --no-show-release-notes \
             --commit-language French \
             --message-file /app/.local-task.txt
+
+          # timeout sur `docker run` seul ne tue pas le conteneur cote daemon :
+          # on attend via `docker wait` (tuable proprement) puis on tue le conteneur explicitement au besoin.
+          if ! timeout 480 docker wait "$CONTAINER_NAME" > /tmp/aider-exit-code.txt; then
+            echo "::warning::qwen n'a pas terminé dans les temps (8 min) — arrêt forcé du conteneur."
+            docker kill "$CONTAINER_NAME" 2>/dev/null || true
+          fi
+          docker logs "$CONTAINER_NAME" || true
+          docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
           rm -f .local-task.txt
 
       - name: Vérifier qu'il y a des changements
