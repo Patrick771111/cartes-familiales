@@ -120,7 +120,7 @@ jobs:
           gh pr create \
             --title "Voie locale : ${{ github.event.issue.title }}" \
             --body "Résout #${{ github.event.issue.number }}. $ORIGIN_NOTE Produit entièrement par qwen sur le matériel local, sans consommer de quota Claude." \
-            --base main \
+            --base "${{ github.event.repository.default_branch }}" \
             --head "${{ steps.branch.outputs.name }}"
 
       - name: Commenter l'issue si rien n'a changé
