@@ -15,7 +15,6 @@ jobs:
       issues: write
     env:
       OLLAMA_API_BASE: http://192.168.4.27:11434
-      AIDER_MODEL: ollama/qwen2.5-coder:14b
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -70,8 +69,21 @@ jobs:
             echo "source=issue" >> "$GITHUB_OUTPUT"
           fi
 
+          # Le plan (ou la demande directe) peut préciser un modèle autre que le défaut
+          # (ex. gemma4:12b pour une tâche nécessitant de lire une image — qwen n'a pas de vision)
+          REQUESTED_MODEL=$(grep -oE '^MODELE: .+' .local-task.txt | head -1 | sed 's/^MODELE: //')
+          if [ -n "$REQUESTED_MODEL" ]; then
+            echo "Modèle demandé explicitement : $REQUESTED_MODEL"
+            echo "model=ollama/$REQUESTED_MODEL" >> "$GITHUB_OUTPUT"
+          else
+            echo "model=ollama/qwen2.5-coder:14b" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Exécuter qwen via Aider
+        env:
+          AIDER_MODEL: ${{ steps.task.outputs.model }}
         run: |
+          echo "Modèle utilisé : $AIDER_MODEL"
           CONTAINER_NAME="aider-${{ github.run_id }}"
           docker run -d --name "$CONTAINER_NAME" \
             -v "$PWD":/app \

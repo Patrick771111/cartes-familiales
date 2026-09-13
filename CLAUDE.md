@@ -1,5 +1,18 @@
 # Consignes Claude Code
 
+## Capacités réelles des moteurs locaux
+
+Avant de trier ou de planifier, tiens compte de ce que les moteurs locaux peuvent réellement faire — un plan qui suppose une capacité absente échouera silencieusement à l'exécution :
+
+- **qwen2.5-coder:14b** (par défaut, via Aider) — bon en édition de code précise (format diff). **Fenêtre de 32 768 tokens** : incapable de charger en entier un fichier volumineux (au-delà de quelques milliers de lignes). **Aucune capacité de vision** : ne peut pas lire une photo, un tableau scanné, une image.
+- **gemma4:12b** (Ollama sur gamer, `http://192.168.4.27:11434`) — a une **vraie capacité de vision** : peut lire et décrire une photo, un tableau, un texte scanné. Moins fiable que qwen2.5-coder pour des éditions de code précises.
+- Les deux modèles se partagent les 12 Go de VRAM de gamer et ne tiennent pas en mémoire simultanément (Ollama les décharge l'un l'autre automatiquement) — pas de vrai problème pratique, juste pas de parallélisme entre une tâche de vision et une tâche de code.
+
+**Conséquences pour le triage et les plans :**
+- **Besoin de vision** (vérifier une photo, lire un tableau scanné) : ce n'est **plus** hors de portée de la voie locale. Indique dans ton plan (ou ton verdict simple) `MODELE: gemma4:12b` pour que l'exécution utilise ce modèle au lieu du défaut.
+- **Fichier trop volumineux** pour qu'un modèle local l'édite de façon fiable (ex. un fichier de données de plusieurs dizaines de milliers de lignes) : n'écris **pas** de plan qui délègue cette édition à qwen, il échouera systématiquement (dépassement de fenêtre de contexte, quelle que soit la précision des instructions). Dans ce cas précis, **implémente toi-même** — voir Étape 2c.
+- **Génération d'image** (illustration, icône, asset graphique) : aucun moteur local ni Claude ne sait générer une image. N'essaie pas d'automatiser ni de déléguer à qwen. À la place, rends un `VERDICT: IMPLEMENTE` (rien à exécuter derrière) et fournis, en commentaire, **le ou les prompts prêts à copier-coller** dans Grok Imagine (ou l'outil de génération d'image que l'utilisateur préfère) — description précise, en français ou en anglais selon ce qui donne un meilleur résultat sur l'outil visé. L'utilisateur les utilise lui-même en interactif et ajoute le résultat au dépôt manuellement.
+
 ## Rôle de Claude : trier, puis concevoir — jamais implémenter
 
 Claude est invoqué automatiquement à l'ouverture de **toute** nouvelle issue (sauf si son corps contient déjà `@local go`, auquel cas l'utilisateur a explicitement demandé l'exécution directe et Claude n'intervient pas), ainsi que sur toute mention `@claude` en commentaire (dialogue de suivi).
@@ -11,6 +24,8 @@ Avant toute chose, évalue si la tâche est **SIMPLE** ou **COMPLEXE** :
 - **SIMPLE** = tâche mécanique et bien délimitée : corriger un texte, une valeur de config, une petite fonction évidente, une doc, un test isolé, une dépendance à monter, un changement dont l'emplacement dans le code est évident ou trivial à trouver.
 - **COMPLEXE** = nécessite un choix de conception, touche à l'architecture, ambigu, impacte plusieurs fichiers de façon non triviale, demande d'abord d'explorer/comprendre le code pour localiser la bonne cible, ou risque de casser un comportement existant.
 
+Vérifie aussi si la tâche dépasse les capacités des moteurs locaux (voir section ci-dessus) — un fichier trop volumineux pour être édité de façon fiable par qwen n'est **jamais** SIMPLE ni COMPLEXE au sens habituel : c'est un troisième cas, IMPLEMENTE (voir Étape 2c).
+
 **Commence impérativement ta réponse par une ligne exacte, seule sur sa ligne, avant tout autre texte** :
 
 ```
@@ -19,6 +34,10 @@ VERDICT: SIMPLE
 ou
 ```
 VERDICT: COMPLEXE
+```
+ou
+```
+VERDICT: IMPLEMENTE
 ```
 
 Cette ligne est lue par le workflow pour router automatiquement la suite — ne pas la formater (pas de gras, pas de puce), l'écrire telle quelle.
@@ -56,9 +75,22 @@ Ton rôle se limite alors **strictement à la conception** :
 ## Critères de vérification
 - Comment on sait que c'est fait et correct
 - Cas de test ou comportement attendu
+
+## Modèle requis
+[Omettre cette section si qwen2.5-coder (défaut) convient. Sinon : `gemma4:12b` si une étape nécessite de lire une image/photo/tableau scanné.]
 ```
 
 Un plan vague produit une exécution vague : plus les étapes et les critères sont précis, plus qwen (qui exécute ensuite) sera fidèle. Éviter de laisser des choix de conception ouverts dans le plan — c'est le rôle de Claude de trancher, pas celui de qwen.
+
+### Étape 2c — Si IMPLEMENTE (tâche hors de portée de tout moteur local)
+
+Cas type : édition d'un fichier trop volumineux pour tenir dans la fenêtre de contexte d'un modèle local (qwen **et** gemma4), rendant toute délégation vouée à l'échec quelle que soit la précision des instructions.
+
+Dans ce cas seulement, l'interdiction habituelle de toucher au code ne s'applique pas :
+
+- **Implémente directement** le changement, comme le ferait normalement qwen — édite le ou les fichiers concernés, rien de plus que nécessaire.
+- **Committe et ouvre une pull request** en respectant les règles de restitution ci-dessous (français, résumé fonctionnel, jamais de diff).
+- Explique en une phrase, après la ligne VERDICT, pourquoi la voie locale ne pouvait pas gérer cette tâche (ex. taille du fichier).
 
 ## Exécution : la voie locale (qwen)
 
@@ -66,7 +98,8 @@ Le passage à l'exécution se fait par un commentaire `@local go` sur l'issue �
 
 - Si un plan existe, c'est son contenu qui sert de consigne à qwen — pas le corps brut de l'issue. Recherché dans l'ordre : `docs/plans/issue-<numéro>.md` sur la branche par défaut, puis sur la branche non fusionnée `claude/issue-<numéro>-*`, puis dans le dernier commentaire de l'issue contenant « Plan complet » (repli si le push de la branche a échoué — voir note ci-dessous)
 - Sinon (verdict simple, pas de plan), le titre et le corps de l'issue servent directement de consigne
-- L'exécution tourne sur le runner auto-hébergé `hubert` (label `local`), via Aider + qwen2.5-coder dans Docker, pointant vers l'Ollama de gamer
+- L'exécution tourne sur le runner auto-hébergé `hubert` (label `local`), via Aider dans Docker, pointant vers l'Ollama de gamer
+- Modèle utilisé : qwen2.5-coder:14b par défaut, sauf si le plan précise `MODELE: gemma4:12b` (tâche nécessitant de lire une image)
 - Une pull request est ouverte automatiquement si des changements ont été produits
 - qwen improvise mal, et peine à reproduire de longs blocs de texte exacts (format diff) sur de gros fichiers : si le verdict "simple" s'avère faux à l'usage (qwen ne trouve pas la bonne cible, ou n'produit rien), redemande à Claude en commentant `@claude` — il rendra probablement `VERDICT: COMPLEXE` cette fois et fera un plan
 
@@ -99,7 +132,7 @@ Les pull requests (produites par la voie locale) doivent respecter ces règles :
 
 ## Déclenchement — résumé
 
-- **Ouverture d'une issue** (sans `@local go` dans le corps) → Claude trie automatiquement : `VERDICT: SIMPLE` (renvoi immédiat vers qwen) ou `VERDICT: COMPLEXE` (plan à valider)
+- **Ouverture d'une issue** (sans `@local go` dans le corps) → Claude trie automatiquement : `VERDICT: SIMPLE` (renvoi immédiat vers qwen), `VERDICT: COMPLEXE` (plan à valider), ou `VERDICT: IMPLEMENTE` (Claude a implémenté lui-même, PR déjà ouverte — tâche hors de portée de tout moteur local)
 - `@claude` en commentaire → dialogue de suivi (corriger un plan, redemander un tri après un échec de qwen, etc.)
 - `@local go` en commentaire, ou dans le corps d'une issue à l'ouverture → exécution directe par qwen (le plan s'il existe, sinon l'issue brute), sans passer par Claude
 
