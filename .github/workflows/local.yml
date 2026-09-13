@@ -32,14 +32,25 @@ jobs:
 
       - name: Écrire la tâche
         id: task
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if ! grep -qxF '.local-task.txt' .gitignore 2>/dev/null; then
             echo '.local-task.txt' >> .gitignore
           fi
           PLAN_FILE="docs/plans/issue-${{ github.event.issue.number }}.md"
+
+          # Le plan peut être sur main, ou encore sur la branche non fusionnée créée par Claude
+          PLAN_BRANCH=$(gh api "repos/${{ github.repository }}/branches?per_page=100" --paginate --jq '.[].name' \
+            | grep "^claude/issue-${{ github.event.issue.number }}-" | sort | tail -1 || true)
+
           if [ -f "$PLAN_FILE" ]; then
-            echo "Plan trouvé ($PLAN_FILE) : exécution du plan validé."
+            echo "Plan trouvé sur main ($PLAN_FILE)."
             cp "$PLAN_FILE" .local-task.txt
+            echo "source=plan" >> "$GITHUB_OUTPUT"
+          elif [ -n "$PLAN_BRANCH" ] && git fetch origin "$PLAN_BRANCH" --depth 1 2>/dev/null \
+               && git show "origin/$PLAN_BRANCH:$PLAN_FILE" > .local-task.txt 2>/dev/null; then
+            echo "Plan trouvé sur la branche $PLAN_BRANCH (non fusionnée)."
             echo "source=plan" >> "$GITHUB_OUTPUT"
           else
             echo "Aucun plan trouvé : exécution directe de l'issue."
