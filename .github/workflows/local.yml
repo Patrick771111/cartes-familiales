@@ -1,0 +1,74 @@
+name: Voie locale (qwen)
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  local:
+    if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '@local go')
+    runs-on: [self-hosted, local]
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      OLLAMA_API_BASE: http://192.168.4.27:11434
+      AIDER_MODEL: ollama/qwen2.5-coder:14b
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Créer la branche de travail
+        id: branch
+        run: |
+          git config user.email "patrick.blavier@gmail.com"
+          git config user.name "qwen (voie locale)"
+          BRANCH="local/issue-${{ github.event.issue.number }}-$(date +%s)"
+          git checkout -b "$BRANCH"
+          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Écrire la tâche
+        run: |
+          cat > /tmp/task.txt << 'TASK_EOF'
+          ${{ github.event.issue.title }}
+
+          ${{ github.event.issue.body }}
+          TASK_EOF
+
+      - name: Exécuter qwen via Aider
+        run: |
+          docker run --rm \
+            -v "$PWD":/app \
+            -e OLLAMA_API_BASE="$OLLAMA_API_BASE" \
+            paulgauthier/aider \
+            --model "$AIDER_MODEL" \
+            --yes-always \
+            --message-file /tmp/task.txt
+
+      - name: Vérifier qu'il y a des changements
+        id: changes
+        run: |
+          if git diff --quiet HEAD~1 2>/dev/null || [ -z "$(git log HEAD~1..HEAD 2>/dev/null)" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publier la branche et ouvrir la pull request
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          git push origin "${{ steps.branch.outputs.name }}"
+          gh pr create \
+            --title "Voie locale : ${{ github.event.issue.title }}" \
+            --body "Résout #${{ github.event.issue.number }}. Produit entièrement par qwen sur le matériel local, sans consommer de quota Claude." \
+            --base main \
+            --head "${{ steps.branch.outputs.name }}"
+
+      - name: Commenter l'issue si rien n'a changé
+        if: steps.changes.outputs.has_changes == 'false'
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "qwen n'a produit aucun changement pour cette demande. Reformule la tâche ou vérifie qu'elle est assez précise."
