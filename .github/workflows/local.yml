@@ -31,15 +31,25 @@ jobs:
           echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Écrire la tâche
+        id: task
         run: |
           if ! grep -qxF '.local-task.txt' .gitignore 2>/dev/null; then
             echo '.local-task.txt' >> .gitignore
           fi
-          cat > .local-task.txt << 'TASK_EOF'
+          PLAN_FILE="docs/plans/issue-${{ github.event.issue.number }}.md"
+          if [ -f "$PLAN_FILE" ]; then
+            echo "Plan trouvé ($PLAN_FILE) : exécution du plan validé."
+            cp "$PLAN_FILE" .local-task.txt
+            echo "source=plan" >> "$GITHUB_OUTPUT"
+          else
+            echo "Aucun plan trouvé : exécution directe de l'issue."
+            cat > .local-task.txt << 'TASK_EOF'
           ${{ github.event.issue.title }}
 
           ${{ github.event.issue.body }}
           TASK_EOF
+            echo "source=issue" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Exécuter qwen via Aider
         run: |
@@ -66,9 +76,14 @@ jobs:
         if: steps.changes.outputs.has_changes == 'true'
         run: |
           git push origin "${{ steps.branch.outputs.name }}"
+          if [ "${{ steps.task.outputs.source }}" = "plan" ]; then
+            ORIGIN_NOTE="Exécute le plan validé dans docs/plans/issue-${{ github.event.issue.number }}.md."
+          else
+            ORIGIN_NOTE="Exécute directement la demande de l'issue (aucun plan préalable)."
+          fi
           gh pr create \
             --title "Voie locale : ${{ github.event.issue.title }}" \
-            --body "Résout #${{ github.event.issue.number }}. Produit entièrement par qwen sur le matériel local, sans consommer de quota Claude." \
+            --body "Résout #${{ github.event.issue.number }}. $ORIGIN_NOTE Produit entièrement par qwen sur le matériel local, sans consommer de quota Claude." \
             --base main \
             --head "${{ steps.branch.outputs.name }}"
 
