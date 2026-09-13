@@ -17,7 +17,7 @@ jobs:
       AIDER_MODEL: ollama/qwen2.5-coder:14b
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
