@@ -27,7 +27,7 @@ jobs:
           # L'action a son propre déclencheur interne cherchant "@claude" et ignore silencieusement
           # tout événement où ce mot-clé est absent (cas d'une simple ouverture d'issue pour triage).
           # direct_prompt force l'exécution dans ce cas précis, sans affecter le dialogue normal en commentaire.
-          prompt: "${{ github.event_name == 'issues' && 'Nouvelle issue ouverte, sans mention @claude explicite. Applique les consignes de triage de CLAUDE.md sur cette issue (rendre un VERDICT, puis agir en consequence).' || '' }}"
+          prompt: "${{ github.event_name == 'issues' && format('Nouvelle issue #{0} ouverte sans mention @claude explicite. Titre : {1}. Corps : {2}. Applique les consignes de triage de CLAUDE.md sur cette issue precise (numero {0}) : rends un VERDICT, puis agis en consequence.', github.event.issue.number, github.event.issue.title, github.event.issue.body) || '' }}"
 
       # Le triage est fait par Claude lui-même (voir CLAUDE.md). Sur ouverture d'issue,
       # s'il a jugé la tâche SIMPLE, on relance la voie locale : un commentaire posté avec
