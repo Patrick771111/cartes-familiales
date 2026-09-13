@@ -115,17 +115,21 @@ jobs:
 
           echo "Modèle utilisé : $PRIMARY_MODEL"
           run_aider "$PRIMARY_MODEL" /tmp/aider-log-1.txt
+          LAST_LOG=/tmp/aider-log-1.txt
 
           if grep -qE "exceeds the [0-9,]+ token limit" /tmp/aider-log-1.txt && [ "$PRIMARY_MODEL" != "$FALLBACK_MODEL" ]; then
             echo "::warning::Contexte trop grand pour $PRIMARY_MODEL — repli automatique sur $FALLBACK_MODEL (262k tokens de contexte)."
             git checkout -- . 2>/dev/null || true
             run_aider "$FALLBACK_MODEL" /tmp/aider-log-2.txt
+            LAST_LOG=/tmp/aider-log-2.txt
             echo "model_used=$FALLBACK_MODEL" >> "$GITHUB_OUTPUT"
           else
             echo "model_used=$PRIMARY_MODEL" >> "$GITHUB_OUTPUT"
           fi
 
-          rm -f .local-task.txt /tmp/aider-log-1.txt /tmp/aider-log-2.txt
+          # Conservés pour le diagnostic si l'exécution échoue (voir step suivant) ; nettoyés seulement à la toute fin du job.
+          echo "last_log=$LAST_LOG" >> "$GITHUB_OUTPUT"
+          rm -f .local-task.txt
 
       - name: Vérifier qu'il y a des changements
         id: changes
@@ -158,8 +162,27 @@ jobs:
             --base "${{ github.event.repository.default_branch }}" \
             --head "${{ steps.branch.outputs.name }}"
 
-      - name: Commenter l'issue si rien n'a changé
+      - name: Demander à Claude d'analyser l'échec et de proposer une remédiation
         if: steps.changes.outputs.has_changes == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.TRIAGE_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
-          gh issue comment ${{ github.event.issue.number }} \
-            --body "qwen n'a produit aucun changement pour cette demande. Reformule la tâche ou vérifie qu'elle est assez précise."
+          DIAGNOSTIC=$(tail -c 4000 "${{ steps.aider.outputs.last_log }}" 2>/dev/null || echo "Log indisponible.")
+          BODY=$(cat <<COMMENT_EOF
+La voie locale n'a produit aucun changement (modèle utilisé : ${{ steps.aider.outputs.model_used }}).
+
+Analyse ce diagnostic et propose une remédiation : plan revu et plus ciblé, implémentation directe (VERDICT: IMPLEMENTE) si le blocage est structurel, ou question à l'utilisateur si l'ambiguïté ne peut être levée que par lui.
+
+\`\`\`
+$DIAGNOSTIC
+\`\`\`
+
+@claude
+COMMENT_EOF
+)
+          gh issue comment ${{ github.event.issue.number }} --repo "$REPO" --body "$BODY"
+
+      - name: Nettoyer les logs temporaires
+        if: always()
+        run: rm -f /tmp/aider-log-1.txt /tmp/aider-log-2.txt /tmp/aider-exit-code.txt

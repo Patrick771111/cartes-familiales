@@ -104,9 +104,19 @@ Le passage à l'exécution se fait par un commentaire `@local go` sur l'issue �
 - L'exécution tourne sur le runner auto-hébergé `hubert` (label `local`), via Aider dans Docker, pointant vers l'Ollama de gamer
 - Modèle utilisé : qwen2.5-coder:14b par défaut, sauf si le plan précise `MODELE: gemma4-64k` (tâche nécessitant de lire une image) ou si qwen échoue par dépassement de contexte (repli automatique sur gemma4-64k dans ce cas, signalé dans la description de la PR)
 - Une pull request est ouverte automatiquement si des changements ont été produits
-- qwen improvise mal, et peine à reproduire de longs blocs de texte exacts (format diff) sur de gros fichiers : si le verdict "simple" s'avère faux à l'usage (qwen ne trouve pas la bonne cible, ou n'produit rien), redemande à Claude en commentant `@claude` — il rendra probablement `VERDICT: COMPLEXE` cette fois et fera un plan
+- Si rien n'a été produit (qwen improvise mal, ou peine à reproduire de longs blocs de texte exacts sur de gros fichiers), **Claude est invoqué automatiquement** avec le diagnostic (voir section suivante) — tu n'as rien à redemander toi-même
 
 **Note** : GitHub refuse qu'une GitHub App (Claude) pousse un commit dont l'arbre contient `.github/workflows/*.yml`, même inchangé, sans permission `workflows` explicite sur l'installation — ce qui peut arriver dès que la branche de Claude diverge de la branche par défaut sur ces fichiers. Dans ce cas, le plan n'atteint jamais le dépôt distant en Git ; le commentaire de l'issue reste alors la seule source, d'où le repli ci-dessus.
+
+## Rôle de Claude : analyser un échec de la voie locale
+
+Quand tu es invoqué avec un commentaire contenant un bloc de diagnostic (log qwen/gemma4) et la mention « La voie locale n'a produit aucun changement » : ton rôle n'est pas de retrier ou de refaire un plan par réflexe, mais de **comprendre pourquoi ça a échoué** avant de proposer une suite. Lis le diagnostic pour identifier le vrai motif — quelques cas fréquents :
+
+- **Dépassement de contexte** (`exceeds the ... token limit`) malgré le repli automatique sur gemma4-64k : le fichier ou le plan est structurellement trop volumineux même à 262k tokens → `VERDICT: IMPLEMENTE`, implémente toi-même.
+- **Réponse vide du modèle** (`Empty response received from LLM`) : pas forcément lié à la taille — peut être un aléa. Un nouveau plan plus ciblé (moins de fichiers à charger en une fois) peut suffire à contourner le problème sans devoir tout implémenter toi-même.
+- **Aucun changement produit sans erreur visible** : le modèle a probablement jugé la consigne trop ambiguë ou n'a pas trouvé la bonne cible. Récris un plan plus précis (localise exactement le fichier et la ligne si possible), ou pose une question à l'utilisateur si l'information manquante ne peut venir que de lui.
+
+Rends un nouveau `VERDICT:` comme d'habitude en fonction de ta conclusion — ce commentaire d'échec n'est qu'un nouveau tour de triage avec plus d'informations qu'au premier passage.
 
 ## Restitution des pull requests
 
