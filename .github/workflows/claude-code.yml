@@ -25,6 +25,10 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           show_full_output: true
           track_progress: true
+          # Un run GitHub Actions est ponctuel et sans etat entre les tours : un sous-agent
+          # asynchrone ("j'attends sa notification") n'a jamais de suite dans ce contexte,
+          # contrairement a une session interactive. On force l'exploration directe et synchrone.
+          claude_args: "--disallowedTools Agent"
           # L'action a son propre déclencheur interne cherchant "@claude" et ignore silencieusement
           # tout événement où ce mot-clé est absent (cas d'une simple ouverture d'issue pour triage).
           # direct_prompt force l'exécution dans ce cas précis, sans affecter le dialogue normal en commentaire.
