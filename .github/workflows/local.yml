@@ -49,6 +49,7 @@ jobs:
             paulgauthier/aider \
             --model "$AIDER_MODEL" \
             --yes-always \
+            --commit-language French \
             --message-file /app/.local-task.txt
           rm -f .local-task.txt
 
