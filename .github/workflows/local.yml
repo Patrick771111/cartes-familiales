@@ -169,18 +169,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           DIAGNOSTIC=$(tail -c 4000 "${{ steps.aider.outputs.last_log }}" 2>/dev/null || echo "Log indisponible.")
-          BODY=$(cat <<COMMENT_EOF
-La voie locale n'a produit aucun changement (modèle utilisé : ${{ steps.aider.outputs.model_used }}).
-
-Analyse ce diagnostic et propose une remédiation : plan revu et plus ciblé, implémentation directe (VERDICT: IMPLEMENTE) si le blocage est structurel, ou question à l'utilisateur si l'ambiguïté ne peut être levée que par lui.
-
-\`\`\`
-$DIAGNOSTIC
-\`\`\`
-
-@claude
-COMMENT_EOF
-)
+          BODY=$(printf "La voie locale n'a produit aucun changement (modèle utilisé : ${{ steps.aider.outputs.model_used }}).\n\nAnalyse ce diagnostic et propose une remédiation : plan revu et plus ciblé, implémentation directe (VERDICT: IMPLEMENTE) si le blocage est structurel, ou question à l'utilisateur si l'ambiguïté ne peut être levée que par lui.\n\n\`\`\`\n%s\n\`\`\`\n\n@claude" "$DIAGNOSTIC")
           gh issue comment ${{ github.event.issue.number }} --repo "$REPO" --body "$BODY"
 
       - name: Nettoyer les logs temporaires
