@@ -8,7 +8,7 @@ jobs:
   local:
     if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '@local go')
     runs-on: [self-hosted, local]
-    timeout-minutes: 15
+    timeout-minutes: 22
     permissions:
       contents: write
       pull-requests: write
@@ -79,35 +79,53 @@ jobs:
             echo "model=ollama/qwen2.5-coder:14b" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Exécuter qwen via Aider
+      - name: Exécuter qwen via Aider (repli auto si contexte dépassé)
+        id: aider
         env:
-          AIDER_MODEL: ${{ steps.task.outputs.model }}
+          PRIMARY_MODEL: ${{ steps.task.outputs.model }}
+          FALLBACK_MODEL: ollama/gemma4-64k
         run: |
-          echo "Modèle utilisé : $AIDER_MODEL"
-          CONTAINER_NAME="aider-${{ github.run_id }}"
-          docker run -d --name "$CONTAINER_NAME" \
-            -v "$PWD":/app \
-            -e OLLAMA_API_BASE="$OLLAMA_API_BASE" \
-            paulgauthier/aider \
-            --model "$AIDER_MODEL" \
-            --edit-format diff \
-            --yes-always \
-            --no-auto-lint \
-            --no-auto-test \
-            --no-check-update \
-            --no-show-release-notes \
-            --commit-language French \
-            --message-file /app/.local-task.txt
+          run_aider() {
+            local model="$1"
+            local log_file="$2"
+            local container="aider-${{ github.run_id }}-$RANDOM"
+            docker run -d --name "$container" \
+              -v "$PWD":/app \
+              -e OLLAMA_API_BASE="$OLLAMA_API_BASE" \
+              paulgauthier/aider \
+              --model "$model" \
+              --edit-format diff \
+              --yes-always \
+              --no-auto-lint \
+              --no-auto-test \
+              --no-check-update \
+              --no-show-release-notes \
+              --commit-language French \
+              --message-file /app/.local-task.txt
 
-          # timeout sur `docker run` seul ne tue pas le conteneur cote daemon :
-          # on attend via `docker wait` (tuable proprement) puis on tue le conteneur explicitement au besoin.
-          if ! timeout 480 docker wait "$CONTAINER_NAME" > /tmp/aider-exit-code.txt; then
-            echo "::warning::qwen n'a pas terminé dans les temps (8 min) — arrêt forcé du conteneur."
-            docker kill "$CONTAINER_NAME" 2>/dev/null || true
+            # timeout sur `docker run` seul ne tue pas le conteneur cote daemon :
+            # on attend via `docker wait` (tuable proprement) puis on tue le conteneur explicitement au besoin.
+            if ! timeout 480 docker wait "$container" > /tmp/aider-exit-code.txt; then
+              echo "::warning::$model n'a pas terminé dans les temps (8 min) — arrêt forcé du conteneur."
+              docker kill "$container" 2>/dev/null || true
+            fi
+            docker logs "$container" 2>&1 | tee "$log_file"
+            docker rm -f "$container" >/dev/null 2>&1 || true
+          }
+
+          echo "Modèle utilisé : $PRIMARY_MODEL"
+          run_aider "$PRIMARY_MODEL" /tmp/aider-log-1.txt
+
+          if grep -qE "exceeds the [0-9,]+ token limit" /tmp/aider-log-1.txt && [ "$PRIMARY_MODEL" != "$FALLBACK_MODEL" ]; then
+            echo "::warning::Contexte trop grand pour $PRIMARY_MODEL — repli automatique sur $FALLBACK_MODEL (262k tokens de contexte)."
+            git checkout -- . 2>/dev/null || true
+            run_aider "$FALLBACK_MODEL" /tmp/aider-log-2.txt
+            echo "model_used=$FALLBACK_MODEL" >> "$GITHUB_OUTPUT"
+          else
+            echo "model_used=$PRIMARY_MODEL" >> "$GITHUB_OUTPUT"
           fi
-          docker logs "$CONTAINER_NAME" || true
-          docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
-          rm -f .local-task.txt
+
+          rm -f .local-task.txt /tmp/aider-log-1.txt /tmp/aider-log-2.txt
 
       - name: Vérifier qu'il y a des changements
         id: changes
@@ -129,9 +147,14 @@ jobs:
           else
             ORIGIN_NOTE="Exécute directement la demande de l'issue (aucun plan préalable)."
           fi
+          if [ "${{ steps.aider.outputs.model_used }}" = "ollama/gemma4-64k" ]; then
+            MODEL_NOTE=" (repli automatique sur gemma4-64k, le plan dépassait la fenêtre de qwen)"
+          else
+            MODEL_NOTE=""
+          fi
           gh pr create \
             --title "Voie locale : ${{ github.event.issue.title }}" \
-            --body "Résout #${{ github.event.issue.number }}. $ORIGIN_NOTE Produit entièrement par qwen sur le matériel local, sans consommer de quota Claude." \
+            --body "Résout #${{ github.event.issue.number }}. $ORIGIN_NOTE Produit entièrement par qwen sur le matériel local, sans consommer de quota Claude.$MODEL_NOTE" \
             --base "${{ github.event.repository.default_branch }}" \
             --head "${{ steps.branch.outputs.name }}"
 

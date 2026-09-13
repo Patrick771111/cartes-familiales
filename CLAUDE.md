@@ -4,13 +4,14 @@
 
 Avant de trier ou de planifier, tiens compte de ce que les moteurs locaux peuvent réellement faire — un plan qui suppose une capacité absente échouera silencieusement à l'exécution :
 
-- **qwen2.5-coder:14b** (par défaut, via Aider) — bon en édition de code précise (format diff). **Fenêtre de 32 768 tokens** : incapable de charger en entier un fichier volumineux (au-delà de quelques milliers de lignes). **Aucune capacité de vision** : ne peut pas lire une photo, un tableau scanné, une image.
-- **gemma4:12b** (Ollama sur gamer, `http://192.168.4.27:11434`) — a une **vraie capacité de vision** : peut lire et décrire une photo, un tableau, un texte scanné. Moins fiable que qwen2.5-coder pour des éditions de code précises.
-- Les deux modèles se partagent les 12 Go de VRAM de gamer et ne tiennent pas en mémoire simultanément (Ollama les décharge l'un l'autre automatiquement) — pas de vrai problème pratique, juste pas de parallélisme entre une tâche de vision et une tâche de code.
+- **qwen2.5-coder:14b** (par défaut, via Aider) — bon en édition de code précise (format diff). **Fenêtre de 32 768 tokens, native au modèle** (pas un réglage conservateur qu'on peut augmenter sans dégrader la fiabilité) : incapable de charger en entier un fichier volumineux, et un plan trop long (avec du code recopié en exemple) peut suffire à dépasser cette limite même sur des fichiers de taille raisonnable. **Aucune capacité de vision.**
+- **gemma4-64k** (Ollama sur gamer, `http://192.168.4.27:11434`) — même poids que gemma4:12b (~7,5 Go, aucun coût VRAM supplémentaire) mais **fenêtre de 262 144 tokens** et **vraie capacité de vision** (photo, tableau scanné, texte). Moins fiable que qwen2.5-coder pour des éditions de code précises — à préférer seulement quand le contexte ou la vision sont le vrai besoin.
+- Les deux modèles se partagent les 12 Go de VRAM de gamer et ne tiennent pas en mémoire simultanément (Ollama les décharge l'un l'autre automatiquement) — pas de vrai problème pratique, juste pas de parallélisme entre une tâche de vision/contexte et une tâche de code.
+- **Repli automatique déjà en place** : si qwen échoue par dépassement de contexte, `local.yml` retente automatiquement avec `gemma4-64k`, sans intervention. Pas besoin d'anticiper ce cas dans un plan.
 
 **Conséquences pour le triage et les plans :**
-- **Besoin de vision** (vérifier une photo, lire un tableau scanné) : ce n'est **plus** hors de portée de la voie locale. Indique dans ton plan (ou ton verdict simple) `MODELE: gemma4:12b` pour que l'exécution utilise ce modèle au lieu du défaut.
-- **Fichier trop volumineux** pour qu'un modèle local l'édite de façon fiable (ex. un fichier de données de plusieurs dizaines de milliers de lignes) : n'écris **pas** de plan qui délègue cette édition à qwen, il échouera systématiquement (dépassement de fenêtre de contexte, quelle que soit la précision des instructions). Dans ce cas précis, **implémente toi-même** — voir Étape 2c.
+- **Besoin de vision** (vérifier une photo, lire un tableau scanné) : ce n'est **plus** hors de portée de la voie locale. Indique dans ton plan (ou ton verdict simple) `MODELE: gemma4-64k` pour que l'exécution utilise ce modèle au lieu du défaut.
+- **Fichier manifestement trop volumineux** pour qu'aucun modèle local (même gemma4-64k, 262k tokens) ne puisse l'éditer de façon fiable (ex. un fichier de données de plusieurs dizaines de milliers de lignes) : n'écris **pas** de plan qui délègue cette édition à qwen. Dans ce cas précis, **implémente toi-même** — voir Étape 2c. Pour tout le reste, laisse faire le repli automatique plutôt que de présupposer un échec.
 - **Génération d'image** (illustration, icône, asset graphique) : aucun moteur local ni Claude ne sait générer une image. N'essaie pas d'automatiser ni de déléguer à qwen. À la place, rends un `VERDICT: IMPLEMENTE` (rien à exécuter derrière) et fournis, en commentaire, **le ou les prompts prêts à copier-coller** dans Grok Imagine (ou l'outil de génération d'image que l'utilisateur préfère) — description précise, en français ou en anglais selon ce qui donne un meilleur résultat sur l'outil visé. L'utilisateur les utilise lui-même en interactif et ajoute le résultat au dépôt manuellement.
 
 ## Rôle de Claude : trier, puis concevoir — jamais implémenter
@@ -77,7 +78,7 @@ Ton rôle se limite alors **strictement à la conception** :
 - Cas de test ou comportement attendu
 
 ## Modèle requis
-[Omettre cette section si qwen2.5-coder (défaut) convient. Sinon : `gemma4:12b` si une étape nécessite de lire une image/photo/tableau scanné.]
+[Omettre cette section si qwen2.5-coder (défaut) convient. Sinon : `gemma4-64k` si une étape nécessite de lire une image/photo/tableau scanné. Inutile de l'indiquer pour un simple risque de dépassement de contexte — le repli est automatique.]
 ```
 
 Un plan vague produit une exécution vague : plus les étapes et les critères sont précis, plus qwen (qui exécute ensuite) sera fidèle. Éviter de laisser des choix de conception ouverts dans le plan — c'est le rôle de Claude de trancher, pas celui de qwen.
@@ -101,7 +102,7 @@ Le passage à l'exécution se fait par un commentaire `@local go` sur l'issue �
 - Si un plan existe, c'est son contenu qui sert de consigne à qwen — pas le corps brut de l'issue. Recherché dans l'ordre : `docs/plans/issue-<numéro>.md` sur la branche par défaut, puis sur la branche non fusionnée `claude/issue-<numéro>-*`, puis dans le dernier commentaire de l'issue contenant « Plan complet » (repli si le push de la branche a échoué — voir note ci-dessous)
 - Sinon (verdict simple, pas de plan), le titre et le corps de l'issue servent directement de consigne
 - L'exécution tourne sur le runner auto-hébergé `hubert` (label `local`), via Aider dans Docker, pointant vers l'Ollama de gamer
-- Modèle utilisé : qwen2.5-coder:14b par défaut, sauf si le plan précise `MODELE: gemma4:12b` (tâche nécessitant de lire une image)
+- Modèle utilisé : qwen2.5-coder:14b par défaut, sauf si le plan précise `MODELE: gemma4-64k` (tâche nécessitant de lire une image) ou si qwen échoue par dépassement de contexte (repli automatique sur gemma4-64k dans ce cas, signalé dans la description de la PR)
 - Une pull request est ouverte automatiquement si des changements ont été produits
 - qwen improvise mal, et peine à reproduire de longs blocs de texte exacts (format diff) sur de gros fichiers : si le verdict "simple" s'avère faux à l'usage (qwen ne trouve pas la bonne cible, ou n'produit rien), redemande à Claude en commentant `@claude` — il rendra probablement `VERDICT: COMPLEXE` cette fois et fera un plan
 
