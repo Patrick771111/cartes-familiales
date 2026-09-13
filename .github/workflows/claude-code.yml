@@ -10,7 +10,7 @@ jobs:
   claude:
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'issues' && contains(github.event.issue.body, '@claude'))
+      (github.event_name == 'issues' && !contains(github.event.issue.body, '@local go'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -24,3 +24,22 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           show_full_output: true
+
+      # Le triage est fait par Claude lui-même (voir CLAUDE.md). Sur ouverture d'issue,
+      # s'il a jugé la tâche SIMPLE, on relance la voie locale : un commentaire posté avec
+      # le GITHUB_TOKEN par défaut ne déclenche pas de nouveau workflow (restriction GitHub
+      # anti-boucle), d'où l'usage d'un jeton dédié ici, comme pour le triage précédent.
+      - name: Router vers la voie locale si Claude a jugé la tâche simple
+        if: github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ secrets.TRIAGE_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          VERDICT_COMMENT=$(gh api "repos/$REPO/issues/${{ github.event.issue.number }}/comments" \
+            --paginate --jq '[.[] | select(.body | test("^VERDICT: "))] | last | .body // empty')
+          if echo "$VERDICT_COMMENT" | grep -q "^VERDICT: SIMPLE"; then
+            echo "Claude a jugé la tâche simple : passage à la voie locale."
+            gh issue comment ${{ github.event.issue.number }} --repo "$REPO" --body "@local go"
+          else
+            echo "Pas de verdict SIMPLE détecté (plan en cours ou déjà écrit)."
+          fi
