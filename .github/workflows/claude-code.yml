@@ -24,6 +24,10 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           show_full_output: true
+          # L'action a son propre déclencheur interne cherchant "@claude" et ignore silencieusement
+          # tout événement où ce mot-clé est absent (cas d'une simple ouverture d'issue pour triage).
+          # direct_prompt force l'exécution dans ce cas précis, sans affecter le dialogue normal en commentaire.
+          direct_prompt: ${{ github.event_name == 'issues' && 'Nouvelle issue ouverte, sans mention @claude explicite : applique les consignes de triage de CLAUDE.md sur cette issue (rendre un VERDICT, puis agir en conséquence).' || '' }}
 
       # Le triage est fait par Claude lui-même (voir CLAUDE.md). Sur ouverture d'issue,
       # s'il a jugé la tâche SIMPLE, on relance la voie locale : un commentaire posté avec
