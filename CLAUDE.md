@@ -82,6 +82,8 @@ Ton rôle se limite alors **strictement à la conception** :
 
 Un plan vague produit une exécution vague : plus les étapes et les critères sont précis, plus qwen (qui exécute ensuite) sera fidèle. Éviter de laisser des choix de conception ouverts dans le plan — c'est le rôle de Claude de trancher, pas celui de qwen.
 
+**Précis ne veut pas dire long.** Le plan entier (avec les fichiers concernés) doit tenir dans la fenêtre de 32k tokens de qwen — un plan qui recopie de longs extraits de code (CSS complet, fonctions entières) gonfle le contexte au point de faire échouer l'exécution, même sur des fichiers de taille raisonnable. Décris **quoi** changer et **où** (sélecteur, nom de fonction, valeur), pas le code final à copier-coller ligne par ligne — qwen sait écrire le code, il a juste besoin de savoir quoi faire.
+
 ### Étape 2c — Si IMPLEMENTE (tâche hors de portée de tout moteur local)
 
 Cas type : édition d'un fichier trop volumineux pour tenir dans la fenêtre de contexte d'un modèle local (qwen **et** gemma4), rendant toute délégation vouée à l'échec quelle que soit la précision des instructions.
