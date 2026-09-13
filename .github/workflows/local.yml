@@ -70,6 +70,7 @@ jobs:
             -e OLLAMA_API_BASE="$OLLAMA_API_BASE" \
             paulgauthier/aider \
             --model "$AIDER_MODEL" \
+            --edit-format diff \
             --yes-always \
             --no-auto-lint \
             --no-auto-test \
