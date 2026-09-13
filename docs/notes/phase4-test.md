@@ -1,0 +1,1 @@
+L'exécution locale est l'exécution automatique des tâches simples par qwen2.5-coder (via Aider) sur le runner auto-hébergé local (hubert, connecté à l'Ollama de gamer), déclenchée par le commentaire `@local go`, sans consommer le quota Claude.
