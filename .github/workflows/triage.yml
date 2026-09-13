@@ -10,6 +10,7 @@ jobs:
       !contains(github.event.issue.body, '@claude') &&
       !contains(github.event.issue.body, '@local go')
     runs-on: [self-hosted, local]
+    timeout-minutes: 5
     env:
       OLLAMA_API_BASE: http://192.168.4.27:11434
       MODEL: qwen2.5-coder:14b
@@ -39,7 +40,7 @@ jobs:
             --arg issue "$ISSUE_CONTENT" \
             '{model: $model, prompt: ($instructions + "\n\nTicket :\n" + $issue), stream: false}')
 
-          RESULT=$(curl -s "$OLLAMA_API_BASE/api/generate" -d "$PAYLOAD" | jq -r '.response')
+          RESULT=$(curl -s --max-time 120 "$OLLAMA_API_BASE/api/generate" -d "$PAYLOAD" | jq -r '.response')
           echo "Réponse qwen : $RESULT"
 
           if echo "$RESULT" | grep -qi "COMPLEXE"; then

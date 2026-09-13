@@ -8,6 +8,7 @@ jobs:
   local:
     if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '@local go')
     runs-on: [self-hosted, local]
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
@@ -64,12 +65,16 @@ jobs:
 
       - name: Exécuter qwen via Aider
         run: |
-          docker run --rm \
+          timeout 600 docker run --rm \
             -v "$PWD":/app \
             -e OLLAMA_API_BASE="$OLLAMA_API_BASE" \
             paulgauthier/aider \
             --model "$AIDER_MODEL" \
             --yes-always \
+            --no-auto-lint \
+            --no-auto-test \
+            --no-check-update \
+            --no-show-release-notes \
             --commit-language French \
             --message-file /app/.local-task.txt
           rm -f .local-task.txt
