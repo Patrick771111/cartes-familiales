@@ -32,7 +32,10 @@ jobs:
 
       - name: Écrire la tâche
         run: |
-          cat > /tmp/task.txt << 'TASK_EOF'
+          if ! grep -qxF '.local-task.txt' .gitignore 2>/dev/null; then
+            echo '.local-task.txt' >> .gitignore
+          fi
+          cat > .local-task.txt << 'TASK_EOF'
           ${{ github.event.issue.title }}
 
           ${{ github.event.issue.body }}
@@ -46,7 +49,8 @@ jobs:
             paulgauthier/aider \
             --model "$AIDER_MODEL" \
             --yes-always \
-            --message-file /tmp/task.txt
+            --message-file /app/.local-task.txt
+          rm -f .local-task.txt
 
       - name: Vérifier qu'il y a des changements
         id: changes
