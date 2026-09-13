@@ -30,6 +30,7 @@ jobs:
           BRANCH="local/issue-${{ github.event.issue.number }}-$(date +%s)"
           git checkout -b "$BRANCH"
           echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Écrire la tâche
         id: task
@@ -99,7 +100,9 @@ jobs:
       - name: Vérifier qu'il y a des changements
         id: changes
         run: |
-          if git diff --quiet HEAD~1 2>/dev/null || [ -z "$(git log HEAD~1..HEAD 2>/dev/null)" ]; then
+          # Comparer au point de départ réel de la branche, pas à HEAD~1 (faux si aider n'a fait aucun commit :
+          # HEAD~1 pointerait alors sur un commit historique de main, donnant un faux positif)
+          if git diff --quiet "${{ steps.branch.outputs.base_sha }}" HEAD; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
