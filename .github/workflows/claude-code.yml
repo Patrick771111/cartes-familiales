@@ -41,8 +41,8 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           VERDICT_COMMENT=$(gh api "repos/$REPO/issues/${{ github.event.issue.number }}/comments" \
-            --paginate --jq '[.[] | select(.body | test("^VERDICT: "; "m"))] | last | .body // empty')
-          if echo "$VERDICT_COMMENT" | grep -q "^VERDICT: SIMPLE"; then
+            --paginate --jq '[.[] | select(.body | contains("VERDICT: "))] | last | .body // empty')
+          if echo "$VERDICT_COMMENT" | grep -q "VERDICT: SIMPLE"; then
             echo "Claude a jugé la tâche simple : passage à la voie locale."
             gh issue comment ${{ github.event.issue.number }} --repo "$REPO" --body "@local go"
           else
