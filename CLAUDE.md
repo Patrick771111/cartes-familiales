@@ -77,6 +77,13 @@ Les pull requests (produites par la voie locale) doivent respecter ces règles :
 
 Dialogue par fil de commentaires : chaque mention relance le moteur correspondant dans le même fil.
 
+## Triage automatique
+
+Une issue ouverte **sans** `@claude` ni `@local go` dans son corps déclenche un triage automatique et gratuit : qwen lit le titre et le corps, juge si la tâche est simple ou complexe, pose un label (`triage: simple` / `triage: complexe`), puis poste lui-même le commentaire de routage (`@claude` ou `@local go`) pour enchaîner sans intervention.
+
+- Verdict imparfait ? Change le label et retape le commentaire de routage toi-même — rien n'est irréversible.
+- Le commentaire de routage est posté avec un jeton dédié (secret `TRIAGE_TOKEN`), pas le token GitHub Actions par défaut : GitHub bloque les déclenchements en cascade venant du token automatique, un jeton distinct est nécessaire pour que le commentaire relance effectivement Claude ou qwen.
+
 ## Authentification
 
 Le token d'abonnement Claude ($20/mois) est stocké dans `CLAUDE_CODE_OAUTH_TOKEN` (secrets GitHub). Les exécutions utilisent cet abonnement, pas une facturation à l'usage — c'est justement parce que Claude ne fait plus que des plans (courts) que cet abonnement reste soutenable.
