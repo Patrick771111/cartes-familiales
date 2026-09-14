@@ -132,6 +132,20 @@ function maybeScheduleBotMove(room) {
   mod.scheduleExchange?.(room); // Trou du Cul uniquement (phase d'échange) ; no-op ailleurs
 }
 
+function renderSplash(container) {
+  container.innerHTML = `
+    <div class="screen screen--splash">
+      <div class="splash-card">
+        <p class="eyebrow">Cartes en famille</p>
+        <h1>Bienvenue</h1>
+        <p class="splash-card__intro">
+          Bienvenue dans le jeu de cartes en famille. Veuillez vous connecter ou créer un nouveau salon.
+        </p>
+      </div>
+    </div>
+  `;
+}
+
 function draw(room) {
   currentRoomRef = room;
   updateDocumentTitle(room);
