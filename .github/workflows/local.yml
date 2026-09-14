@@ -279,6 +279,13 @@ jobs:
       - name: Vérifier la non-régression (syntaxe + build)
         id: verify
         if: steps.changes.outputs.has_changes == 'true' && steps.review.outputs.review_failed != 'true'
+        env:
+          # Clé "publishable" Supabase : déjà publique (embarquée telle quelle dans le bundle JS
+          # du site déployé, protégée uniquement par les policies RLS) — aucune exposition
+          # nouvelle à l'écrire dans .env pour que le build/preview de CI puisse s'initialiser
+          # normalement (sans elle, l'appli échoue silencieusement au chargement : voir client.js).
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           export PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:$PATH"
           FAILED=false
@@ -296,6 +303,9 @@ jobs:
 
             echo "=== Build (npm run build) ==="
             if [ -f package.json ] && grep -q '"build"' package.json; then
+              if [ -n "$VITE_SUPABASE_URL" ] && [ ! -f .env ]; then
+                printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" > .env
+              fi
               npm install --no-audit --no-fund 2>&1
               npm run build 2>&1 || FAILED=true
             else
@@ -310,8 +320,118 @@ jobs:
             echo "build_failed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publier la branche et ouvrir la pull request
+      - name: Test de non-régression navigateur (Playwright headless)
+        id: browsertest
         if: steps.changes.outputs.has_changes == 'true' && steps.review.outputs.review_failed != 'true' && steps.verify.outputs.build_failed != 'true'
+        env:
+          # Image officielle Playwright : navigateurs déjà installés (chromium/firefox/webkit),
+          # mais pas le paquet npm playwright-core — installé à la volée ci-dessous, en fixant
+          # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD pour réutiliser les navigateurs déjà présents dans
+          # l'image plutôt que de les re-télécharger. Version du paquet alignée sur le tag d'image.
+          PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.49.1-jammy
+          PLAYWRIGHT_CORE_VERSION: "1.49.1"
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:$PATH"
+
+          # Test générique (page se charge, contenu visible, pas d'erreur console) : ne connaît
+          # rien du contenu métier, c'est un filet de sécurité minimal, pas un test de la
+          # fonctionnalité livrée (voir CLAUDE.md, section Analyser un échec).
+          if ! grep -q '"preview"' package.json 2>/dev/null; then
+            echo "Pas de script npm \"preview\" dans ce dépôt : test navigateur sauté."
+            echo "browser_failed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          cat > /tmp/smoke.mjs << 'SMOKE_EOF'
+          import { chromium } from 'playwright-core';
+
+          const url = process.argv[2];
+          const browser = await chromium.launch();
+          const page = await browser.newPage();
+          const errors = [];
+          page.on('pageerror', (err) => errors.push('pageerror: ' + err.message));
+          page.on('console', (msg) => {
+            if (msg.type() === 'error') errors.push('console.error: ' + msg.text());
+          });
+
+          let response;
+          try {
+            response = await page.goto(url, { waitUntil: 'networkidle', timeout: 15000 });
+          } catch (e) {
+            console.error('NAVIGATION_FAILED: ' + e.message);
+            await browser.close();
+            process.exit(1);
+          }
+
+          if (!response || !response.ok()) {
+            console.error('BAD_HTTP_STATUS: ' + (response ? response.status() : 'aucune réponse'));
+            await browser.close();
+            process.exit(1);
+          }
+
+          const bodyText = await page.evaluate(() => document.body.innerText.trim());
+          await browser.close();
+
+          let failed = false;
+          if (errors.length > 0) {
+            console.error('CONSOLE_ERRORS:\n' + errors.join('\n'));
+            failed = true;
+          }
+          if (!bodyText) {
+            console.error('EMPTY_BODY: la page ne contient aucun texte visible');
+            failed = true;
+          }
+          if (failed) process.exit(1);
+          console.log('OK: page chargée sans erreur, contenu visible présent.');
+          process.exit(0);
+          SMOKE_EOF
+
+          npm run preview -- --port 4173 --strictPort --host 127.0.0.1 > /tmp/preview-server.log 2>&1 &
+          PREVIEW_PID=$!
+
+          READY=false
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:4173 >/dev/null 2>&1; then
+              READY=true
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$READY" != "true" ]; then
+            echo "::error::Le serveur de prévisualisation (npm run preview) n'a pas démarré à temps."
+            cat /tmp/preview-server.log
+            kill "$PREVIEW_PID" 2>/dev/null || true
+            echo "browser_failed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          container="smoke-${{ github.run_id }}-$RANDOM"
+          docker run -d --name "$container" --network host \
+            -v /tmp/smoke.mjs:/smoke.mjs:ro \
+            -e PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+            "$PLAYWRIGHT_IMAGE" \
+            bash -c "mkdir -p /work && cp /smoke.mjs /work/ && cd /work && npm install --no-audit --no-fund --silent playwright-core@$PLAYWRIGHT_CORE_VERSION && node smoke.mjs http://127.0.0.1:4173"
+
+          if ! timeout 120 docker wait "$container" > /tmp/smoke-exit-code.txt; then
+            echo "::warning::Le test navigateur n'a pas terminé dans les temps (2 min) — arrêt forcé."
+            docker kill "$container" 2>/dev/null || true
+          fi
+          docker logs "$container" > /tmp/browsertest-log.txt 2>&1
+          cat /tmp/browsertest-log.txt
+          SMOKE_EXIT=$(cat /tmp/smoke-exit-code.txt 2>/dev/null || echo 1)
+          docker rm -f "$container" >/dev/null 2>&1 || true
+
+          kill "$PREVIEW_PID" 2>/dev/null || true
+
+          if [ "$SMOKE_EXIT" = "0" ]; then
+            echo "browser_failed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "browser_failed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publier la branche et ouvrir la pull request
+        if: steps.changes.outputs.has_changes == 'true' && steps.review.outputs.review_failed != 'true' && steps.verify.outputs.build_failed != 'true' && steps.browsertest.outputs.browser_failed != 'true'
         run: |
           git push origin "${{ steps.branch.outputs.name }}"
           if [ "${{ steps.task.outputs.source }}" = "plan" ]; then
@@ -336,7 +456,7 @@ jobs:
             --head "${{ steps.branch.outputs.name }}"
 
       - name: Demander à Claude d'analyser l'échec et de proposer une remédiation
-        if: steps.changes.outputs.has_changes == 'false' || steps.aider.outputs.step_failed != '' || steps.review.outputs.review_failed == 'true' || steps.verify.outputs.build_failed == 'true'
+        if: steps.changes.outputs.has_changes == 'false' || steps.aider.outputs.step_failed != '' || steps.review.outputs.review_failed == 'true' || steps.verify.outputs.build_failed == 'true' || steps.browsertest.outputs.browser_failed == 'true'
         env:
           GH_TOKEN: ${{ secrets.TRIAGE_TOKEN }}
           REPO: ${{ github.repository }}
@@ -347,6 +467,9 @@ jobs:
           elif [ "${{ steps.review.outputs.review_failed }}" = "true" ]; then
             PROBLEME="Le code produit compile, mais la revue finale (seconde opinion qwen) juge qu'il ne satisfait pas les critères de vérification du plan."
             DIAGNOSTIC=$(tail -c 4000 /tmp/review-log.txt 2>/dev/null || echo "Log indisponible.")
+          elif [ "${{ steps.browsertest.outputs.browser_failed }}" = "true" ]; then
+            PROBLEME="Le code compile mais échoue au test de non-régression navigateur (page blanche, erreur console/JS, ou statut HTTP anormal au chargement)."
+            DIAGNOSTIC=$(tail -c 4000 /tmp/browsertest-log.txt 2>/dev/null || echo "Log indisponible.")
           else
             PROBLEME="La voie locale a rencontré un problème sur « ${{ steps.aider.outputs.step_failed }} » (modèle utilisé : ${{ steps.aider.outputs.model_used }}, ${{ steps.aider.outputs.steps_executed }} étape(s) prévue(s))."
             DIAGNOSTIC=$(tail -c 4000 "${{ steps.aider.outputs.last_log }}" 2>/dev/null || echo "Log indisponible.")
@@ -356,4 +479,4 @@ jobs:
 
       - name: Nettoyer les logs temporaires
         if: always()
-        run: rm -f /tmp/aider-log-1.txt /tmp/aider-log-2.txt /tmp/aider-exit-code.txt /tmp/verify-log.txt /tmp/review-log.txt .local-task-plan.txt
+        run: rm -f /tmp/aider-log-1.txt /tmp/aider-log-2.txt /tmp/aider-exit-code.txt /tmp/verify-log.txt /tmp/review-log.txt /tmp/browsertest-log.txt /tmp/smoke.mjs /tmp/smoke-exit-code.txt /tmp/preview-server.log .local-task-plan.txt

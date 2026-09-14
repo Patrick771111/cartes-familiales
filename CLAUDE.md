@@ -7,7 +7,7 @@
 4. Coding (qwen) — étapes enchaînées automatiquement, sans revalidation humaine
 5. Relecture de chaque étape par un **second appel qwen** (jamais d'auto-jugement) → passe à la suivante seulement si validée
 6. Relances auto si besoin (repli de modèle, ou Claude re-diagnostique)
-7. Revue finale (second appel qwen sur le diff complet vs critères du plan) + non-régression (syntaxe + build) avant publication
+7. Revue finale (second appel qwen sur le diff complet vs critères du plan) + non-régression (syntaxe + build + test navigateur headless) avant publication
 8. PR ouverte → merge = validation humaine finale
 
 ## Capacités des moteurs locaux
@@ -68,7 +68,8 @@ Règles :
 - **Relecture par un second appel qwen après chaque étape** (jamais le même appel qui a codé) : reçoit l'instruction + le diff produit, répond OUI/NON. NON → `git reset --hard` sur l'étape, marquée échouée. Objectif : éviter qu'un modèle valide son propre travail (faux positifs — ex. instruction seulement partiellement suivie).
 - **Revue finale** une fois toutes les étapes enchaînées : un appel qwen relit le diff complet du plan contre les `## Critères de vérification` du plan (pas contre chaque instruction isolée). NON → traité comme un échec (voir ci-dessous), rien n'est publié.
 - Avant toute PR : `node --check` sur les `.js` modifiés + `npm run build` si `package.json` le déclare. Échec → **rien n'est publié**, le code reste local au runner.
-- Échec (aucun changement, étape ratée même après repli, revue finale KO, ou non-régression KO) → **Claude auto-invoqué** avec le diagnostic complet ; rien à redemander.
+- **Test navigateur headless (Playwright)**, si un script npm `preview` existe : sert le build (`npm run preview`), ouvre la page dans Chromium headless (conteneur `mcr.microsoft.com/playwright`), vérifie qu'elle répond en HTTP OK, affiche du texte visible, et ne produit aucune erreur console/JS. Générique — ne connaît rien du contenu métier, c'est un filet minimal (« la page n'est pas blanche/cassée »), pas un test de la fonctionnalité livrée. Sauté (pas un échec) si le dépôt n'a pas de script `preview`.
+- Échec (aucun changement, étape ratée même après repli, revue finale KO, non-régression KO, ou test navigateur KO) → **Claude auto-invoqué** avec le diagnostic complet ; rien à redemander.
 
 ## Analyser un échec
 Invoqué avec un diagnostic en pièce jointe : comprendre la vraie cause avant d'agir, pas retrier par réflexe.
@@ -78,6 +79,7 @@ Invoqué avec un diagnostic en pièce jointe : comprendre la vraie cause avant d
 - Rejet en relecture d'étape (le second qwen a répondu NON) → l'instruction était ambiguë ou trop large pour être vérifiable en un coup d'œil → étape reformulée plus précisément, ou scindée en deux.
 - Rejet en revue finale (diff complet ne satisfait pas les critères de vérification) → un ou plusieurs critères n'étaient pas couverts par les étapes → plan corrigé pour les couvrir explicitement.
 - Build/syntaxe cassé → corriger l'étape en cause, ou `VERDICT: IMPLEMENTE` si le problème est structurel.
+- Test navigateur KO (page blanche, erreur console, statut HTTP anormal) → souvent une variable d'environnement manquante au runtime (voir Infra) plutôt qu'un bug de code — vérifier ça avant de rerédiger le plan.
 
 Rends un nouveau `VERDICT:` comme un triage normal.
 
@@ -116,5 +118,6 @@ Avant d'explorer le dépôt pour un triage ou un plan, **lire `ARCHITECTURE.md` 
 ## Infra
 - `claude-code.yml` : `ubuntu-latest`, aucun accès réseau local requis. Node/npm déjà présents sur ce runner ; `node --check`, `npm install`, `npm run build` explicitement autorisés (`--allowedTools`) pour que tu puisses vérifier ton propre code en `VERDICT: IMPLEMENTE`.
 - `local.yml` : `[self-hosted, local]` (hubert) → Ollama sur gamer (`192.168.4.27:11434`), Docker/Aider, Node.js (`~/.hermes/node/bin`, déjà dans le PATH du runner).
+- **Test navigateur** : image `mcr.microsoft.com/playwright:v1.49.1-jammy` (navigateurs préinstallés, `playwright-core` installé à la volée dans le conteneur — voir local.yml). Secrets `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` écrits dans `.env` avant le build de CI (clé publique "publishable", déjà exposée dans le bundle JS du site déployé — sans eux l'appli échoue silencieusement au chargement, faute de pouvoir initialiser Supabase).
 - `CLAUDE_CODE_OAUTH_TOKEN` : abonnement ($20/mois), pas facturation à l'usage — tient car Claude ne fait que du triage/plans, jamais d'implémentation lourde.
 - Une GitHub App (Claude) ne peut pas pousser de commit touchant `.github/workflows/*.yml`, même inchangé, sans permission `workflows` — si la branche du plan diverge de la branche par défaut sur ces fichiers, le push échoue silencieusement (géré par le repli de recherche de plan ci-dessus).
