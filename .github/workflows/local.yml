@@ -134,7 +134,29 @@ jobs:
             docker rm -f "$container" >/dev/null 2>&1 || true
           }
 
-          # Exécute une étape (avec repli automatique gemma4-64k si dépassement de contexte).
+          # Relecture par un second appel qwen, independant de celui qui a code l'etape :
+          # qwen ne juge jamais seul son propre travail (evite les faux "succes").
+          validate_step() {
+            local instruction="$1"
+            local diff="$2"
+            local diff_trunc
+            diff_trunc=$(printf '%s' "$diff" | head -c 6000)
+            local payload
+            payload=$(jq -n \
+              --arg instruction "$instruction" \
+              --arg diff "$diff_trunc" \
+              '{model: "qwen2.5-coder:14b", prompt: ("Instruction donnee a un developpeur :\n" + $instruction + "\n\nDiff Git produit :\n" + $diff + "\n\nCe diff correspond-il fidelement a l instruction, sans rien ajouter ni oublier d important ? Reponds uniquement OUI ou NON sur la premiere ligne, puis une phrase d explication."), stream: false}')
+            local result
+            result=$(curl -s --max-time 90 "$OLLAMA_API_BASE/api/generate" -d "$payload" | jq -r '.response // empty')
+            {
+              echo "--- Relecture qwen de cette étape ---"
+              echo "$result"
+            } >> /tmp/aider-log-1.txt
+            echo "$result" | head -1 | grep -qi "^OUI"
+          }
+
+          # Exécute une étape (avec repli automatique gemma4-64k si dépassement de contexte),
+          # puis fait relire le résultat par un second appel qwen avant de continuer.
           # Met à jour les variables globales MODEL_USED, LAST_LOG, STEP_FAILED.
           run_step() {
             local instruction="$1"
@@ -146,6 +168,9 @@ jobs:
               file_arg="/app/$file"
             fi
             echo "=== $step_label (fichier: ${file:-non précisé}) ==="
+            local step_base_sha
+            step_base_sha=$(git rev-parse HEAD)
+
             run_aider "$PRIMARY_MODEL" "$file_arg" "/tmp/aider-log-1.txt"
             LAST_LOG=/tmp/aider-log-1.txt
             MODEL_USED="$PRIMARY_MODEL"
@@ -162,6 +187,19 @@ jobs:
             if grep -qE "exceeds the [0-9,]+ token limit|Empty response received from LLM" "$LAST_LOG"; then
               STEP_FAILED="$step_label"
               echo "::error::$step_label a échoué même après repli."
+              return 1
+            fi
+
+            if [ "$(git rev-parse HEAD)" = "$step_base_sha" ]; then
+              STEP_FAILED="$step_label (aucun commit produit)"
+              echo "::error::$step_label n'a produit aucun commit."
+              return 1
+            fi
+
+            if ! validate_step "$instruction" "$(git diff "$step_base_sha" HEAD)"; then
+              STEP_FAILED="$step_label (rejetée à la relecture qwen)"
+              echo "::error::$step_label : la relecture juge que le diff ne correspond pas à l'instruction — annulation de cette étape."
+              git reset --hard "$step_base_sha"
               return 1
             fi
             return 0
@@ -197,7 +235,8 @@ jobs:
           echo "last_log=$LAST_LOG" >> "$GITHUB_OUTPUT"
           echo "steps_executed=$STEP_COUNT" >> "$GITHUB_OUTPUT"
           echo "step_failed=$STEP_FAILED" >> "$GITHUB_OUTPUT"
-          rm -f .local-task.txt .local-task-plan.txt
+          rm -f .local-task.txt
+          # .local-task-plan.txt gardé pour la revue finale (étape suivante), nettoyé à la fin du job.
 
       - name: Vérifier qu'il y a des changements
         id: changes
@@ -210,9 +249,35 @@ jobs:
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Revue finale du plan (seconde opinion qwen)
+        id: review
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          OLLAMA_API_BASE: http://192.168.4.27:11434
+        run: |
+          CRITERES=$(sed -n '/^## Critères de vérification/,/^## /p' .local-task-plan.txt | sed '$d' | tail -n +2)
+          if [ -z "$CRITERES" ]; then
+            echo "Pas de critères de vérification explicites dans le plan (tâche simple) — revue finale sautée."
+            echo "review_failed=false" >> "$GITHUB_OUTPUT"
+          else
+            FULL_DIFF=$(git diff "${{ steps.branch.outputs.base_sha }}" HEAD | head -c 8000)
+            PAYLOAD=$(jq -n \
+              --arg criteres "$CRITERES" \
+              --arg diff "$FULL_DIFF" \
+              '{model: "qwen2.5-coder:14b", prompt: ("Criteres de verification attendus :\n" + $criteres + "\n\nDiff complet produit :\n" + $diff + "\n\nCe diff satisfait-il ces criteres ? Reponds uniquement OUI ou NON sur la premiere ligne, puis une phrase d explication."), stream: false}')
+            RESULT=$(curl -s --max-time 90 "$OLLAMA_API_BASE/api/generate" -d "$PAYLOAD" | jq -r '.response // empty')
+            echo "$RESULT" > /tmp/review-log.txt
+            cat /tmp/review-log.txt
+            if echo "$RESULT" | head -1 | grep -qi "^NON"; then
+              echo "review_failed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "review_failed=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
       - name: Vérifier la non-régression (syntaxe + build)
         id: verify
-        if: steps.changes.outputs.has_changes == 'true'
+        if: steps.changes.outputs.has_changes == 'true' && steps.review.outputs.review_failed != 'true'
         run: |
           export PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:$PATH"
           FAILED=false
@@ -245,7 +310,7 @@ jobs:
           fi
 
       - name: Publier la branche et ouvrir la pull request
-        if: steps.changes.outputs.has_changes == 'true' && steps.verify.outputs.build_failed != 'true'
+        if: steps.changes.outputs.has_changes == 'true' && steps.review.outputs.review_failed != 'true' && steps.verify.outputs.build_failed != 'true'
         run: |
           git push origin "${{ steps.branch.outputs.name }}"
           if [ "${{ steps.task.outputs.source }}" = "plan" ]; then
@@ -270,7 +335,7 @@ jobs:
             --head "${{ steps.branch.outputs.name }}"
 
       - name: Demander à Claude d'analyser l'échec et de proposer une remédiation
-        if: steps.changes.outputs.has_changes == 'false' || steps.aider.outputs.step_failed != '' || steps.verify.outputs.build_failed == 'true'
+        if: steps.changes.outputs.has_changes == 'false' || steps.aider.outputs.step_failed != '' || steps.review.outputs.review_failed == 'true' || steps.verify.outputs.build_failed == 'true'
         env:
           GH_TOKEN: ${{ secrets.TRIAGE_TOKEN }}
           REPO: ${{ github.repository }}
@@ -278,6 +343,9 @@ jobs:
           if [ "${{ steps.verify.outputs.build_failed }}" = "true" ]; then
             PROBLEME="Le code produit ne compile pas (échec de syntaxe ou de build) — voir Vérification de non-régression dans CLAUDE.md."
             DIAGNOSTIC=$(tail -c 4000 /tmp/verify-log.txt 2>/dev/null || echo "Log indisponible.")
+          elif [ "${{ steps.review.outputs.review_failed }}" = "true" ]; then
+            PROBLEME="Le code produit compile, mais la revue finale (seconde opinion qwen) juge qu'il ne satisfait pas les critères de vérification du plan."
+            DIAGNOSTIC=$(tail -c 4000 /tmp/review-log.txt 2>/dev/null || echo "Log indisponible.")
           else
             PROBLEME="La voie locale a rencontré un problème sur « ${{ steps.aider.outputs.step_failed }} » (modèle utilisé : ${{ steps.aider.outputs.model_used }}, ${{ steps.aider.outputs.steps_executed }} étape(s) prévue(s))."
             DIAGNOSTIC=$(tail -c 4000 "${{ steps.aider.outputs.last_log }}" 2>/dev/null || echo "Log indisponible.")
@@ -287,4 +355,4 @@ jobs:
 
       - name: Nettoyer les logs temporaires
         if: always()
-        run: rm -f /tmp/aider-log-1.txt /tmp/aider-log-2.txt /tmp/aider-exit-code.txt /tmp/verify-log.txt
+        run: rm -f /tmp/aider-log-1.txt /tmp/aider-log-2.txt /tmp/aider-exit-code.txt /tmp/verify-log.txt /tmp/review-log.txt .local-task-plan.txt
