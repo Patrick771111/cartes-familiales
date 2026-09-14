@@ -69,8 +69,8 @@ Ton rôle se limite alors **strictement à la conception** :
 - chemin/vers/fichier2.ext — ce qui change
 
 ## Étapes
-1. Étape précise et actionnable
-2. Étape précise et actionnable
+1. [chemin/fichier1.ext] Instruction précise et autonome, exécutable sans connaître les autres étapes
+2. [chemin/fichier2.ext] Instruction précise et autonome
 ...
 
 ## Critères de vérification
@@ -83,7 +83,14 @@ Ton rôle se limite alors **strictement à la conception** :
 
 Un plan vague produit une exécution vague : plus les étapes et les critères sont précis, plus qwen (qui exécute ensuite) sera fidèle. Éviter de laisser des choix de conception ouverts dans le plan — c'est le rôle de Claude de trancher, pas celui de qwen.
 
-**Précis ne veut pas dire long.** Le plan entier (avec les fichiers concernés) doit tenir dans la fenêtre de 32k tokens de qwen — un plan qui recopie de longs extraits de code (CSS complet, fonctions entières) gonfle le contexte au point de faire échouer l'exécution, même sur des fichiers de taille raisonnable. Décris **quoi** changer et **où** (sélecteur, nom de fonction, valeur), pas le code final à copier-coller ligne par ligne — qwen sait écrire le code, il a juste besoin de savoir quoi faire.
+**Précis ne veut pas dire long.** Chaque étape (avec son fichier) doit tenir largement dans la fenêtre de 32k tokens de qwen — une étape qui recopie de longs extraits de code (CSS complet, fonctions entières) gonfle le contexte inutilement. Décris **quoi** changer et **où** (sélecteur, nom de fonction, valeur), pas le code final à copier-coller ligne par ligne — qwen sait écrire le code, il a juste besoin de savoir quoi faire.
+
+**Chaque étape doit tenir sur UN seul fichier et être autonome.** L'exécution traite les étapes une par une, chacune dans un appel isolé qui ne voit que le fichier indiqué entre crochets (`[chemin/fichier]`) — pas les autres fichiers du dépôt, pas ce qui s'est passé aux étapes précédentes. C'est ce découpage, pas seulement le repli de modèle, qui évite le dépassement de contexte : un fichier volumineux (ex. `style.css` à 4782 lignes) chargé par erreur dans une étape suffit à tout faire échouer, même si l'instruction elle-même est courte.
+
+Conséquences pratiques :
+- Si une étape B a besoin de savoir ce que l'étape A a produit (ex. appeler une fonction ajoutée à l'étape A), **écris cette information dans l'instruction de B elle-même** (ex. "appelle la fonction `renderSplash()` ajoutée précédemment") plutôt que de compter sur qwen pour le déduire du contexte.
+- Une étape sans fichier entre crochets n'est pas découpée : tout le plan part en un seul appel (comportement de repli, à éviter sauf tâche vraiment ponctuelle).
+- Une fois le plan validé (`@local go`), **toutes les étapes s'enchaînent automatiquement**, sans revalidation entre elles — un seul feu vert pour l'ensemble du plan, pas un par étape.
 
 ### Étape 2c — Si IMPLEMENTE (tâche hors de portée de tout moteur local)
 
@@ -101,10 +108,13 @@ Le passage à l'exécution se fait par un commentaire `@local go` sur l'issue �
 
 - Si un plan existe, c'est son contenu qui sert de consigne à qwen — pas le corps brut de l'issue. Recherché dans l'ordre : `docs/plans/issue-<numéro>.md` sur la branche par défaut, puis sur la branche non fusionnée `claude/issue-<numéro>-*`, puis dans le dernier commentaire de l'issue contenant « Plan complet » (repli si le push de la branche a échoué — voir note ci-dessous)
 - Sinon (verdict simple, pas de plan), le titre et le corps de l'issue servent directement de consigne
+- Si le plan est écrit au format `N. [fichier] instruction` (voir ci-dessus), chaque étape s'exécute séparément et automatiquement l'une après l'autre, chacune scopée à son seul fichier — sinon tout le plan part en un seul appel
 - L'exécution tourne sur le runner auto-hébergé `hubert` (label `local`), via Aider dans Docker, pointant vers l'Ollama de gamer
-- Modèle utilisé : qwen2.5-coder:14b par défaut, sauf si le plan précise `MODELE: gemma4-64k` (tâche nécessitant de lire une image) ou si qwen échoue par dépassement de contexte (repli automatique sur gemma4-64k dans ce cas, signalé dans la description de la PR)
-- Une pull request est ouverte automatiquement si des changements ont été produits
-- Si rien n'a été produit (qwen improvise mal, ou peine à reproduire de longs blocs de texte exacts sur de gros fichiers), **Claude est invoqué automatiquement** avec le diagnostic (voir section suivante) — tu n'as rien à redemander toi-même
+- Modèle utilisé, par étape : qwen2.5-coder:14b par défaut, sauf si le plan précise `MODELE: gemma4-64k` (tâche nécessitant de lire une image) ou si une étape échoue par dépassement de contexte ou réponse vide (repli automatique sur gemma4-64k pour cette étape, signalé dans la description de la PR)
+- Une pull request est ouverte automatiquement si au moins une étape a produit un changement — même en cas d'échec partiel sur une étape ultérieure (le travail déjà fait n'est pas perdu)
+- Si rien n'a été produit, ou si une étape a échoué même après repli, **Claude est invoqué automatiquement** avec le diagnostic (voir section suivante) — tu n'as rien à redemander toi-même
+
+**Anti-boucle** : le déclenchement de `@local go` (et de `@claude`) ignore tout commentaire contenant `VERDICT:` — c'est-à-dire tout commentaire d'analyse posté par Claude lui-même. Sans ça, une phrase d'explication comme *« Une fois validé, commente `@local go` »* dans un plan suffirait à déclencher l'exécution toute seule, sans validation réelle de ta part.
 
 **Note** : GitHub refuse qu'une GitHub App (Claude) pousse un commit dont l'arbre contient `.github/workflows/*.yml`, même inchangé, sans permission `workflows` explicite sur l'installation — ce qui peut arriver dès que la branche de Claude diverge de la branche par défaut sur ces fichiers. Dans ce cas, le plan n'atteint jamais le dépôt distant en Git ; le commentaire de l'issue reste alors la seule source, d'où le repli ci-dessus.
 

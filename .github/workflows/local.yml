@@ -6,9 +6,18 @@ on:
 
 jobs:
   local:
-    if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '@local go')
+    # Claude écrit lui-même "@local go" en toutes lettres dans ses plans, pour expliquer à
+    # l'utilisateur comment valider ("Une fois ce plan validé, un commentaire @local go
+    # déclenchera..."). Sans le exclusion de VERDICT:, cette phrase explicative déclenchait
+    # l'exécution toute seule, sans validation réelle. Les commentaires de Claude commencent
+    # toujours par une ligne VERDICT: (voir CLAUDE.md) ; les vraies commandes de validation
+    # (humaines ou auto-postées par le routage) n'en contiennent jamais.
+    if: |
+      github.event_name == 'issue_comment' &&
+      contains(github.event.comment.body, '@local go') &&
+      !contains(github.event.comment.body, 'VERDICT:')
     runs-on: [self-hosted, local]
-    timeout-minutes: 22
+    timeout-minutes: 45
     permissions:
       contents: write
       pull-requests: write
@@ -36,6 +45,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if ! grep -qxF '.local-task-plan.txt' .gitignore 2>/dev/null; then
+            echo '.local-task-plan.txt' >> .gitignore
+          fi
           if ! grep -qxF '.local-task.txt' .gitignore 2>/dev/null; then
             echo '.local-task.txt' >> .gitignore
           fi
@@ -47,21 +59,21 @@ jobs:
 
           if [ -f "$PLAN_FILE" ]; then
             echo "Plan trouvé sur main ($PLAN_FILE)."
-            cp "$PLAN_FILE" .local-task.txt
+            cp "$PLAN_FILE" .local-task-plan.txt
             echo "source=plan" >> "$GITHUB_OUTPUT"
           elif [ -n "$PLAN_BRANCH" ] && git fetch origin "$PLAN_BRANCH" --depth 1 2>/dev/null \
-               && git show "origin/$PLAN_BRANCH:$PLAN_FILE" > .local-task.txt 2>/dev/null; then
+               && git show "origin/$PLAN_BRANCH:$PLAN_FILE" > .local-task-plan.txt 2>/dev/null; then
             echo "Plan trouvé sur la branche $PLAN_BRANCH (non fusionnée)."
             echo "source=plan" >> "$GITHUB_OUTPUT"
           elif PLAN_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
                  --paginate --jq '[.[] | select(.body | contains("Plan complet"))] | last | .body // empty') \
                && [ -n "$PLAN_COMMENT" ]; then
             echo "Plan trouvé dans un commentaire (repli après échec de synchronisation Git de la branche du plan)."
-            printf '%s\n' "$PLAN_COMMENT" > .local-task.txt
+            printf '%s\n' "$PLAN_COMMENT" > .local-task-plan.txt
             echo "source=plan" >> "$GITHUB_OUTPUT"
           else
             echo "Aucun plan trouvé : exécution directe de l'issue."
-            cat > .local-task.txt << 'TASK_EOF'
+            cat > .local-task-plan.txt << 'TASK_EOF'
           ${{ github.event.issue.title }}
 
           ${{ github.event.issue.body }}
@@ -70,8 +82,8 @@ jobs:
           fi
 
           # Le plan (ou la demande directe) peut préciser un modèle autre que le défaut
-          # (ex. gemma4:12b pour une tâche nécessitant de lire une image — qwen n'a pas de vision)
-          REQUESTED_MODEL=$(grep -oE '^MODELE: .+' .local-task.txt | head -1 | sed 's/^MODELE: //')
+          # (ex. gemma4-64k pour une tâche nécessitant de lire une image — qwen n'a pas de vision)
+          REQUESTED_MODEL=$(grep -oE '^MODELE: .+' .local-task-plan.txt | head -1 | sed 's/^MODELE: //')
           if [ -n "$REQUESTED_MODEL" ]; then
             echo "Modèle demandé explicitement : $REQUESTED_MODEL"
             echo "model=ollama/$REQUESTED_MODEL" >> "$GITHUB_OUTPUT"
@@ -79,16 +91,23 @@ jobs:
             echo "model=ollama/qwen2.5-coder:14b" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Exécuter qwen via Aider (repli auto si contexte dépassé)
+      - name: Exécuter qwen via Aider (étape par étape, repli auto si contexte dépassé)
         id: aider
         env:
           PRIMARY_MODEL: ${{ steps.task.outputs.model }}
           FALLBACK_MODEL: ollama/gemma4-64k
         run: |
           run_aider() {
+            # $1 modèle, $2 argument fichier optionnel ("/app/chemin" ou vide), $3 fichier de log
             local model="$1"
-            local log_file="$2"
+            local file_arg="$2"
+            local log_file="$3"
             local container="aider-${{ github.run_id }}-$RANDOM"
+            local map_arg=""
+            if [ -n "$file_arg" ]; then
+              # Fichier cible déjà connu (étape atomique) : pas besoin d'un repo-map, ça économise du contexte.
+              map_arg="--map-tokens 0"
+            fi
             docker run -d --name "$container" \
               -v "$PWD":/app \
               -e OLLAMA_API_BASE="$OLLAMA_API_BASE" \
@@ -101,35 +120,82 @@ jobs:
               --no-check-update \
               --no-show-release-notes \
               --commit-language French \
-              --message-file /app/.local-task.txt
+              $map_arg \
+              --message-file /app/.local-task.txt \
+              $file_arg
 
             # timeout sur `docker run` seul ne tue pas le conteneur cote daemon :
             # on attend via `docker wait` (tuable proprement) puis on tue le conteneur explicitement au besoin.
-            if ! timeout 480 docker wait "$container" > /tmp/aider-exit-code.txt; then
-              echo "::warning::$model n'a pas terminé dans les temps (8 min) — arrêt forcé du conteneur."
+            if ! timeout 300 docker wait "$container" > /tmp/aider-exit-code.txt; then
+              echo "::warning::$model n'a pas terminé dans les temps (5 min) — arrêt forcé du conteneur."
               docker kill "$container" 2>/dev/null || true
             fi
             docker logs "$container" 2>&1 | tee "$log_file"
             docker rm -f "$container" >/dev/null 2>&1 || true
           }
 
-          echo "Modèle utilisé : $PRIMARY_MODEL"
-          run_aider "$PRIMARY_MODEL" /tmp/aider-log-1.txt
-          LAST_LOG=/tmp/aider-log-1.txt
+          # Exécute une étape (avec repli automatique gemma4-64k si dépassement de contexte).
+          # Met à jour les variables globales MODEL_USED, LAST_LOG, STEP_FAILED.
+          run_step() {
+            local instruction="$1"
+            local file="$2"
+            local step_label="$3"
+            printf '%s\n' "$instruction" > .local-task.txt
+            local file_arg=""
+            if [ -n "$file" ]; then
+              file_arg="/app/$file"
+            fi
+            echo "=== $step_label (fichier: ${file:-non précisé}) ==="
+            run_aider "$PRIMARY_MODEL" "$file_arg" "/tmp/aider-log-1.txt"
+            LAST_LOG=/tmp/aider-log-1.txt
+            MODEL_USED="$PRIMARY_MODEL"
 
-          if grep -qE "exceeds the [0-9,]+ token limit" /tmp/aider-log-1.txt && [ "$PRIMARY_MODEL" != "$FALLBACK_MODEL" ]; then
-            echo "::warning::Contexte trop grand pour $PRIMARY_MODEL — repli automatique sur $FALLBACK_MODEL (262k tokens de contexte)."
-            git checkout -- . 2>/dev/null || true
-            run_aider "$FALLBACK_MODEL" /tmp/aider-log-2.txt
-            LAST_LOG=/tmp/aider-log-2.txt
-            echo "model_used=$FALLBACK_MODEL" >> "$GITHUB_OUTPUT"
+            if grep -qE "exceeds the [0-9,]+ token limit|Empty response received from LLM" /tmp/aider-log-1.txt \
+               && [ "$PRIMARY_MODEL" != "$FALLBACK_MODEL" ]; then
+              echo "::warning::$step_label a échoué avec $PRIMARY_MODEL — repli automatique sur $FALLBACK_MODEL."
+              git checkout -- . 2>/dev/null || true
+              run_aider "$FALLBACK_MODEL" "$file_arg" "/tmp/aider-log-2.txt"
+              LAST_LOG=/tmp/aider-log-2.txt
+              MODEL_USED="$FALLBACK_MODEL"
+            fi
+
+            if grep -qE "exceeds the [0-9,]+ token limit|Empty response received from LLM" "$LAST_LOG"; then
+              STEP_FAILED="$step_label"
+              echo "::error::$step_label a échoué même après repli."
+              return 1
+            fi
+            return 0
+          }
+
+          MODEL_USED="$PRIMARY_MODEL"
+          LAST_LOG=""
+          STEP_FAILED=""
+          STEP_COUNT=0
+
+          # Un plan bien formé décrit chaque étape sous la forme : "N. [chemin/fichier] instruction".
+          # Ce découpage garde chaque appel Aider minimal (un seul fichier, pas de repo-map, une
+          # instruction courte) — c'est ce qui évite le dépassement de contexte sur les tâches à
+          # plusieurs fichiers, plutôt que de compter uniquement sur le repli de modèle après coup.
+          if grep -qE '^[0-9]+\.[[:space:]]*\[.+\]' .local-task-plan.txt; then
+            while IFS= read -r line; do
+              STEP_COUNT=$((STEP_COUNT+1))
+              FILE=$(echo "$line" | grep -oE '\[[^]]+\]' | head -1 | tr -d '[]')
+              INSTRUCTION=$(echo "$line" | sed -E 's/^[0-9]+\.[[:space:]]*\[[^]]+\][[:space:]]*//')
+              if ! run_step "$INSTRUCTION" "$FILE" "Étape $STEP_COUNT"; then
+                break
+              fi
+            done < <(grep -E '^[0-9]+\.[[:space:]]*\[.+\]' .local-task-plan.txt)
           else
-            echo "model_used=$PRIMARY_MODEL" >> "$GITHUB_OUTPUT"
+            echo "Pas d'étapes structurées détectées : exécution en un seul appel (tâche simple)."
+            STEP_COUNT=1
+            run_step "$(cat .local-task-plan.txt)" "" "Exécution directe" || true
           fi
 
-          # Conservés pour le diagnostic si l'exécution échoue (voir step suivant) ; nettoyés seulement à la toute fin du job.
+          echo "model_used=$MODEL_USED" >> "$GITHUB_OUTPUT"
           echo "last_log=$LAST_LOG" >> "$GITHUB_OUTPUT"
-          rm -f .local-task.txt
+          echo "steps_executed=$STEP_COUNT" >> "$GITHUB_OUTPUT"
+          echo "step_failed=$STEP_FAILED" >> "$GITHUB_OUTPUT"
+          rm -f .local-task.txt .local-task-plan.txt
 
       - name: Vérifier qu'il y a des changements
         id: changes
@@ -147,29 +213,34 @@ jobs:
         run: |
           git push origin "${{ steps.branch.outputs.name }}"
           if [ "${{ steps.task.outputs.source }}" = "plan" ]; then
-            ORIGIN_NOTE="Exécute le plan validé dans docs/plans/issue-${{ github.event.issue.number }}.md."
+            ORIGIN_NOTE="Exécute le plan validé dans docs/plans/issue-${{ github.event.issue.number }}.md (${{ steps.aider.outputs.steps_executed }} étape(s))."
           else
             ORIGIN_NOTE="Exécute directement la demande de l'issue (aucun plan préalable)."
           fi
           if [ "${{ steps.aider.outputs.model_used }}" = "ollama/gemma4-64k" ]; then
-            MODEL_NOTE=" (repli automatique sur gemma4-64k, le plan dépassait la fenêtre de qwen)"
+            MODEL_NOTE=" (repli automatique sur gemma4-64k utilisé sur au moins une étape)"
           else
             MODEL_NOTE=""
           fi
+          if [ -n "${{ steps.aider.outputs.step_failed }}" ]; then
+            FAILED_NOTE=" ⚠️ ${{ steps.aider.outputs.step_failed }} a échoué et n'a pas été appliquée — voir le commentaire d'analyse sur l'issue."
+          else
+            FAILED_NOTE=""
+          fi
           gh pr create \
             --title "Voie locale : ${{ github.event.issue.title }}" \
-            --body "Résout #${{ github.event.issue.number }}. $ORIGIN_NOTE Produit entièrement par qwen sur le matériel local, sans consommer de quota Claude.$MODEL_NOTE" \
+            --body "Résout #${{ github.event.issue.number }}. $ORIGIN_NOTE Produit entièrement par qwen sur le matériel local, sans consommer de quota Claude.$MODEL_NOTE$FAILED_NOTE" \
             --base "${{ github.event.repository.default_branch }}" \
             --head "${{ steps.branch.outputs.name }}"
 
       - name: Demander à Claude d'analyser l'échec et de proposer une remédiation
-        if: steps.changes.outputs.has_changes == 'false'
+        if: steps.changes.outputs.has_changes == 'false' || steps.aider.outputs.step_failed != ''
         env:
           GH_TOKEN: ${{ secrets.TRIAGE_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
           DIAGNOSTIC=$(tail -c 4000 "${{ steps.aider.outputs.last_log }}" 2>/dev/null || echo "Log indisponible.")
-          BODY=$(printf "La voie locale n'a produit aucun changement (modèle utilisé : ${{ steps.aider.outputs.model_used }}).\n\nAnalyse ce diagnostic et propose une remédiation : plan revu et plus ciblé, implémentation directe (VERDICT: IMPLEMENTE) si le blocage est structurel, ou question à l'utilisateur si l'ambiguïté ne peut être levée que par lui.\n\n\`\`\`\n%s\n\`\`\`\n\n@claude" "$DIAGNOSTIC")
+          BODY=$(printf "La voie locale a rencontré un problème sur « %s » (modèle utilisé : ${{ steps.aider.outputs.model_used }}, ${{ steps.aider.outputs.steps_executed }} étape(s) prévue(s)).\n\nAnalyse ce diagnostic et propose une remédiation : plan revu et plus ciblé (étapes encore plus atomiques si besoin), implémentation directe (VERDICT: IMPLEMENTE) si le blocage est structurel, ou question à l'utilisateur si l'ambiguïté ne peut être levée que par lui.\n\n\`\`\`\n%s\n\`\`\`\n\n@claude" "${{ steps.aider.outputs.step_failed }}" "$DIAGNOSTIC")
           gh issue comment ${{ github.event.issue.number }} --repo "$REPO" --body "$BODY"
 
       - name: Nettoyer les logs temporaires
