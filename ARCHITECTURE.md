@@ -13,9 +13,10 @@ Vite + JS vanilla (pas de framework), Supabase (Postgres + Realtime) pour l'éta
 - `src/supabase/sync.js` — synchronisation de l'état de partie (table `game_rooms`) ; `client.js` — connexion.
 - `src/webrtc/relay.js` — communication directe entre joueurs (hors état persistant).
 - `src/style.css` — **4782 lignes, un seul fichier pour tout le CSS**.
+- `src/splash.css` — écran de démarrage (petit fichier dédié, voir piège ci-dessous).
 
 ## Pièges connus
-- `src/style.css` dépasse la fenêtre de contexte de qwen (32k tokens) même isolé, avec repli gemma4-64k inclus (observé : réponse vide malgré `--map-tokens 0`). Toute tâche CSS doit cibler une plage précise (nom de règle/sélecteur à chercher), jamais une lecture/réécriture du fichier entier — et si l'étape échoue quand même, `VERDICT: IMPLEMENTE` plutôt que de réessayer en boucle.
+- `src/style.css` dépasse la fenêtre de contexte de qwen (32k tokens) même isolé, avec repli gemma4-64k inclus (observé : réponse vide malgré `--map-tokens 0`). Toute tâche CSS doit cibler une plage précise (nom de règle/sélecteur à chercher), jamais une lecture/réécriture du fichier entier — et si l'étape échoue quand même, `VERDICT: IMPLEMENTE` plutôt que de réessayer en boucle. Confirmé sur l'issue #25 (ajout d'un écran de démarrage) : l'échec a été contourné en mettant les nouveaux styles dans un fichier dédié (`src/splash.css`, lié depuis `index.html`) plutôt qu'en éditant `style.css` — à privilégier pour toute nouvelle fonctionnalité CSS plutôt que de faire grossir le fichier existant.
 - Ajouter un jeu = ajouter les 3 fichiers `src/game/<jeu>{,.rules,.bot}.js` + une scène `src/three/<jeu>Scene.js` si rendu 3D + entrée dans `src/ui/gameCovers.js`/`games/` — voir un jeu existant similaire comme modèle plutôt que de partir de zéro.
 - Pas de état serveur custom : tout l'état partagé passe par la table Supabase `game_rooms` (Realtime), pas de fichier de session côté client à chercher.
 
