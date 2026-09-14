@@ -446,4 +446,12 @@ window.setInterval(() => {
   pushRelayStatusIfChanged();
 }, 3000);
 
+const splashEl = document.getElementById('splash');
+if (splashEl) {
+  window.setTimeout(() => {
+    splashEl.classList.add('splash--hide');
+    window.setTimeout(() => splashEl.remove(), 400);
+  }, 2000);
+}
+
 boot();
