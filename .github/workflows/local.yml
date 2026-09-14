@@ -336,8 +336,24 @@ jobs:
           # Test générique (page se charge, contenu visible, pas d'erreur console) : ne connaît
           # rien du contenu métier, c'est un filet de sécurité minimal, pas un test de la
           # fonctionnalité livrée (voir CLAUDE.md, section Analyser un échec).
-          if ! grep -q '"preview"' package.json 2>/dev/null; then
-            echo "Pas de script npm \"preview\" dans ce dépôt : test navigateur sauté."
+          #
+          # Deux façons de servir le résultat selon le dépôt :
+          # - app avec build (Vite...) : package.json déclare un script "preview".
+          # - site statique sans build (ex. repas-malin, servi tel quel) : pas de package.json,
+          #   juste un index.html — à la racine, ou dans un sous-dossier "repas-malin/" (cas
+          #   particulier de ce dépôt précis, voir ARCHITECTURE.md : le HTML déployable n'est
+          #   pas à la racine du dépôt Git). Servi via python3 -m http.server, déjà sur hubert.
+          SERVE_DIR=""
+          if [ -f package.json ] && grep -q '"preview"' package.json; then
+            MODE="vite"
+          elif [ -f repas-malin/index.html ]; then
+            MODE="static"
+            SERVE_DIR="repas-malin"
+          elif [ -f index.html ]; then
+            MODE="static"
+            SERVE_DIR="."
+          else
+            echo "Aucun mécanisme de prévisualisation détecté (ni script npm \"preview\", ni index.html) : test navigateur sauté."
             echo "browser_failed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -386,7 +402,11 @@ jobs:
           process.exit(0);
           SMOKE_EOF
 
-          npm run preview -- --port 4173 --strictPort --host 127.0.0.1 > /tmp/preview-server.log 2>&1 &
+          if [ "$MODE" = "vite" ]; then
+            npm run preview -- --port 4173 --strictPort --host 127.0.0.1 > /tmp/preview-server.log 2>&1 &
+          else
+            (cd "$SERVE_DIR" && python3 -m http.server 4173 --bind 127.0.0.1) > /tmp/preview-server.log 2>&1 &
+          fi
           PREVIEW_PID=$!
 
           READY=false
@@ -399,7 +419,7 @@ jobs:
           done
 
           if [ "$READY" != "true" ]; then
-            echo "::error::Le serveur de prévisualisation (npm run preview) n'a pas démarré à temps."
+            echo "::error::Le serveur de prévisualisation n'a pas démarré à temps."
             cat /tmp/preview-server.log
             kill "$PREVIEW_PID" 2>/dev/null || true
             echo "browser_failed=true" >> "$GITHUB_OUTPUT"
