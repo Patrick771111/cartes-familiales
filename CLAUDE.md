@@ -91,6 +91,7 @@ Conséquences pratiques :
 - Si une étape B a besoin de savoir ce que l'étape A a produit (ex. appeler une fonction ajoutée à l'étape A), **écris cette information dans l'instruction de B elle-même** (ex. "appelle la fonction `renderSplash()` ajoutée précédemment") plutôt que de compter sur qwen pour le déduire du contexte.
 - Une étape sans fichier entre crochets n'est pas découpée : tout le plan part en un seul appel (comportement de repli, à éviter sauf tâche vraiment ponctuelle).
 - Une fois le plan validé (`@local go`), **toutes les étapes s'enchaînent automatiquement**, sans revalidation entre elles — un seul feu vert pour l'ensemble du plan, pas un par étape.
+- **Format exact de la ligne** : `N. [chemin/fichier] instruction`, sans gras ni autre habillage Markdown autour des crochets (le crochet doit suivre directement le numéro et le point). Le parsing tolère quelques variations mais autant rester sur le format exact.
 
 ### Étape 2c — Si IMPLEMENTE (tâche hors de portée de tout moteur local)
 
