@@ -1,203 +1,104 @@
 # Consignes Claude Code
 
-## Cycle de vie complet
+## Cycle de vie
+1. Triage (Claude, auto) → `VERDICT: SIMPLE` / `COMPLEXE` / `IMPLEMENTE`
+2. Plan (Claude, si COMPLEXE) → étapes atomiques, un fichier chacune
+3. Validation humaine (`@local go`) — seul point d'arbitrage réel
+4. Exécution (qwen) — étapes enchaînées automatiquement, sans revalidation
+5. Relances auto si besoin (repli de modèle, ou Claude re-diagnostique)
+6. Non-régression (syntaxe + build) avant publication
+7. PR ouverte → merge = validation humaine finale
 
-Toute demande traverse ces étapes, dans cet ordre :
+## Capacités des moteurs locaux
+- **qwen2.5-coder:14b** (défaut) — édition précise, **32k tokens (natif, non extensible sans perte de fiabilité)**, aucune vision.
+- **gemma4-64k** (même poids que gemma4:12b, ~7,5 Go, 0 coût VRAM en plus) — **262k tokens**, **vision** (photo/tableau/texte), moins précis en édition de code.
+- 12 Go de VRAM sur gamer : un seul modèle chargé à la fois (bascule auto Ollama, pas de parallélisme).
+- **Repli auto** qwen → gemma4-64k sur dépassement de contexte ou réponse vide : rien à anticiper dans un plan.
 
-1. **Analyse du besoin** — triage automatique par Claude (SIMPLE / COMPLEXE / IMPLEMENTE)
-2. **Plan** — rédigé par Claude si COMPLEXE, au format d'étapes atomiques (voir plus bas)
-3. **Validation humaine** — le seul point d'arbitrage réel ; rien ne s'exécute sans ce feu vert (`@local go`)
-4. **Plan d'actions unitaires** — déjà garanti par le format du plan (une étape = un fichier)
-5. **Coding** — qwen exécute chaque étape séparément, en chaîne, sans revalidation intermédiaire
-6. **Relances automatiques si besoin** — repli de modèle (gemma4-64k) en cas de dépassement de contexte, et analyse automatique par Claude en cas d'échec persistant
-7. **Tests / non-régression** — vérification syntaxe + build avant toute publication (voir « Vérification de non-régression »)
-8. **Validation pour commit** — la pull request reste soumise à l'utilisateur ; rien ne fusionne seul
+Conséquences pour le triage/plan :
+- Vision requise → `MODELE: gemma4-64k`.
+- Fichier trop gros pour tout modèle local (même 262k) → `VERDICT: IMPLEMENTE`, ne jamais déléguer.
+- Génération d'image → aucun moteur local ni Claude ne sait le faire → `VERDICT: IMPLEMENTE`, fournir le(s) prompt(s) prêts à coller dans Grok Imagine (ou l'outil préféré de l'utilisateur).
 
-Les étapes 6 et 7 peuvent se répéter automatiquement plusieurs fois avant d'atteindre l'étape 8 — c'est voulu, tant que ça converge vers quelque chose de mergeable sans intervention entre-temps.
+## Triage
+Invoqué auto à l'ouverture de toute issue (sauf `@local go` déjà dans le corps) et sur tout `@claude` en commentaire.
 
-## Capacités réelles des moteurs locaux
-
-Avant de trier ou de planifier, tiens compte de ce que les moteurs locaux peuvent réellement faire — un plan qui suppose une capacité absente échouera silencieusement à l'exécution :
-
-- **qwen2.5-coder:14b** (par défaut, via Aider) — bon en édition de code précise (format diff). **Fenêtre de 32 768 tokens, native au modèle** (pas un réglage conservateur qu'on peut augmenter sans dégrader la fiabilité) : incapable de charger en entier un fichier volumineux, et un plan trop long (avec du code recopié en exemple) peut suffire à dépasser cette limite même sur des fichiers de taille raisonnable. **Aucune capacité de vision.**
-- **gemma4-64k** (Ollama sur gamer, `http://192.168.4.27:11434`) — même poids que gemma4:12b (~7,5 Go, aucun coût VRAM supplémentaire) mais **fenêtre de 262 144 tokens** et **vraie capacité de vision** (photo, tableau scanné, texte). Moins fiable que qwen2.5-coder pour des éditions de code précises — à préférer seulement quand le contexte ou la vision sont le vrai besoin.
-- Les deux modèles se partagent les 12 Go de VRAM de gamer et ne tiennent pas en mémoire simultanément (Ollama les décharge l'un l'autre automatiquement) — pas de vrai problème pratique, juste pas de parallélisme entre une tâche de vision/contexte et une tâche de code.
-- **Repli automatique déjà en place** : si qwen échoue par dépassement de contexte, `local.yml` retente automatiquement avec `gemma4-64k`, sans intervention. Pas besoin d'anticiper ce cas dans un plan.
-
-**Conséquences pour le triage et les plans :**
-- **Besoin de vision** (vérifier une photo, lire un tableau scanné) : ce n'est **plus** hors de portée de la voie locale. Indique dans ton plan (ou ton verdict simple) `MODELE: gemma4-64k` pour que l'exécution utilise ce modèle au lieu du défaut.
-- **Fichier manifestement trop volumineux** pour qu'aucun modèle local (même gemma4-64k, 262k tokens) ne puisse l'éditer de façon fiable (ex. un fichier de données de plusieurs dizaines de milliers de lignes) : n'écris **pas** de plan qui délègue cette édition à qwen. Dans ce cas précis, **implémente toi-même** — voir Étape 2c. Pour tout le reste, laisse faire le repli automatique plutôt que de présupposer un échec.
-- **Génération d'image** (illustration, icône, asset graphique) : aucun moteur local ni Claude ne sait générer une image. N'essaie pas d'automatiser ni de déléguer à qwen. À la place, rends un `VERDICT: IMPLEMENTE` (rien à exécuter derrière) et fournis, en commentaire, **le ou les prompts prêts à copier-coller** dans Grok Imagine (ou l'outil de génération d'image que l'utilisateur préfère) — description précise, en français ou en anglais selon ce qui donne un meilleur résultat sur l'outil visé. L'utilisateur les utilise lui-même en interactif et ajoute le résultat au dépôt manuellement.
-
-## Rôle de Claude : trier, puis concevoir — jamais implémenter
-
-Claude est invoqué automatiquement à l'ouverture de **toute** nouvelle issue (sauf si son corps contient déjà `@local go`, auquel cas l'utilisateur a explicitement demandé l'exécution directe et Claude n'intervient pas), ainsi que sur toute mention `@claude` en commentaire (dialogue de suivi).
-
-### Étape 1 — Trier
-
-Avant toute chose, évalue si la tâche est **SIMPLE** ou **COMPLEXE** :
-
-- **SIMPLE** = tâche mécanique et bien délimitée : corriger un texte, une valeur de config, une petite fonction évidente, une doc, un test isolé, une dépendance à monter, un changement dont l'emplacement dans le code est évident ou trivial à trouver.
-- **COMPLEXE** = nécessite un choix de conception, touche à l'architecture, ambigu, impacte plusieurs fichiers de façon non triviale, demande d'abord d'explorer/comprendre le code pour localiser la bonne cible, ou risque de casser un comportement existant.
-
-Vérifie aussi si la tâche dépasse les capacités des moteurs locaux (voir section ci-dessus) — un fichier trop volumineux pour être édité de façon fiable par qwen n'est **jamais** SIMPLE ni COMPLEXE au sens habituel : c'est un troisième cas, IMPLEMENTE (voir Étape 2c).
-
-**Commence impérativement ta réponse par une ligne exacte, seule sur sa ligne, avant tout autre texte** :
-
+Commence **toujours** par une ligne seule, exacte, sans gras ni puce :
 ```
 VERDICT: SIMPLE
 ```
-ou
-```
-VERDICT: COMPLEXE
-```
-ou
-```
-VERDICT: IMPLEMENTE
-```
+(ou `COMPLEXE`, ou `IMPLEMENTE`) — lue par le workflow pour router la suite.
 
-Cette ligne est lue par le workflow pour router automatiquement la suite — ne pas la formater (pas de gras, pas de puce), l'écrire telle quelle.
+- **SIMPLE** = mécanique, cible évidente (texte, config, petite fonction, doc, test isolé, dépendance). Une phrase d'explication ; **aucun fichier touché, aucun plan**. Renvoi auto vers qwen.
+- **COMPLEXE** = conception, ambigu, exploration nécessaire, plusieurs fichiers, ou risque de régression. Écris un plan (format ci-dessous), committe-le dans `docs/plans/issue-<n>.md`, poste-le en entier après le VERDICT. Aucun code, aucune PR de ta part.
+- **IMPLEMENTE** = hors de portée de tout moteur local (fichier trop gros, génération d'image). Implémente toi-même, committe, ouvre la PR (règles de restitution plus bas) ; explique en une phrase pourquoi la voie locale ne convenait pas.
 
-### Étape 2a — Si SIMPLE
-
-Dis-le en une phrase (en français), explique brièvement pourquoi c'est simple. **Ne touche à aucun fichier, n'écris pas de plan.** Le renvoi vers l'exécution locale (qwen) se fait automatiquement après ton commentaire — tu n'as rien d'autre à faire.
-
-### Étape 2b — Si COMPLEXE
-
-Ton rôle se limite alors **strictement à la conception** :
-
-- **Ne modifie jamais de code applicatif.** Aucun fichier hors `docs/plans/` ne doit être créé, édité ou supprimé.
-- **Écris un plan**, et seulement un plan, dans `docs/plans/issue-<numéro-de-l'issue>.md` (créer le dossier si besoin), en le committant directement.
-- **Poste le plan complet, en français, à la suite de la ligne VERDICT** — c'est ce commentaire qui sert de validation, pas le fichier (voir note plus bas sur les échecs de synchronisation Git).
-- **Arrête-toi là.** Pas de pull request, pas de code, pas de tests écrits par Claude.
-
-#### Format du plan
-
+## Format du plan
 ```
 # Plan : <titre bref>
 
 ## Objectif
-[Une ou deux phrases décrivant le résultat attendu, en langage fonctionnel]
+[résultat attendu, langage fonctionnel]
 
 ## Fichiers concernés
-- chemin/vers/fichier1.ext — ce qui change
-- chemin/vers/fichier2.ext — ce qui change
+- chemin/fichier — ce qui change
 
 ## Étapes
-1. [chemin/fichier1.ext] Instruction précise et autonome, exécutable sans connaître les autres étapes
-2. [chemin/fichier2.ext] Instruction précise et autonome
-...
+1. [chemin/fichier] instruction précise et autonome
+2. [chemin/fichier] instruction précise et autonome
 
 ## Critères de vérification
-- Comment on sait que c'est fait et correct
-- Cas de test ou comportement attendu
+- comment on sait que c'est correct
 
 ## Modèle requis
-[Omettre cette section si qwen2.5-coder (défaut) convient. Sinon : `gemma4-64k` si une étape nécessite de lire une image/photo/tableau scanné. Inutile de l'indiquer pour un simple risque de dépassement de contexte — le repli est automatique.]
+[omettre si qwen convient ; sinon `gemma4-64k` si vision nécessaire]
 ```
 
-Un plan vague produit une exécution vague : plus les étapes et les critères sont précis, plus qwen (qui exécute ensuite) sera fidèle. Éviter de laisser des choix de conception ouverts dans le plan — c'est le rôle de Claude de trancher, pas celui de qwen.
+Règles :
+- **Un fichier par étape, format exact `N. [chemin] texte`**, crochet directement après le point (pas de gras autour). Chaque étape s'exécute isolément — ne voit ni les autres fichiers, ni le reste du plan.
+- Étape B dépendante du résultat de A ? Répète l'info utile dans l'instruction de B (qwen ne voit pas A à ce moment-là).
+- Décris **quoi/où** (sélecteur, fonction, valeur) — jamais le code final à recopier : ça gonfle le contexte pour rien.
+- Chaque étape doit tenir largement dans 32k tokens à elle seule.
+- Sans fichier entre crochets, le plan part en un seul appel (repli, à éviter sauf tâche ponctuelle).
 
-**Précis ne veut pas dire long.** Chaque étape (avec son fichier) doit tenir largement dans la fenêtre de 32k tokens de qwen — une étape qui recopie de longs extraits de code (CSS complet, fonctions entières) gonfle le contexte inutilement. Décris **quoi** changer et **où** (sélecteur, nom de fonction, valeur), pas le code final à copier-coller ligne par ligne — qwen sait écrire le code, il a juste besoin de savoir quoi faire.
+## Exécution (qwen, déclenchée par `@local go`)
+- Source de la consigne, dans l'ordre : `docs/plans/issue-<n>.md` sur la branche par défaut → branche `claude/issue-<n>-*` (non fusionnée) → dernier commentaire « Plan complet » (repli si le push du plan a échoué) → corps brut de l'issue.
+- Étapes exécutées en séquence, un appel Aider par étape, scopé au seul fichier indiqué (repo-map désactivé) ; repli gemma4-64k par étape si besoin.
+- Avant toute PR : `node --check` sur les `.js` modifiés + `npm run build` si `package.json` le déclare. Échec → **rien n'est publié**, le code reste local au runner.
+- Échec (aucun changement, étape ratée même après repli, ou non-régression KO) → **Claude auto-invoqué** avec le diagnostic complet ; rien à redemander.
 
-**Chaque étape doit tenir sur UN seul fichier et être autonome.** L'exécution traite les étapes une par une, chacune dans un appel isolé qui ne voit que le fichier indiqué entre crochets (`[chemin/fichier]`) — pas les autres fichiers du dépôt, pas ce qui s'est passé aux étapes précédentes. C'est ce découpage, pas seulement le repli de modèle, qui évite le dépassement de contexte : un fichier volumineux (ex. `style.css` à 4782 lignes) chargé par erreur dans une étape suffit à tout faire échouer, même si l'instruction elle-même est courte.
+## Analyser un échec
+Invoqué avec un diagnostic en pièce jointe : comprendre la vraie cause avant d'agir, pas retrier par réflexe.
+- `exceeds the ... token limit` malgré le repli → structurellement trop gros → `VERDICT: IMPLEMENTE`.
+- `Empty response received from LLM` → aléa probable, pas forcément la taille → plan plus ciblé (moins à charger).
+- Aucun changement, pas d'erreur visible → consigne ambiguë ou mauvaise cible → plan plus précis, ou question à l'utilisateur si lui seul a l'info manquante.
+- Build/syntaxe cassé → corriger l'étape en cause, ou `VERDICT: IMPLEMENTE` si le problème est structurel.
 
-Conséquences pratiques :
-- Si une étape B a besoin de savoir ce que l'étape A a produit (ex. appeler une fonction ajoutée à l'étape A), **écris cette information dans l'instruction de B elle-même** (ex. "appelle la fonction `renderSplash()` ajoutée précédemment") plutôt que de compter sur qwen pour le déduire du contexte.
-- Une étape sans fichier entre crochets n'est pas découpée : tout le plan part en un seul appel (comportement de repli, à éviter sauf tâche vraiment ponctuelle).
-- Une fois le plan validé (`@local go`), **toutes les étapes s'enchaînent automatiquement**, sans revalidation entre elles — un seul feu vert pour l'ensemble du plan, pas un par étape.
-- **Format exact de la ligne** : `N. [chemin/fichier] instruction`, sans gras ni autre habillage Markdown autour des crochets (le crochet doit suivre directement le numéro et le point). Le parsing tolère quelques variations mais autant rester sur le format exact.
+Rends un nouveau `VERDICT:` comme un triage normal.
 
-### Étape 2c — Si IMPLEMENTE (tâche hors de portée de tout moteur local)
-
-Cas type : édition d'un fichier trop volumineux pour tenir dans la fenêtre de contexte d'un modèle local (qwen **et** gemma4), rendant toute délégation vouée à l'échec quelle que soit la précision des instructions.
-
-Dans ce cas seulement, l'interdiction habituelle de toucher au code ne s'applique pas :
-
-- **Implémente directement** le changement, comme le ferait normalement qwen — édite le ou les fichiers concernés, rien de plus que nécessaire.
-- **Committe et ouvre une pull request** en respectant les règles de restitution ci-dessous (français, résumé fonctionnel, jamais de diff).
-- Explique en une phrase, après la ligne VERDICT, pourquoi la voie locale ne pouvait pas gérer cette tâche (ex. taille du fichier).
-
-## Exécution : la voie locale (qwen)
-
-Le passage à l'exécution se fait par un commentaire `@local go` sur l'issue — posté automatiquement si tu as rendu `VERDICT: SIMPLE`, ou par l'utilisateur une fois qu'il a validé ton plan (`VERDICT: COMPLEXE`). Exécution **gratuite**, sur le matériel local (hubert + gamer), sans consommer de quota Claude :
-
-- Si un plan existe, c'est son contenu qui sert de consigne à qwen — pas le corps brut de l'issue. Recherché dans l'ordre : `docs/plans/issue-<numéro>.md` sur la branche par défaut, puis sur la branche non fusionnée `claude/issue-<numéro>-*`, puis dans le dernier commentaire de l'issue contenant « Plan complet » (repli si le push de la branche a échoué — voir note ci-dessous)
-- Sinon (verdict simple, pas de plan), le titre et le corps de l'issue servent directement de consigne
-- Si le plan est écrit au format `N. [fichier] instruction` (voir ci-dessus), chaque étape s'exécute séparément et automatiquement l'une après l'autre, chacune scopée à son seul fichier — sinon tout le plan part en un seul appel
-- L'exécution tourne sur le runner auto-hébergé `hubert` (label `local`), via Aider dans Docker, pointant vers l'Ollama de gamer
-- Modèle utilisé, par étape : qwen2.5-coder:14b par défaut, sauf si le plan précise `MODELE: gemma4-64k` (tâche nécessitant de lire une image) ou si une étape échoue par dépassement de contexte ou réponse vide (repli automatique sur gemma4-64k pour cette étape, signalé dans la description de la PR)
-- Une fois toutes les étapes exécutées, une **vérification de non-régression** tourne avant toute publication (voir section dédiée ci-dessous)
-- Une pull request est ouverte automatiquement si au moins une étape a produit un changement **et** que la vérification passe — même en cas d'échec partiel sur une étape ultérieure (le travail déjà fait n'est pas perdu, sauf si ça casse le build)
-- Si rien n'a été produit, si une étape a échoué même après repli, ou si la vérification de non-régression échoue, **Claude est invoqué automatiquement** avec le diagnostic (voir section suivante) — tu n'as rien à redemander toi-même
-
-## Vérification de non-régression
-
-Avant qu'une pull request soit publiée, `local.yml` vérifie que le résultat compile réellement :
-
-- **Syntaxe** : `node --check` sur chaque fichier `.js` modifié par rapport au point de départ de la branche.
-- **Build** : `npm install` puis `npm run build` (Vite) si `package.json` déclare un script `build`.
-
-Si l'un des deux échoue, **aucune branche n'est poussée, aucune PR n'est ouverte** — le code cassé reste local au runner. Claude est alors invoqué automatiquement avec le journal d'erreur, comme pour un échec d'exécution : à toi de conclure si c'est une étape à reformuler, une dépendance manquante, ou un cas à implémenter toi-même.
-
-**Ce que ça ne couvre pas (pour l'instant)** : c'est une vérification de compilation, pas fonctionnelle. Un changement qui compile mais ne fait pas ce qui était demandé (ex. un élément ajouté au DOM mais jamais affiché faute de style) passe cette vérification sans problème — la relecture humaine du résumé de PR reste nécessaire pour ça. Un test end-to-end plus poussé (parcours réel dans un navigateur) est envisagé comme évolution future, pas encore en place.
-
-**Anti-boucle** : le déclenchement de `@local go` (et de `@claude`) ignore tout commentaire contenant `VERDICT:` — c'est-à-dire tout commentaire d'analyse posté par Claude lui-même. Sans ça, une phrase d'explication comme *« Une fois validé, commente `@local go` »* dans un plan suffirait à déclencher l'exécution toute seule, sans validation réelle de ta part.
-
-**Note** : GitHub refuse qu'une GitHub App (Claude) pousse un commit dont l'arbre contient `.github/workflows/*.yml`, même inchangé, sans permission `workflows` explicite sur l'installation — ce qui peut arriver dès que la branche de Claude diverge de la branche par défaut sur ces fichiers. Dans ce cas, le plan n'atteint jamais le dépôt distant en Git ; le commentaire de l'issue reste alors la seule source, d'où le repli ci-dessus.
-
-## Rôle de Claude : analyser un échec de la voie locale
-
-Quand tu es invoqué avec un commentaire contenant un bloc de diagnostic (log qwen/gemma4) et la mention « La voie locale n'a produit aucun changement » : ton rôle n'est pas de retrier ou de refaire un plan par réflexe, mais de **comprendre pourquoi ça a échoué** avant de proposer une suite. Lis le diagnostic pour identifier le vrai motif — quelques cas fréquents :
-
-- **Dépassement de contexte** (`exceeds the ... token limit`) malgré le repli automatique sur gemma4-64k : le fichier ou le plan est structurellement trop volumineux même à 262k tokens → `VERDICT: IMPLEMENTE`, implémente toi-même.
-- **Réponse vide du modèle** (`Empty response received from LLM`) : pas forcément lié à la taille — peut être un aléa. Un nouveau plan plus ciblé (moins de fichiers à charger en une fois) peut suffire à contourner le problème sans devoir tout implémenter toi-même.
-- **Aucun changement produit sans erreur visible** : le modèle a probablement jugé la consigne trop ambiguë ou n'a pas trouvé la bonne cible. Récris un plan plus précis (localise exactement le fichier et la ligne si possible), ou pose une question à l'utilisateur si l'information manquante ne peut venir que de lui.
-
-Rends un nouveau `VERDICT:` comme d'habitude en fonction de ta conclusion — ce commentaire d'échec n'est qu'un nouveau tour de triage avec plus d'informations qu'au premier passage.
-
-## Restitution des pull requests
-
-Les pull requests (produites par la voie locale) doivent respecter ces règles :
-
-### Langue
-- Tous les commentaires, descriptions de PR, et messages de commit sont **en français**
-
-### Contenu
-- **Résumé fonctionnel** : décrire ce qui change du point de vue utilisateur ou métier
-- **Jamais de diff** : ne pas énumérer les fichiers modifiés ni les lignes de code
-- **Concision** : une ou deux phrases maximum pour décrire le changement
-
-### Format de PR
-
+## Restitution (PR, commits, commentaires)
+- Français partout.
+- Résumé fonctionnel (point de vue utilisateur) — jamais de diff ni de liste de fichiers modifiés.
 ```
 ## Résumé
-[Une phrase décrivant le changement fonctionnel]
+[une phrase]
 
 ## Exemple d'usage
-[Si pertinent, comment le changement s'utilise]
+[si pertinent]
 
 ## Cas testés
-[Brève liste des scénarios validés]
+[bref]
 ```
 
-## Déclenchement — résumé
+## Déclenchement
+- Issue ouverte sans `@local go` → triage auto.
+- `@claude` en commentaire → dialogue de suivi.
+- `@local go` (commentaire, ou corps d'issue à l'ouverture) → exécution directe, sans passer par Claude.
+- **Anti-boucle** : tout déclenchement ignore les commentaires contenant `VERDICT:` (= commentaires de Claude lui-même) — sinon une phrase explicative mentionnant `@local go` ou `@claude` se déclencherait toute seule.
+- Le routage auto (`@local go` posté après un verdict SIMPLE) utilise le secret `TRIAGE_TOKEN`, pas le token GitHub par défaut (qui ne relance jamais de workflow).
 
-- **Ouverture d'une issue** (sans `@local go` dans le corps) → Claude trie automatiquement : `VERDICT: SIMPLE` (renvoi immédiat vers qwen), `VERDICT: COMPLEXE` (plan à valider), ou `VERDICT: IMPLEMENTE` (Claude a implémenté lui-même, PR déjà ouverte — tâche hors de portée de tout moteur local)
-- `@claude` en commentaire → dialogue de suivi (corriger un plan, redemander un tri après un échec de qwen, etc.)
-- `@local go` en commentaire, ou dans le corps d'une issue à l'ouverture → exécution directe par qwen (le plan s'il existe, sinon l'issue brute), sans passer par Claude
-
-Dialogue par fil de commentaires : chaque mention relance le moteur correspondant dans le même fil.
-
-Le commentaire de routage automatique (`@local go` posté après un verdict simple) utilise un jeton dédié (secret `TRIAGE_TOKEN`), pas le token GitHub Actions par défaut : GitHub bloque les déclenchements en cascade venant du token automatique, un jeton distinct est nécessaire pour que le commentaire relance effectivement la voie locale.
-
-## Authentification
-
-Le token d'abonnement Claude ($20/mois) est stocké dans `CLAUDE_CODE_OAUTH_TOKEN` (secrets GitHub). Les exécutions utilisent cet abonnement, pas une facturation à l'usage — c'est justement parce que Claude ne fait que du triage et des plans (courts) que cet abonnement reste soutenable.
-
-## Runner
-
-`claude-code.yml` (Claude, triage + planification) tourne sur `ubuntu-latest` : il n'a aucun besoin d'atteindre le réseau local.
-`local.yml` (qwen, exécution) tourne sur `[self-hosted, local]` (hubert), pour atteindre l'Ollama de gamer.
-
-Node.js/npm sont disponibles sur hubert (installation Hermes préexistante, `~/.hermes/node/bin`, référencée dans le PATH du runner) — utilisés pour la vérification de non-régression (build Vite), pas seulement pour le déploiement de l'appli elle-même.
+## Infra
+- `claude-code.yml` : `ubuntu-latest`, aucun accès réseau local requis.
+- `local.yml` : `[self-hosted, local]` (hubert) → Ollama sur gamer (`192.168.4.27:11434`), Docker/Aider, Node.js (`~/.hermes/node/bin`, déjà dans le PATH du runner).
+- `CLAUDE_CODE_OAUTH_TOKEN` : abonnement ($20/mois), pas facturation à l'usage — tient car Claude ne fait que du triage/plans, jamais d'implémentation lourde.
+- Une GitHub App (Claude) ne peut pas pousser de commit touchant `.github/workflows/*.yml`, même inchangé, sans permission `workflows` — si la branche du plan diverge de la branche par défaut sur ces fichiers, le push échoue silencieusement (géré par le repli de recherche de plan ci-dessus).
