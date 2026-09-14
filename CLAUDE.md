@@ -1,5 +1,20 @@
 # Consignes Claude Code
 
+## Cycle de vie complet
+
+Toute demande traverse ces étapes, dans cet ordre :
+
+1. **Analyse du besoin** — triage automatique par Claude (SIMPLE / COMPLEXE / IMPLEMENTE)
+2. **Plan** — rédigé par Claude si COMPLEXE, au format d'étapes atomiques (voir plus bas)
+3. **Validation humaine** — le seul point d'arbitrage réel ; rien ne s'exécute sans ce feu vert (`@local go`)
+4. **Plan d'actions unitaires** — déjà garanti par le format du plan (une étape = un fichier)
+5. **Coding** — qwen exécute chaque étape séparément, en chaîne, sans revalidation intermédiaire
+6. **Relances automatiques si besoin** — repli de modèle (gemma4-64k) en cas de dépassement de contexte, et analyse automatique par Claude en cas d'échec persistant
+7. **Tests / non-régression** — vérification syntaxe + build avant toute publication (voir « Vérification de non-régression »)
+8. **Validation pour commit** — la pull request reste soumise à l'utilisateur ; rien ne fusionne seul
+
+Les étapes 6 et 7 peuvent se répéter automatiquement plusieurs fois avant d'atteindre l'étape 8 — c'est voulu, tant que ça converge vers quelque chose de mergeable sans intervention entre-temps.
+
 ## Capacités réelles des moteurs locaux
 
 Avant de trier ou de planifier, tiens compte de ce que les moteurs locaux peuvent réellement faire — un plan qui suppose une capacité absente échouera silencieusement à l'exécution :
@@ -112,8 +127,20 @@ Le passage à l'exécution se fait par un commentaire `@local go` sur l'issue �
 - Si le plan est écrit au format `N. [fichier] instruction` (voir ci-dessus), chaque étape s'exécute séparément et automatiquement l'une après l'autre, chacune scopée à son seul fichier — sinon tout le plan part en un seul appel
 - L'exécution tourne sur le runner auto-hébergé `hubert` (label `local`), via Aider dans Docker, pointant vers l'Ollama de gamer
 - Modèle utilisé, par étape : qwen2.5-coder:14b par défaut, sauf si le plan précise `MODELE: gemma4-64k` (tâche nécessitant de lire une image) ou si une étape échoue par dépassement de contexte ou réponse vide (repli automatique sur gemma4-64k pour cette étape, signalé dans la description de la PR)
-- Une pull request est ouverte automatiquement si au moins une étape a produit un changement — même en cas d'échec partiel sur une étape ultérieure (le travail déjà fait n'est pas perdu)
-- Si rien n'a été produit, ou si une étape a échoué même après repli, **Claude est invoqué automatiquement** avec le diagnostic (voir section suivante) — tu n'as rien à redemander toi-même
+- Une fois toutes les étapes exécutées, une **vérification de non-régression** tourne avant toute publication (voir section dédiée ci-dessous)
+- Une pull request est ouverte automatiquement si au moins une étape a produit un changement **et** que la vérification passe — même en cas d'échec partiel sur une étape ultérieure (le travail déjà fait n'est pas perdu, sauf si ça casse le build)
+- Si rien n'a été produit, si une étape a échoué même après repli, ou si la vérification de non-régression échoue, **Claude est invoqué automatiquement** avec le diagnostic (voir section suivante) — tu n'as rien à redemander toi-même
+
+## Vérification de non-régression
+
+Avant qu'une pull request soit publiée, `local.yml` vérifie que le résultat compile réellement :
+
+- **Syntaxe** : `node --check` sur chaque fichier `.js` modifié par rapport au point de départ de la branche.
+- **Build** : `npm install` puis `npm run build` (Vite) si `package.json` déclare un script `build`.
+
+Si l'un des deux échoue, **aucune branche n'est poussée, aucune PR n'est ouverte** — le code cassé reste local au runner. Claude est alors invoqué automatiquement avec le journal d'erreur, comme pour un échec d'exécution : à toi de conclure si c'est une étape à reformuler, une dépendance manquante, ou un cas à implémenter toi-même.
+
+**Ce que ça ne couvre pas (pour l'instant)** : c'est une vérification de compilation, pas fonctionnelle. Un changement qui compile mais ne fait pas ce qui était demandé (ex. un élément ajouté au DOM mais jamais affiché faute de style) passe cette vérification sans problème — la relecture humaine du résumé de PR reste nécessaire pour ça. Un test end-to-end plus poussé (parcours réel dans un navigateur) est envisagé comme évolution future, pas encore en place.
 
 **Anti-boucle** : le déclenchement de `@local go` (et de `@claude`) ignore tout commentaire contenant `VERDICT:` — c'est-à-dire tout commentaire d'analyse posté par Claude lui-même. Sans ça, une phrase d'explication comme *« Une fois validé, commente `@local go` »* dans un plan suffirait à déclencher l'exécution toute seule, sans validation réelle de ta part.
 
@@ -172,3 +199,5 @@ Le token d'abonnement Claude ($20/mois) est stocké dans `CLAUDE_CODE_OAUTH_TOKE
 
 `claude-code.yml` (Claude, triage + planification) tourne sur `ubuntu-latest` : il n'a aucun besoin d'atteindre le réseau local.
 `local.yml` (qwen, exécution) tourne sur `[self-hosted, local]` (hubert), pour atteindre l'Ollama de gamer.
+
+Node.js/npm sont disponibles sur hubert (installation Hermes préexistante, `~/.hermes/node/bin`, référencée dans le PATH du runner) — utilisés pour la vérification de non-régression (build Vite), pas seulement pour le déploiement de l'appli elle-même.

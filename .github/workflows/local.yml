@@ -210,8 +210,42 @@ jobs:
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publier la branche et ouvrir la pull request
+      - name: Vérifier la non-régression (syntaxe + build)
+        id: verify
         if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:$PATH"
+          FAILED=false
+          {
+            echo "=== Vérification syntaxe des fichiers JS modifiés ==="
+            CHANGED_JS=$(git diff --name-only "${{ steps.branch.outputs.base_sha }}" HEAD -- '*.js')
+            if [ -n "$CHANGED_JS" ]; then
+              for f in $CHANGED_JS; do
+                echo "-- node --check $f --"
+                node --check "$f" || FAILED=true
+              done
+            else
+              echo "Aucun fichier .js modifié."
+            fi
+
+            echo "=== Build (npm run build) ==="
+            if [ -f package.json ] && grep -q '"build"' package.json; then
+              npm install --no-audit --no-fund 2>&1
+              npm run build 2>&1 || FAILED=true
+            else
+              echo "Pas de script build dans package.json, étape sautée."
+            fi
+          } > /tmp/verify-log.txt 2>&1
+          cat /tmp/verify-log.txt
+
+          if [ "$FAILED" = "true" ]; then
+            echo "build_failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_failed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publier la branche et ouvrir la pull request
+        if: steps.changes.outputs.has_changes == 'true' && steps.verify.outputs.build_failed != 'true'
         run: |
           git push origin "${{ steps.branch.outputs.name }}"
           if [ "${{ steps.task.outputs.source }}" = "plan" ]; then
@@ -236,15 +270,21 @@ jobs:
             --head "${{ steps.branch.outputs.name }}"
 
       - name: Demander à Claude d'analyser l'échec et de proposer une remédiation
-        if: steps.changes.outputs.has_changes == 'false' || steps.aider.outputs.step_failed != ''
+        if: steps.changes.outputs.has_changes == 'false' || steps.aider.outputs.step_failed != '' || steps.verify.outputs.build_failed == 'true'
         env:
           GH_TOKEN: ${{ secrets.TRIAGE_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          DIAGNOSTIC=$(tail -c 4000 "${{ steps.aider.outputs.last_log }}" 2>/dev/null || echo "Log indisponible.")
-          BODY=$(printf "La voie locale a rencontré un problème sur « %s » (modèle utilisé : ${{ steps.aider.outputs.model_used }}, ${{ steps.aider.outputs.steps_executed }} étape(s) prévue(s)).\n\nAnalyse ce diagnostic et propose une remédiation : plan revu et plus ciblé (étapes encore plus atomiques si besoin), implémentation directe (VERDICT: IMPLEMENTE) si le blocage est structurel, ou question à l'utilisateur si l'ambiguïté ne peut être levée que par lui.\n\n\`\`\`\n%s\n\`\`\`\n\n@claude" "${{ steps.aider.outputs.step_failed }}" "$DIAGNOSTIC")
+          if [ "${{ steps.verify.outputs.build_failed }}" = "true" ]; then
+            PROBLEME="Le code produit ne compile pas (échec de syntaxe ou de build) — voir Vérification de non-régression dans CLAUDE.md."
+            DIAGNOSTIC=$(tail -c 4000 /tmp/verify-log.txt 2>/dev/null || echo "Log indisponible.")
+          else
+            PROBLEME="La voie locale a rencontré un problème sur « ${{ steps.aider.outputs.step_failed }} » (modèle utilisé : ${{ steps.aider.outputs.model_used }}, ${{ steps.aider.outputs.steps_executed }} étape(s) prévue(s))."
+            DIAGNOSTIC=$(tail -c 4000 "${{ steps.aider.outputs.last_log }}" 2>/dev/null || echo "Log indisponible.")
+          fi
+          BODY=$(printf "%s\n\nAnalyse ce diagnostic et propose une remédiation : plan revu et plus ciblé (étapes encore plus atomiques si besoin), implémentation directe (VERDICT: IMPLEMENTE) si le blocage est structurel, ou question à l'utilisateur si l'ambiguïté ne peut être levée que par lui.\n\n\`\`\`\n%s\n\`\`\`\n\n@claude" "$PROBLEME" "$DIAGNOSTIC")
           gh issue comment ${{ github.event.issue.number }} --repo "$REPO" --body "$BODY"
 
       - name: Nettoyer les logs temporaires
         if: always()
-        run: rm -f /tmp/aider-log-1.txt /tmp/aider-log-2.txt /tmp/aider-exit-code.txt
+        run: rm -f /tmp/aider-log-1.txt /tmp/aider-log-2.txt /tmp/aider-exit-code.txt /tmp/verify-log.txt
