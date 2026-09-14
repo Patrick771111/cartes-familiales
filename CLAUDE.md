@@ -104,7 +104,7 @@ Rends un nouveau `VERDICT:` comme un triage normal.
 - Issue ouverte sans `@local go` → triage auto.
 - `@claude` en commentaire → dialogue de suivi.
 - `@local go` (commentaire, ou corps d'issue à l'ouverture) → exécution directe, sans passer par Claude.
-- **Anti-boucle** : tout déclenchement ignore les commentaires contenant `VERDICT:` (= commentaires de Claude lui-même) — sinon une phrase explicative mentionnant `@local go` ou `@claude` se déclencherait toute seule.
+- **Anti-boucle** : tout déclenchement ignore les commentaires **commençant** par `VERDICT:` (= commentaires de Claude lui-même) — sinon une phrase explicative mentionnant `@local go` ou `@claude` se déclencherait toute seule. Test en `startsWith`, pas `contains` : un diagnostic d'échec auto-posté peut mentionner `VERDICT: IMPLEMENTE` au milieu de son texte sans être un commentaire de Claude — `contains()` l'exclurait à tort et bloquerait l'auto-invocation de Claude sur l'échec (bug vécu sur l'issue #25).
 - Le routage auto (`@local go` posté après un verdict SIMPLE) utilise le secret `TRIAGE_TOKEN`, pas le token GitHub par défaut (qui ne relance jamais de workflow).
 
 ## Documentation technique (`ARCHITECTURE.md`)

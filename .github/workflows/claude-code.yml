@@ -8,11 +8,14 @@ on:
 
 jobs:
   claude:
-    # Même précaution que dans local.yml : un commentaire de Claude contient toujours "VERDICT:"
-    # et peut lui-même mentionner "@claude" en expliquant le mécanisme de dialogue à l'utilisateur.
-    # Sans cette exclusion, Claude risquerait de se re-déclencher lui-même en boucle.
+    # Même précaution que dans local.yml : un commentaire de Claude COMMENCE toujours par "VERDICT:"
+    # (voir CLAUDE.md) et peut lui-même mentionner "@claude" en expliquant le mécanisme de dialogue
+    # à l'utilisateur. On teste startsWith (pas contains) : un diagnostic auto-posté par local.yml
+    # mentionne parfois "VERDICT: IMPLEMENTE" au milieu de son texte (une des remédiations possibles
+    # suggérées à Claude) sans être un commentaire de Claude — contains() l'aurait exclu à tort et
+    # empêché Claude de jamais analyser cet échec (bug vécu sur l'issue #25).
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, 'VERDICT:')) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && !startsWith(github.event.comment.body, 'VERDICT:')) ||
       (github.event_name == 'issues' && !contains(github.event.issue.body, '@local go'))
     runs-on: ubuntu-latest
     permissions:

@@ -8,14 +8,15 @@ jobs:
   local:
     # Claude écrit lui-même "@local go" en toutes lettres dans ses plans, pour expliquer à
     # l'utilisateur comment valider ("Une fois ce plan validé, un commentaire @local go
-    # déclenchera..."). Sans le exclusion de VERDICT:, cette phrase explicative déclenchait
-    # l'exécution toute seule, sans validation réelle. Les commentaires de Claude commencent
-    # toujours par une ligne VERDICT: (voir CLAUDE.md) ; les vraies commandes de validation
-    # (humaines ou auto-postées par le routage) n'en contiennent jamais.
+    # déclenchera..."). Sans exclusion, cette phrase explicative déclenchait l'exécution
+    # toute seule, sans validation réelle. Les commentaires de Claude COMMENCENT toujours
+    # par une ligne VERDICT: (voir CLAUDE.md) — d'où startsWith (pas contains) : un diagnostic
+    # auto-posté par ce même workflow mentionne parfois "VERDICT: IMPLEMENTE" au milieu de son
+    # texte sans être un commentaire de Claude ; contains() l'aurait exclu à tort.
     if: |
       github.event_name == 'issue_comment' &&
       contains(github.event.comment.body, '@local go') &&
-      !contains(github.event.comment.body, 'VERDICT:')
+      !startsWith(github.event.comment.body, 'VERDICT:')
     runs-on: [self-hosted, local]
     timeout-minutes: 45
     permissions:
