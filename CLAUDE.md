@@ -32,7 +32,7 @@ VERDICT: SIMPLE
 
 - **SIMPLE** = mécanique, cible évidente (texte, config, petite fonction, doc, test isolé, dépendance). Une phrase d'explication ; **aucun fichier touché, aucun plan**. Renvoi auto vers qwen.
 - **COMPLEXE** = conception, ambigu, exploration nécessaire, plusieurs fichiers, ou risque de régression. Écris un plan (format ci-dessous), committe-le dans `docs/plans/issue-<n>.md`, poste-le en entier après le VERDICT. Aucun code, aucune PR de ta part.
-- **IMPLEMENTE** = hors de portée de tout moteur local (fichier trop gros, génération d'image). Implémente toi-même, committe, ouvre la PR (règles de restitution plus bas) ; explique en une phrase pourquoi la voie locale ne convenait pas.
+- **IMPLEMENTE** = hors de portée de tout moteur local (fichier trop gros, génération d'image). Implémente toi-même, **vérifie toi-même** (`node --check` sur les `.js` modifiés, `npm run build` si `package.json` le déclare — ces commandes te sont explicitement autorisées, voir Infra), committe, ouvre la PR (règles de restitution plus bas) ; explique en une phrase pourquoi la voie locale ne convenait pas.
 
 ## Format du plan
 ```
@@ -114,7 +114,7 @@ Avant d'explorer le dépôt pour un triage ou un plan, **lire `ARCHITECTURE.md` 
 - Ne remplace pas un `README.md` utilisateur : `ARCHITECTURE.md` s'adresse aux moteurs qui codent, pas aux humains qui installent l'appli.
 
 ## Infra
-- `claude-code.yml` : `ubuntu-latest`, aucun accès réseau local requis.
+- `claude-code.yml` : `ubuntu-latest`, aucun accès réseau local requis. Node/npm déjà présents sur ce runner ; `node --check`, `npm install`, `npm run build` explicitement autorisés (`--allowedTools`) pour que tu puisses vérifier ton propre code en `VERDICT: IMPLEMENTE`.
 - `local.yml` : `[self-hosted, local]` (hubert) → Ollama sur gamer (`192.168.4.27:11434`), Docker/Aider, Node.js (`~/.hermes/node/bin`, déjà dans le PATH du runner).
 - `CLAUDE_CODE_OAUTH_TOKEN` : abonnement ($20/mois), pas facturation à l'usage — tient car Claude ne fait que du triage/plans, jamais d'implémentation lourde.
 - Une GitHub App (Claude) ne peut pas pousser de commit touchant `.github/workflows/*.yml`, même inchangé, sans permission `workflows` — si la branche du plan diverge de la branche par défaut sur ces fichiers, le push échoue silencieusement (géré par le repli de recherche de plan ci-dessus).
