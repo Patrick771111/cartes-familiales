@@ -362,6 +362,8 @@ async function boot() {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
+  renderSplash(app);
+
   // Lien d'invitation (?room=CODE, voir le bouton "Inviter" de la salle
   // d'attente) : nettoyé de l'URL tout de suite pour qu'un rechargement de
   // page ne retente pas de rejoindre (ex: après avoir quitté ce salon).
