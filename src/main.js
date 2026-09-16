@@ -1,4 +1,5 @@
 import './style.css';
+import { capturerVersionChargee } from './supabase/versionGuard.js';
 import { renderNamePrompt, renderLeftTable, renderRoomList } from './ui/lobby.js';
 import { renderGame, renderSpectatorGame, hideAllThreeDScenes } from './ui/game.js';
 import { applySettings, mountSettingsButton, setPlayerNameController } from './ui/settings.js';
@@ -347,6 +348,7 @@ async function boot() {
   if ('serviceWorker' in navigator && import.meta.env.PROD) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
+  capturerVersionChargee();
 
   // Lien d'invitation (?room=CODE, voir le bouton "Inviter" de la salle
   // d'attente) : nettoyé de l'URL tout de suite pour qu'un rechargement de

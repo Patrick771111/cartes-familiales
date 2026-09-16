@@ -3,7 +3,7 @@
 // avec repli sur le cache uniquement hors-ligne. Les fichiers JS/CSS générés
 // par le build ont un nom unique (hash) à chaque déploiement, donc eux peuvent
 // rester en cache sans risque de servir du contenu périmé.
-const CACHE_NAME = 'cartes-familiales-v2';
+const CACHE_NAME = 'cartes-familiales-v3';
 
 self.addEventListener('install', () => {
   self.skipWaiting();

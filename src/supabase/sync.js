@@ -1,9 +1,20 @@
 import { supabase } from './client.js';
+import { versionAJour } from './versionGuard.js';
 
 export class ConflictError extends Error {
-  constructor() {
-    super('La partie a été mise à jour ailleurs, resynchronisation…');
+  constructor(message = 'La partie a été mise à jour ailleurs, resynchronisation…') {
+    super(message);
     this.name = 'ConflictError';
+  }
+}
+
+// Un onglet resté ouvert depuis avant un déploiement tourne encore avec l'ancien code JS :
+// on refuse d'écrire plutôt que de risquer un état corrompu par du code périmé. Réutilise
+// ConflictError (pas un nouveau type) : tous les appelants savent déjà le gérer (relecture +
+// nouvelle tentative, ou remontée à l'utilisateur) -- voir versionGuard.js pour le mécanisme.
+async function verifierVersion() {
+  if (!(await versionAJour())) {
+    throw new ConflictError('Nouvelle version disponible : recharge la page avant de continuer.');
   }
 }
 
@@ -16,6 +27,7 @@ function randomCode(length = 4) {
 }
 
 export async function createRoom(initialState, game = 'pouilleux') {
+  await verifierVersion();
   // On tente quelques codes au cas (rare) où il y aurait déjà une collision.
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = randomCode();
@@ -39,6 +51,7 @@ export async function getOrCreateRoomByCode(code, initialState, game = 'pouilleu
   const existing = await fetchRoomByCode(code);
   if (existing) return existing;
 
+  await verifierVersion();
   const { data, error } = await supabase
     .from('game_rooms')
     .insert({ code: code.toUpperCase(), game, state: initialState, version: 0 })
@@ -95,6 +108,7 @@ export async function listRooms(limit = 20) {
  * besoin, réappliquer son action.
  */
 export async function updateRoomState(roomId, expectedVersion, newState, extraColumns = {}) {
+  await verifierVersion();
   const { data, error } = await supabase
     .from('game_rooms')
     .update({ ...extraColumns, state: newState, version: expectedVersion + 1 })
