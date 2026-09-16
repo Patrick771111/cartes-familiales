@@ -5,6 +5,12 @@
 ## Stack
 Vite + JS vanilla (pas de framework), Supabase (Postgres + Realtime) pour l'état de partie partagé entre téléphones, PWA (service worker fait main).
 
+## Déploiement
+Site en prod : **`https://cartes.blavier.one`**, **Cloudflare Workers** (config `wrangler.jsonc`, sert `dist/` en assets statiques) avec **déploiement automatique** sur push vers `main` (confirmé le 2026-09-16 : un correctif poussé était visible en ligne moins d'une minute après — à ne pas confondre avec un simple hébergement statique à déployer à la main, hypothèse fausse un temps retenue avant vérification). Donc :
+- `npm run build` + push suffit ; rien à faire côté Cloudflare.
+- **Corollaire important** (identique à repas-malin) : un push cassé ou dangereux sur `main` est immédiatement live sur l'appli que la famille utilise activement. Toujours valider (`npm run build`, `node --check` sur les fichiers modifiés) avant de pousser un changement touchant `src/` ou `public/`.
+- Pas de workflow GitHub Actions de déploiement (seuls `claude-code.yml`/`local.yml` existent, pour le triage/l'exécution qwen) : le déploiement passe entièrement par l'intégration Git de Cloudflare, invisible depuis ce dépôt — **avant d'affirmer qu'un dépôt n'a pas d'auto-déploiement, vérifier le site en ligne directement** (`fetch` sur son `sw.js`/bundle après un push) plutôt que de déduire ça de l'absence de fichiers de config ou de workflow dans le dépôt.
+
 ## Où vivent les choses
 - `src/main.js` — point d'entrée, boot de l'appli (~450 lignes).
 - `src/game/<jeu>.js` + `<jeu>.rules.js` + `<jeu>.bot.js` — un jeu = ces 3 fichiers (logique, règles, IA). `src/game/engine.js`/`core.js`/`deck.js` sont transverses à tous les jeux.

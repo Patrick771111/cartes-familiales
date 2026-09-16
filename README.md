@@ -42,12 +42,10 @@ en accueillir facilement d'autres (voir *Ajouter un jeu* plus bas).
    serveur accessible depuis les autres appareils du réseau local, pratique
    pour tester directement sur les smartphones de la famille.
 
-5. **Build pour la prod**
-   ```bash
-   npm run build
-   ```
-   Le dossier `dist/` est déployable tel quel (Netlify, ou exposé via ton tunnel
-   Cloudflare comme `repas-ia`, en créant un second hostname).
+5. **Déploiement en prod**
+   Le site est en ligne sur **Cloudflare Workers** (config dans `wrangler.jsonc`, sert le dossier `dist/` en assets statiques) à l'adresse **`https://cartes.blavier.one`**, avec **déploiement automatique sur push vers `main`** (confirmé le 2026-09-16 : un correctif poussé était visible en ligne en moins d'une minute). Rien à faire manuellement — `npm run build` + push suffisent.
+
+   ⚠️ Comme pour Repas malin, ça veut dire qu'un push sur `main` est **immédiatement actif** pour toute la famille, y compris un changement qui casserait quelque chose. Tester avant de pousser (voir `ARCHITECTURE.md`, garde-fou de version).
 
 ## Jeux disponibles
 
