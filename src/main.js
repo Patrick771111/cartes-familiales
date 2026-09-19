@@ -1,6 +1,6 @@
 import './style.css';
 import { capturerVersionChargee } from './supabase/versionGuard.js';
-import { renderNamePrompt, renderLeftTable, renderRoomList } from './ui/lobby.js';
+import { renderNamePrompt, renderLeftTable, renderRoomList, renderGameSelector } from './ui/lobby.js';
 import { renderGame, renderSpectatorGame, hideAllThreeDScenes } from './ui/game.js';
 import { applySettings, mountSettingsButton, setPlayerNameController } from './ui/settings.js';
 import {
@@ -14,6 +14,8 @@ import {
   leaveOtherRooms,
   findMyRoom,
   kickPlayer,
+  setBotCount,
+  targetBotCount,
   reclaimStaleHost,
   pingHostPresence,
   pingPlayerPresence,
@@ -133,6 +135,38 @@ function maybeScheduleBotMove(room) {
   mod.scheduleExchange?.(room); // Trou du Cul uniquement (phase d'échange) ; no-op ailleurs
 }
 
+// Signature (salon, jeu, effectif humain actif) de la dernière composition
+// pour laquelle le nombre de bots a été recalculé automatiquement — permet à
+// un ajustement manuel (+/-, voir renderWaitingRoom) de survivre aux
+// re-rendus tant que rien de cette composition n'a réellement changé.
+let botAutoSignature = null;
+
+/**
+ * Complète (ou réduit) automatiquement le nombre de bots pour atteindre
+ * l'effectif minimum du jeu choisi, à chaque arrivée/départ/changement de
+ * statut spectateur ou de jeu — un seul appareil écrit (l'hôte), comme pour
+ * `maybeScheduleBotMove`. Un ajustement manuel de l'hôte (voir setBotCount
+ * dans renderWaitingRoom) n'est jamais écrasé tant que la composition qui a
+ * produit la dernière valeur automatique n'a pas changé.
+ */
+function maybeAdjustBotCount(room) {
+  const state = room.state;
+  if (state.status !== 'lobby') return;
+  if (state.hostId !== currentPlayer?.id) return;
+
+  const activeHumans = state.players.filter((p) => !p.isBot && !p.isSpectator).length;
+  const signature = `${room.id}|${room.game}|${activeHumans}`;
+  if (botAutoSignature === signature) return;
+  botAutoSignature = signature;
+
+  const target = targetBotCount(room.game, activeHumans);
+  const currentBots = state.players.filter((p) => p.isBot).length;
+  if (currentBots === target) return;
+  setBotCount(room, target).catch(() => {
+    // Pas grave, la prochaine composition qui change retentera.
+  });
+}
+
 function draw(room) {
   currentRoomRef = room;
   updateDocumentTitle(room);
@@ -143,6 +177,7 @@ function draw(room) {
   hideAllThreeDScenes();
   maybeReinitRelay(room);
   maybeScheduleBotMove(room);
+  maybeAdjustBotCount(room);
 
   const stillMember = room.state.players.some((p) => p.id === currentPlayer.id);
 
@@ -281,11 +316,8 @@ async function showRoomList(profile) {
         enterRoom(reclaimed, profile);
       },
       onCreateRoom: async () => {
-        const created = await createNewRoom();
-        await leaveOtherRooms(profile, created.id);
-        const joined = await ensureMembership(created, profile);
         stopRoomListPolling();
-        enterRoom(joined, profile);
+        showGameSelector(profile);
       }
     });
   };
@@ -296,6 +328,25 @@ async function showRoomList(profile) {
       // Pas grave, on retentera au prochain sondage.
     });
   }, 5000);
+}
+
+/**
+ * Écran de choix du jeu, avant la création d'un salon (voir "+ Créer un
+ * salon" dans `showRoomList`) : le salon n'existe pas tant que le jeu n'est
+ * pas choisi, il porte ce jeu dès sa création (visible ensuite dans la liste
+ * des salons pour ceux qui hésitent à rejoindre).
+ */
+function showGameSelector(profile) {
+  hideAllThreeDScenes();
+  renderGameSelector(app, {
+    onSelect: async (gameId) => {
+      const created = await createNewRoom(gameId);
+      await leaveOtherRooms(profile, created.id);
+      const joined = await ensureMembership(created, profile);
+      enterRoom(joined, profile);
+    },
+    onCancel: () => showRoomList(profile)
+  });
 }
 
 /**

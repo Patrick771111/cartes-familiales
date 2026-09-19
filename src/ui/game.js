@@ -1,5 +1,5 @@
 import { cardFaceHtml, cardBackHtml } from './cards.js';
-import { AVAILABLE_GAMES, startGame, claimHost, addBot, HOST_STALE_MS, playerCountAllowed, replaceBotWithPlayer } from '../game/engine.js';
+import { AVAILABLE_GAMES, startGame, claimHost, setBotCount, setSpectator, setRoomGame, HOST_STALE_MS, playerCountAllowed, replaceBotWithPlayer } from '../game/engine.js';
 import { rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { SEQUENCE_TARGET as SUITE_INFERNALE_TARGET } from '../game/suiteinfernale.js';
 import { connectionBadge, resetRevealHands, shareInviteLink, threeDToggleHtml, wireThreeDToggle } from './gameShared.js';
@@ -56,26 +56,14 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   return mod.renderTable(container, { room, player, state, onLeave });
 }
 
-// Le lobby est entièrement redessiné (innerHTML) à chaque mise à jour de la salle
-// (ex : ajout d'un bot via Realtime), ce qui réinitialiserait la sélection du jeu
-// si elle n'était pas mémorisée en dehors de la fonction de rendu.
-let selectedGameIdByRoom = null;
-
 function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   const state = room.state;
-  if (selectedGameIdByRoom?.roomId !== room.id) selectedGameIdByRoom = null;
-  let selectedGameId = selectedGameIdByRoom?.gameId || AVAILABLE_GAMES[0].id;
-  // Un retrait de joueur (ex. on vient de kicker un bot) peut rendre le jeu
-  // choisi injouable avec l'effectif restant (ex. Trio, minimum 3) — on
-  // retombe alors sur le premier jeu compatible plutôt que de laisser une
-  // sélection bloquée en silence.
-  if (!playerCountAllowed(selectedGameId, state.players.length)) {
-    const fallback = AVAILABLE_GAMES.find((g) => playerCountAllowed(g.id, state.players.length));
-    if (fallback) {
-      selectedGameId = fallback.id;
-      selectedGameIdByRoom = { roomId: room.id, gameId: fallback.id };
-    }
-  }
+  // Le jeu du salon (colonne `game`) est désormais la source de vérité pour la
+  // sélection affichée — l'hôte peut le changer en direct (voir setRoomGame),
+  // visible pour tout le monde sans avoir à rejoindre le salon.
+  const selectedGameId = room.game;
+  const activeHumans = state.players.filter((p) => !p.isBot && !p.isSpectator);
+  const botCount = state.players.filter((p) => p.isBot).length;
   const isHost = state.hostId === player.id;
   const currentHost = state.players.find((p) => p.id === state.hostId);
   const hostIsBot = currentHost?.isBot === true;
@@ -111,6 +99,13 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
                 <li class="player-chip">
                   <span class="player-chip__name">${p.name}${connectionBadge(state, p.id)}${p.isBot ? ' 🤖' : ''}</span>
                   ${p.id === state.hostId ? '<span class="tag">hôte</span>' : ''}${p.id === player.id ? '<span class="tag tag--you">toi</span>' : ''}
+                  ${
+                    p.id === player.id && !p.isBot
+                      ? `<label class="player-chip__spectator"><input type="checkbox" id="chk-spectator" ${p.isSpectator ? 'checked' : ''} /> spectateur</label>`
+                      : p.isSpectator
+                        ? '<span class="tag">spectateur</span>'
+                        : ''
+                  }
                   ${isHost && p.id !== player.id ? `<button class="player-chip__kick" data-kick-id="${p.id}" title="Retirer ${p.name}" aria-label="Retirer ${p.name}">✕</button>` : ''}
                 </li>`
             )
@@ -120,10 +115,18 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
         ${hostUnavailable && !isHost ? `<button class="btn btn--ghost btn--small" id="btn-claim-host">Devenir l'hôte</button>` : ''}
 
         ${
-          isHost &&
-          state.players.length < (AVAILABLE_GAMES.find((g) => g.id === selectedGameId)?.maxPlayers || 6)
-            ? `<button class="btn btn--ghost btn--small" id="btn-add-bot">+ Ajouter un bot</button>`
-            : ''
+          isHost
+            ? `
+              <div class="bot-counter">
+                <span class="bot-counter__label">🤖 Bots : <strong>${botCount}</strong></span>
+                <div class="bot-counter__controls">
+                  <button type="button" class="btn btn--ghost btn--small" id="btn-bot-minus" ${botCount <= 0 ? 'disabled' : ''} aria-label="Moins de bots">−</button>
+                  <button type="button" class="btn btn--ghost btn--small" id="btn-bot-plus" ${botCount + activeHumans.length >= 6 ? 'disabled' : ''} aria-label="Plus de bots">+</button>
+                </div>
+              </div>`
+            : botCount
+              ? `<p class="bot-counter bot-counter--readonly">🤖 ${botCount} bot${botCount > 1 ? 's' : ''} complète${botCount > 1 ? 'nt' : ''} la table</p>`
+              : ''
         }
 
         ${
@@ -134,7 +137,7 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
                 <div class="game-picker__options">
                   ${AVAILABLE_GAMES.map((g) => {
                     const cover = gameCoverImage(g.id);
-                    const disabled = !playerCountAllowed(g.id, state.players.length);
+                    const disabled = !playerCountAllowed(g.id, Math.max(activeHumans.length, g.minPlayers ?? 2));
                     return `
                       <label class="game-picker__option ${cover ? 'game-picker__option--cover' : ''} ${disabled ? 'game-picker__option--disabled' : ''}" title="${g.label} — ${g.hint}">
                         <input type="radio" name="game" value="${g.id}" ${g.id === selectedGameId ? 'checked' : ''} />
@@ -159,23 +162,31 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
     if (!startBtn) return;
     const selectedId = container.querySelector('input[name="game"]:checked')?.value;
     const game = AVAILABLE_GAMES.find((g) => g.id === selectedId) || AVAILABLE_GAMES[0];
-    const canStart = playerCountAllowed(game.id, state.players.length);
+    const activePlayers = state.players.filter((p) => !p.isSpectator);
+    const canStart = playerCountAllowed(game.id, activePlayers.length);
+    const tooFew = activePlayers.length < (game.minPlayers ?? 2);
     startBtn.disabled = !canStart;
     startBtn.textContent = canStart
-      ? `Lancer la partie (${state.players.length} joueur${state.players.length > 1 ? 's' : ''})`
-      : `En attente (${game.hint})`;
+      ? `Lancer la partie (${activePlayers.length} joueur${activePlayers.length > 1 ? 's' : ''})`
+      : tooFew
+        ? `En attente (${game.hint})`
+        : `Trop de joueurs pour ce jeu (max ${game.maxPlayers ?? game.minPlayers}) — passe en spectateur ou change de jeu`;
   };
   updateStartButton();
   container.querySelectorAll('input[name="game"]').forEach((r) =>
-    r.addEventListener('change', () => {
-      selectedGameIdByRoom = { roomId: room.id, gameId: r.value };
+    r.addEventListener('change', async () => {
       updateStartButton();
+      try {
+        await setRoomGame(room, r.value);
+      } catch (err) {
+        alert(err.message || 'Impossible de changer de jeu.');
+      }
     })
   );
 
   container.querySelector('#btn-start')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
-    const selectedGame = container.querySelector('input[name="game"]:checked')?.value || 'pouilleux';
+    const selectedGame = container.querySelector('input[name="game"]:checked')?.value || selectedGameId;
     try {
       await startGame(room, selectedGame);
     } catch (err) {
@@ -194,13 +205,35 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
     }
   });
 
-  container.querySelector('#btn-add-bot')?.addEventListener('click', async (e) => {
+  container.querySelector('#btn-bot-minus')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
     try {
-      await addBot(room);
+      await setBotCount(room, botCount - 1);
+    } catch (err) {
+      e.target.disabled = false;
+      alert(err.message || "Impossible de retirer un bot.");
+    }
+  });
+
+  container.querySelector('#btn-bot-plus')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await setBotCount(room, botCount + 1);
     } catch (err) {
       e.target.disabled = false;
       alert(err.message || "Impossible d'ajouter un bot.");
+    }
+  });
+
+  container.querySelector('#chk-spectator')?.addEventListener('change', async (e) => {
+    const checked = e.target.checked;
+    e.target.disabled = true;
+    try {
+      await setSpectator(room, player, checked);
+    } catch (err) {
+      e.target.checked = !checked;
+      e.target.disabled = false;
+      alert(err.message || 'Impossible de changer de statut.');
     }
   });
 

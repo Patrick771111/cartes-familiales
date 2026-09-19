@@ -1,4 +1,5 @@
 import { AVAILABLE_GAMES } from '../game/engine.js';
+import { gameCoverImage } from './gameCovers.js';
 
 /**
  * Affiché après qu'un joueur ait quitté la table : lui permet d'y revenir
@@ -78,6 +79,64 @@ export function renderNamePrompt(container, { onSubmit } = {}) {
 }
 
 /**
+ * Écran de choix du jeu avant la création d'un salon (jaquettes, réutilisées
+ * telles quelles depuis le sélecteur de la salle d'attente — voir
+ * `renderWaitingRoom` dans game.js). Le salon n'existe pas encore : rien à
+ * afficher tant que `onSelect` n'a pas résolu. `onCancel` ramène à la liste
+ * des salons sans rien créer.
+ */
+export function renderGameSelector(container, { onSelect, onCancel } = {}) {
+  container.innerHTML = `
+    <div class="screen screen--lobby">
+      <div class="lobby-card">
+        <div class="lobby-card__heading">
+          <h1>Quel jeu ?</h1>
+          <button class="lobby-card__close" id="btn-cancel-game-select" title="Annuler" aria-label="Annuler">✕</button>
+        </div>
+        <p class="lobby-card__intro">Choisis le jeu de ce salon — tu pourras encore en changer une fois dans la salle d'attente.</p>
+
+        <div class="game-picker">
+          <div class="game-picker__options">
+            ${AVAILABLE_GAMES.map((g, i) => {
+              const cover = gameCoverImage(g.id);
+              return `
+                <label class="game-picker__option ${cover ? 'game-picker__option--cover' : ''}" title="${g.label} — ${g.hint}">
+                  <input type="radio" name="game" value="${g.id}" ${i === 0 ? 'checked' : ''} />
+                  ${
+                    cover
+                      ? `<span class="game-picker__art" style="background-image:url('${cover}')"></span>`
+                      : `<span class="game-picker__fallback"><span class="game-picker__fallback-label">${g.label}</span><small>${g.hint}</small></span>`
+                  }
+                </label>`;
+            }).join('')}
+          </div>
+        </div>
+
+        <button id="btn-confirm-game" class="btn btn--primary">Créer le salon</button>
+        <p id="game-select-error" class="lobby-error" hidden></p>
+      </div>
+    </div>
+  `;
+
+  const errorEl = container.querySelector('#game-select-error');
+
+  container.querySelector('#btn-cancel-game-select')?.addEventListener('click', () => onCancel?.());
+
+  container.querySelector('#btn-confirm-game')?.addEventListener('click', async (e) => {
+    errorEl.hidden = true;
+    e.target.disabled = true;
+    const gameId = container.querySelector('input[name="game"]:checked')?.value;
+    try {
+      await onSelect(gameId);
+    } catch (err) {
+      errorEl.textContent = err.message || 'Impossible de créer ce salon.';
+      errorEl.hidden = false;
+      e.target.disabled = false;
+    }
+  });
+}
+
+/**
  * Écran "salons" : liste des tables actives, avec la possibilité d'en
  * rejoindre une ou d'en créer une nouvelle. Nouveau point d'entrée après le
  * prénom (remplace l'ancienne salle familiale unique).
@@ -85,7 +144,7 @@ export function renderNamePrompt(container, { onSubmit } = {}) {
 export function renderRoomList(container, { rooms, onJoinRoom, onCreateRoom } = {}) {
   const statusLabel = (status) => (status === 'lobby' ? 'En attente' : status === 'finished' ? 'Manche terminée' : 'En cours');
   const joinLabel = (status) => (status === 'lobby' ? 'Rejoindre' : 'Regarder');
-  const gameTypeLabel = (r) => (r.status === 'lobby' ? 'Salon en attente' : AVAILABLE_GAMES.find((g) => g.id === r.game)?.label || r.game);
+  const gameTypeLabel = (r) => AVAILABLE_GAMES.find((g) => g.id === r.game)?.label || r.game;
 
   container.innerHTML = `
     <div class="screen screen--lobby">

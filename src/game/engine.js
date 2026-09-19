@@ -23,7 +23,9 @@ export {
   leaveOtherRooms,
   findMyRoom,
   kickPlayer,
-  addBot,
+  setBotCount,
+  setSpectator,
+  setRoomGame,
   claimHost,
   reclaimStaleHost,
   pingHostPresence,
@@ -80,9 +82,20 @@ export function playerCountAllowed(gameId, playerCount) {
   return true;
 }
 
-/** Crée un nouveau salon vide (salle d'attente) sur le premier jeu disponible. */
-export async function createNewRoom() {
-  return core.createNewRoom(DEFAULT_GAME);
+/** Crée un nouveau salon vide (salle d'attente) sur le jeu choisi (voir l'écran des jaquettes avant création). */
+export async function createNewRoom(gameId = DEFAULT_GAME) {
+  return core.createNewRoom(gameId);
+}
+
+/**
+ * Combien de bots faut-il ajouter pour atteindre l'effectif minimum de
+ * `gameId`, vu `activeHumanCount` (joueurs humains non-spectateurs) ? Jamais
+ * négatif — un excédent d'humains se règle par le statut spectateur ou un
+ * changement de jeu, pas par un nombre de bots négatif.
+ */
+export function targetBotCount(gameId, activeHumanCount) {
+  const minPlayers = GAME_INITIALIZERS[gameId]?.meta?.minPlayers ?? 2;
+  return Math.max(0, minPlayers - activeHumanCount);
 }
 
 export async function startGame(room, gameType = DEFAULT_GAME) {

@@ -29,6 +29,7 @@ Même principe que sur repas-malin (voir son `ARCHITECTURE.md`, incident du 2026
 
 ## Pièges connus
 - `src/style.css` dépasse la fenêtre de contexte de qwen (32k tokens) même isolé, avec repli gemma4-64k inclus (observé : réponse vide malgré `--map-tokens 0`). Toute tâche CSS doit cibler une plage précise (nom de règle/sélecteur à chercher), jamais une lecture/réécriture du fichier entier — et si l'étape échoue quand même, `VERDICT: IMPLEMENTE` plutôt que de réessayer en boucle.
+- Un plan touchant simultanément le cycle salon/salle d'attente (`main.js`, `game/core.js`, `game/engine.js`, `ui/lobby.js`, `ui/game.js` — ~2000 lignes cumulées) a dépassé la fenêtre de 32k dès la lecture de contexte par l'agent local (observé : 47446 tokens requis, issue #28). Un refactor transverse à ce cycle précis est donc structurellement `VERDICT: IMPLEMENTE`, même s'il ne touche « que » 5 fichiers — pas la peine de retenter en découpant le plan en plus d'étapes, le problème est la lecture de contexte simultanée des 5 fichiers, pas le nombre d'étapes.
 - Ajouter un jeu = ajouter les 3 fichiers `src/game/<jeu>{,.rules,.bot}.js` + une scène `src/three/<jeu>Scene.js` si rendu 3D + entrée dans `src/ui/gameCovers.js`/`games/` — voir un jeu existant similaire comme modèle plutôt que de partir de zéro.
 - Pas de état serveur custom : tout l'état partagé passe par la table Supabase `game_rooms` (Realtime), pas de fichier de session côté client à chercher.
 

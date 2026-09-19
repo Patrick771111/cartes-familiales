@@ -256,6 +256,32 @@ h1 {
   border-color: #F0B4B4;
 }
 
+.player-chip__spectator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(247, 241, 225, 0.7);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Compteur de bots auto-calculé (voir renderWaitingRoom) — remplace l'ancien bouton "+ Ajouter un bot". */
+.bot-counter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+.bot-counter__controls { display: flex; gap: 6px; }
+.bot-counter--readonly {
+  color: rgba(247, 241, 225, 0.7);
+  justify-content: flex-start;
+}
+
 /* Écran "salons" (voir renderRoomList dans lobby.js) — même famille visuelle que .player-list. */
 .room-list { list-style: none; padding: 0; margin: 0 0 20px; display: flex; flex-direction: column; gap: 10px; }
 .room-list__item {
