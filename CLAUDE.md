@@ -117,7 +117,13 @@ Avant d'explorer le dépôt pour un triage ou un plan, **lire `ARCHITECTURE.md` 
 
 ## Infra
 - `claude-code.yml` : `ubuntu-latest`, aucun accès réseau local requis. Node/npm déjà présents sur ce runner ; `node --check`, `npm install`, `npm run build` explicitement autorisés (`--allowedTools`) pour que tu puisses vérifier ton propre code en `VERDICT: IMPLEMENTE`.
-- `local.yml` : `[self-hosted, local]` (hubert) → Ollama sur gamer (`192.168.4.27:11434`), Docker/Aider, Node.js (`~/.hermes/node/bin`, déjà dans le PATH du runner).
+- `local.yml` : `[self-hosted, local]` (hubert) → inférence llama.cpp/llama-swap sur gamer (`llm.lan:8080`, endpoint OpenAI-compatible ; Ollama sur 11434 ne sert plus que Hermes), Docker/Aider, Node.js (`~/.hermes/node/bin`, déjà dans le PATH du runner).
 - **Test navigateur** : image `mcr.microsoft.com/playwright:v1.49.1-jammy` (navigateurs préinstallés, `playwright-core` installé à la volée dans le conteneur — voir local.yml). Secrets `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` écrits dans `.env` avant le build de CI (clé publique "publishable", déjà exposée dans le bundle JS du site déployé — sans eux l'appli échoue silencieusement au chargement, faute de pouvoir initialiser Supabase).
 - `CLAUDE_CODE_OAUTH_TOKEN` : abonnement ($20/mois), pas facturation à l'usage — tient car Claude ne fait que du triage/plans, jamais d'implémentation lourde.
 - Une GitHub App (Claude) ne peut pas pousser de commit touchant `.github/workflows/*.yml`, même inchangé, sans permission `workflows` — si la branche du plan diverge de la branche par défaut sur ces fichiers, le push échoue silencieusement (géré par le repli de recherche de plan ci-dessus).
+
+## Usine de dev : la documentation fait autorité
+L'infrastructure qui fait tourner ces workflows (hubert, PC gamer, llama-swap, modèles locaux) est documentée dans un dépôt dédié, cloné en `Documents/projets/usine-dev` sur le laptop et en `~/usine-dev` sur hubert.
+- **Ne pas raisonner de mémoire sur l'infra** : les réglages y sont chiffrés et datés. `DECISIONS.md` donne chaque choix et sa mesure, `RUNBOOK.md` les pannes connues, `ETAT.md` l'état réel (généré, jamais édité à la main).
+- Toute modification de `local.yml` touchant l'endpoint, un nom de modèle ou une fenêtre de contexte doit être **répercutée dans les deux dépôts** (`cartes-familiales` et `repas-malin` : leurs `local.yml` sont identiques et doivent le rester) **et** reflétée dans `usine-dev/DECISIONS.md`.
+- La section « Infra » ci-dessus résume ; en cas de contradiction, `usine-dev` fait foi.
