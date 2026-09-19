@@ -256,6 +256,31 @@ h1 {
   border-color: #F0B4B4;
 }
 
+/* Case "spectateur·rice" par joueur (voir toggleSpectator, game/core.js) —
+   n'importe qui peut cocher/décocher la sienne, jamais celle des autres. */
+.player-chip__spectator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: rgba(247, 241, 225, 0.6);
+  cursor: pointer;
+}
+.player-chip__spectator input:disabled { cursor: default; }
+.player-chip--spectator { opacity: 0.75; }
+
+/* Compteur de bots auto-calculé (voir syncBotCount) avec ajustement manuel
+   +/- — remplace l'ancien bouton unitaire "+ Ajouter un bot". */
+.bot-counter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.bot-counter__label { margin: 0; font-size: 13px; color: rgba(247, 241, 225, 0.75); }
+.bot-counter__controls { display: flex; gap: 6px; }
+
 /* Écran "salons" (voir renderRoomList dans lobby.js) — même famille visuelle que .player-list. */
 .room-list { list-style: none; padding: 0; margin: 0 0 20px; display: flex; flex-direction: column; gap: 10px; }
 .room-list__item {
@@ -341,7 +366,7 @@ h1 {
   transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .game-picker__option:hover { transform: translateY(-2px); }
-.game-picker__option:has(input:checked) {
+.game-picker__option:has(input:checked), .game-picker__option--selected {
   border-color: var(--brass);
   box-shadow: 0 0 0 2px rgba(201, 162, 39, 0.35), 0 6px 14px rgba(0,0,0,0.4);
 }

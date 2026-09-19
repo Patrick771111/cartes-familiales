@@ -24,6 +24,9 @@ export {
   findMyRoom,
   kickPlayer,
   addBot,
+  removeBot,
+  toggleSpectator,
+  setRoomGame,
   claimHost,
   reclaimStaleHost,
   pingHostPresence,
@@ -80,9 +83,21 @@ export function playerCountAllowed(gameId, playerCount) {
   return true;
 }
 
-/** Crée un nouveau salon vide (salle d'attente) sur le premier jeu disponible. */
-export async function createNewRoom() {
-  return core.createNewRoom(DEFAULT_GAME);
+/** Crée un nouveau salon (salle d'attente) sur le jeu choisi — voir renderGamePicker, ui/lobby.js. */
+export async function createNewRoom(gameId) {
+  return core.createNewRoom(GAME_INITIALIZERS[gameId] ? gameId : DEFAULT_GAME);
+}
+
+/**
+ * Complète (ou réduit) automatiquement le nombre de bots pour atteindre
+ * l'effectif minimum du jeu actuel du salon — résout `minPlayers` depuis le
+ * registre des jeux (core.js ne le connaît pas) puis délègue l'écriture à
+ * core.syncBotCount. Voir renderWaitingRoom (ui/game.js) pour les points
+ * d'appel (composition du salon qui change).
+ */
+export async function syncBotCount(room) {
+  const minPlayers = GAME_INITIALIZERS[room.game]?.meta?.minPlayers ?? 2;
+  return core.syncBotCount(room, minPlayers);
 }
 
 export async function startGame(room, gameType = DEFAULT_GAME) {

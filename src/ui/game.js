@@ -1,5 +1,17 @@
 import { cardFaceHtml, cardBackHtml } from './cards.js';
-import { AVAILABLE_GAMES, startGame, claimHost, addBot, HOST_STALE_MS, playerCountAllowed, replaceBotWithPlayer } from '../game/engine.js';
+import {
+  AVAILABLE_GAMES,
+  startGame,
+  claimHost,
+  addBot,
+  removeBot,
+  toggleSpectator,
+  setRoomGame,
+  syncBotCount,
+  HOST_STALE_MS,
+  playerCountAllowed,
+  replaceBotWithPlayer
+} from '../game/engine.js';
 import { rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { SEQUENCE_TARGET as SUITE_INFERNALE_TARGET } from '../game/suiteinfernale.js';
 import { connectionBadge, resetRevealHands, shareInviteLink, threeDToggleHtml, wireThreeDToggle } from './gameShared.js';
@@ -56,27 +68,29 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
   return mod.renderTable(container, { room, player, state, onLeave });
 }
 
-// Le lobby est entièrement redessiné (innerHTML) à chaque mise à jour de la salle
-// (ex : ajout d'un bot via Realtime), ce qui réinitialiserait la sélection du jeu
-// si elle n'était pas mémorisée en dehors de la fonction de rendu.
-let selectedGameIdByRoom = null;
+// Signature (salon + jeu + humains actifs) vue au dernier rendu où CET
+// appareil était hôte — permet de ne déclencher l'auto-ajustement des bots
+// (syncBotCount) que lors d'un vrai changement de composition (arrivée,
+// départ, bascule spectateur, changement de jeu), jamais à un simple
+// re-rendu, pour ne jamais écraser un ajustement manuel (+/-) fait
+// entre-temps. Le jeu du salon vit désormais sur `room.game` (persisté,
+// visible de tous) — plus de mémoire locale de sélection à part.
+let botAutoSignatureByRoom = null;
 
 function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   const state = room.state;
-  if (selectedGameIdByRoom?.roomId !== room.id) selectedGameIdByRoom = null;
-  let selectedGameId = selectedGameIdByRoom?.gameId || AVAILABLE_GAMES[0].id;
-  // Un retrait de joueur (ex. on vient de kicker un bot) peut rendre le jeu
-  // choisi injouable avec l'effectif restant (ex. Trio, minimum 3) — on
-  // retombe alors sur le premier jeu compatible plutôt que de laisser une
-  // sélection bloquée en silence.
-  if (!playerCountAllowed(selectedGameId, state.players.length)) {
-    const fallback = AVAILABLE_GAMES.find((g) => playerCountAllowed(g.id, state.players.length));
-    if (fallback) {
-      selectedGameId = fallback.id;
-      selectedGameIdByRoom = { roomId: room.id, gameId: fallback.id };
+  const selectedGameId = room.game;
+  const isHost = state.hostId === player.id;
+  const activeCount = state.players.filter((p) => !p.spectator).length;
+
+  if (isHost) {
+    const signature = `${room.id}|${selectedGameId}|${activeCount}`;
+    if (botAutoSignatureByRoom !== signature) {
+      botAutoSignatureByRoom = signature;
+      syncBotCount(room).catch(() => {});
     }
   }
-  const isHost = state.hostId === player.id;
+
   const currentHost = state.players.find((p) => p.id === state.hostId);
   const hostIsBot = currentHost?.isBot === true;
   const hostMissing = !state.hostId || !currentHost;
@@ -108,9 +122,17 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
           ${state.players
             .map(
               (p) => `
-                <li class="player-chip">
+                <li class="player-chip ${p.spectator ? 'player-chip--spectator' : ''}">
                   <span class="player-chip__name">${p.name}${connectionBadge(state, p.id)}${p.isBot ? ' 🤖' : ''}</span>
                   ${p.id === state.hostId ? '<span class="tag">hôte</span>' : ''}${p.id === player.id ? '<span class="tag tag--you">toi</span>' : ''}
+                  ${
+                    !p.isBot
+                      ? `<label class="player-chip__spectator" title="Regarder sans jouer">
+                          <input type="checkbox" data-spectator-id="${p.id}" ${p.spectator ? 'checked' : ''} ${p.id !== player.id ? 'disabled' : ''} />
+                          spectateur·rice
+                        </label>`
+                      : ''
+                  }
                   ${isHost && p.id !== player.id ? `<button class="player-chip__kick" data-kick-id="${p.id}" title="Retirer ${p.name}" aria-label="Retirer ${p.name}">✕</button>` : ''}
                 </li>`
             )
@@ -120,9 +142,15 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
         ${hostUnavailable && !isHost ? `<button class="btn btn--ghost btn--small" id="btn-claim-host">Devenir l'hôte</button>` : ''}
 
         ${
-          isHost &&
-          state.players.length < (AVAILABLE_GAMES.find((g) => g.id === selectedGameId)?.maxPlayers || 6)
-            ? `<button class="btn btn--ghost btn--small" id="btn-add-bot">+ Ajouter un bot</button>`
+          isHost
+            ? `
+              <div class="bot-counter">
+                <p class="bot-counter__label">${state.players.filter((p) => p.isBot).length} bot${state.players.filter((p) => p.isBot).length > 1 ? 's' : ''} pour compléter la table</p>
+                <div class="bot-counter__controls">
+                  <button type="button" class="btn btn--ghost btn--small" id="btn-bot-minus" ${state.players.filter((p) => p.isBot).length <= 0 ? 'disabled' : ''} aria-label="Un bot de moins">−</button>
+                  <button type="button" class="btn btn--ghost btn--small" id="btn-bot-plus" ${state.players.length >= 6 ? 'disabled' : ''} aria-label="Un bot de plus">+</button>
+                </div>
+              </div>`
             : ''
         }
 
@@ -134,16 +162,14 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
                 <div class="game-picker__options">
                   ${AVAILABLE_GAMES.map((g) => {
                     const cover = gameCoverImage(g.id);
-                    const disabled = !playerCountAllowed(g.id, state.players.length);
                     return `
-                      <label class="game-picker__option ${cover ? 'game-picker__option--cover' : ''} ${disabled ? 'game-picker__option--disabled' : ''}" title="${g.label} — ${g.hint}">
-                        <input type="radio" name="game" value="${g.id}" ${g.id === selectedGameId ? 'checked' : ''} />
+                      <button type="button" class="game-picker__option ${cover ? 'game-picker__option--cover' : ''} ${g.id === selectedGameId ? 'game-picker__option--selected' : ''}" data-pick-game="${g.id}" title="${g.label} — ${g.hint}">
                         ${
                           cover
                             ? `<span class="game-picker__art" style="background-image:url('${cover}')"></span>`
                             : `<span class="game-picker__fallback"><span class="game-picker__fallback-label">${g.label}</span><small>${g.hint}</small></span>`
                         }
-                      </label>`;
+                      </button>`;
                   }).join('')}
                 </div>
               </div>
@@ -157,27 +183,22 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   const startBtn = container.querySelector('#btn-start');
   const updateStartButton = () => {
     if (!startBtn) return;
-    const selectedId = container.querySelector('input[name="game"]:checked')?.value;
-    const game = AVAILABLE_GAMES.find((g) => g.id === selectedId) || AVAILABLE_GAMES[0];
-    const canStart = playerCountAllowed(game.id, state.players.length);
+    const game = AVAILABLE_GAMES.find((g) => g.id === selectedGameId) || AVAILABLE_GAMES[0];
+    const maxPlayers = game.maxPlayers || 6;
+    const canStart = playerCountAllowed(game.id, activeCount);
     startBtn.disabled = !canStart;
     startBtn.textContent = canStart
-      ? `Lancer la partie (${state.players.length} joueur${state.players.length > 1 ? 's' : ''})`
-      : `En attente (${game.hint})`;
+      ? `Lancer la partie (${activeCount} joueur${activeCount > 1 ? 's' : ''})`
+      : activeCount > maxPlayers
+        ? `Trop de joueurs pour ${game.label} (max ${maxPlayers}) — passe en spectateur ou change de jeu`
+        : `En attente (${game.hint})`;
   };
   updateStartButton();
-  container.querySelectorAll('input[name="game"]').forEach((r) =>
-    r.addEventListener('change', () => {
-      selectedGameIdByRoom = { roomId: room.id, gameId: r.value };
-      updateStartButton();
-    })
-  );
 
   container.querySelector('#btn-start')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
-    const selectedGame = container.querySelector('input[name="game"]:checked')?.value || 'pouilleux';
     try {
-      await startGame(room, selectedGame);
+      await startGame(room, selectedGameId);
     } catch (err) {
       e.target.disabled = false;
       alert(err.message || 'Impossible de lancer la partie.');
@@ -194,14 +215,56 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
     }
   });
 
-  container.querySelector('#btn-add-bot')?.addEventListener('click', async (e) => {
+  container.querySelector('#btn-bot-plus')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
     try {
       await addBot(room);
     } catch (err) {
-      e.target.disabled = false;
       alert(err.message || "Impossible d'ajouter un bot.");
+    } finally {
+      e.target.disabled = false;
     }
+  });
+
+  container.querySelector('#btn-bot-minus')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await removeBot(room);
+    } catch (err) {
+      alert(err.message || 'Impossible de retirer ce bot.');
+    } finally {
+      e.target.disabled = false;
+    }
+  });
+
+  container.querySelectorAll('[data-pick-game]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (btn.dataset.pickGame === selectedGameId) return;
+      container.querySelectorAll('[data-pick-game]').forEach((b) => (b.disabled = true));
+      try {
+        const label = AVAILABLE_GAMES.find((g) => g.id === btn.dataset.pickGame)?.label || btn.dataset.pickGame;
+        await setRoomGame(room, btn.dataset.pickGame, label);
+      } catch (err) {
+        alert(err.message || 'Impossible de changer de jeu.');
+        container.querySelectorAll('[data-pick-game]').forEach((b) => (b.disabled = false));
+      }
+    });
+  });
+
+  container.querySelectorAll('[data-spectator-id]').forEach((cb) => {
+    cb.addEventListener('click', async (e) => {
+      if (cb.dataset.spectatorId !== player.id) {
+        e.preventDefault(); // sécurité : jamais actionnable pour un autre joueur (déjà désactivé, voir disabled ci-dessus)
+        return;
+      }
+      cb.disabled = true;
+      try {
+        await toggleSpectator(room, player.id);
+      } catch (err) {
+        cb.disabled = false;
+        alert(err.message || 'Impossible de changer de statut.');
+      }
+    });
   });
 
   container.querySelector('#btn-leave')?.addEventListener('click', () => {

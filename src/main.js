@@ -1,6 +1,6 @@
 import './style.css';
 import { capturerVersionChargee } from './supabase/versionGuard.js';
-import { renderNamePrompt, renderLeftTable, renderRoomList } from './ui/lobby.js';
+import { renderNamePrompt, renderLeftTable, renderRoomList, renderGamePicker } from './ui/lobby.js';
 import { renderGame, renderSpectatorGame, hideAllThreeDScenes } from './ui/game.js';
 import { applySettings, mountSettingsButton, setPlayerNameController } from './ui/settings.js';
 import {
@@ -281,11 +281,18 @@ async function showRoomList(profile) {
         enterRoom(reclaimed, profile);
       },
       onCreateRoom: async () => {
-        const created = await createNewRoom();
-        await leaveOtherRooms(profile, created.id);
-        const joined = await ensureMembership(created, profile);
         stopRoomListPolling();
-        enterRoom(joined, profile);
+        renderGamePicker(app, {
+          onCreate: async (gameId) => {
+            const created = await createNewRoom(gameId);
+            await leaveOtherRooms(profile, created.id);
+            const joined = await ensureMembership(created, profile);
+            enterRoom(joined, profile);
+          },
+          onBack: () => {
+            showRoomList(profile);
+          }
+        });
       }
     });
   };

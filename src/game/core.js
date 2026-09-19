@@ -177,6 +177,30 @@ export async function createNewRoom(defaultGame) {
 }
 
 /**
+ * Change le jeu associé au salon (salle d'attente uniquement) — permet à
+ * l'hôte de changer d'avis sans recréer le salon, visible immédiatement dans
+ * la liste des salons pour les autres appareils. Aucune vérification
+ * d'effectif ici : `startGame`/le bouton de lancement s'en chargent déjà
+ * (voir "Trop de joueurs" dans updateStartButton, ui/game.js).
+ */
+export async function setRoomGame(room, gameId, gameLabel) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const fresh = await fetchRoomById(room.id);
+    if (fresh.state.status !== 'lobby') return fresh;
+    const newState = {
+      ...fresh.state,
+      log: [...fresh.state.log, { ts: Date.now(), message: `Jeu choisi : ${gameLabel}.` }]
+    };
+    try {
+      return await updateRoomState(fresh.id, fresh.version, newState, { game: gameId });
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+    }
+  }
+  throw new Error('Impossible de changer de jeu, réessaie.');
+}
+
+/**
  * Change tout au plus une entrée de `players` : `id` (le bot qui reprend
  * l'identité de la personne) et references croisées (`hostId`,
  * `currentPlayerId`, `turnOrder`, `connections`) qui pointaient vers l'ancien
@@ -453,6 +477,36 @@ export async function leaveTable(room, profile) {
 }
 
 /**
+ * Bascule le statut spectateur d'un joueur, pour lui-même uniquement (l'appelant
+ * — voir ui/game.js — ne propose la case à cocher que sur sa propre ligne).
+ * Un spectateur reste visible dans la liste des joueurs mais sort du calcul
+ * d'effectif et de la liste transmise à `initGame` au lancement (voir
+ * `startGame`) : il atterrit sur l'écran spectateur déjà existant pour une
+ * partie en cours. Réversible tant que le salon est en salle d'attente ;
+ * sans effet une fois la partie lancée.
+ */
+export async function toggleSpectator(room, playerId) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const fresh = await fetchRoomById(room.id);
+    if (fresh.state.status !== 'lobby') return fresh;
+    const target = fresh.state.players.find((p) => p.id === playerId);
+    if (!target || target.isBot) return fresh;
+
+    const newState = {
+      ...fresh.state,
+      players: fresh.state.players.map((p) => (p.id === playerId ? { ...p, spectator: !p.spectator } : p)),
+      log: [...fresh.state.log, { ts: Date.now(), message: `${target.name} ${target.spectator ? 'redevient joueur·se' : 'passe spectateur·rice'}.` }]
+    };
+    try {
+      return await updateRoomState(fresh.id, fresh.version, newState);
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+    }
+  }
+  throw new Error('Impossible de changer de statut, réessaie.');
+}
+
+/**
  * Retire un joueur donné de la table (utilisé par l'hôte pour quelqu'un qui a
  * oublié de quitter). Mêmes garde-fous que leaveTable : impossible en pleine partie.
  */
@@ -519,6 +573,75 @@ export async function addBot(room) {
     }
   }
   throw new Error("Impossible d'ajouter un bot, réessaie.");
+}
+
+/** Retire le dernier bot ajouté (hôte uniquement, en salle d'attente) — contrepartie manuelle d'addBot pour ajuster le total à la baisse. */
+export async function removeBot(room) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const fresh = await fetchRoomById(room.id);
+    if (fresh.state.status === 'playing') throw new Error('Impossible de retirer un bot en pleine partie.');
+    const bots = fresh.state.players.filter((p) => p.isBot);
+    if (!bots.length) return fresh;
+    const target = bots[bots.length - 1];
+    const newState = {
+      ...fresh.state,
+      players: fresh.state.players.filter((p) => p.id !== target.id),
+      log: [...fresh.state.log, { ts: Date.now(), message: `${target.name} quitte la table.` }]
+    };
+    try {
+      return await updateRoomState(fresh.id, fresh.version, newState);
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+    }
+  }
+  throw new Error('Impossible de retirer ce bot, réessaie.');
+}
+
+/**
+ * Ajuste automatiquement le nombre de bots pour atteindre l'effectif minimum
+ * du jeu (`minPlayers`, fourni par engine.js), en ne comptant que les
+ * humains actifs (ni bot, ni spectateur). Appelée par l'UI (voir
+ * renderWaitingRoom, ui/game.js) uniquement quand la composition du salon
+ * vient de changer (arrivée, départ, bascule spectateur, changement de jeu)
+ * — jamais à chaque rendu — pour ne jamais écraser un ajustement manuel
+ * (+/-) fait entre-temps : si le compte de bots correspond déjà à la cible,
+ * ou si rien n'a changé depuis le dernier appel, cette fonction ne
+ * ré-écrit rien.
+ */
+export async function syncBotCount(room, minPlayers) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const fresh = await fetchRoomById(room.id);
+    if (fresh.state.status !== 'lobby') return fresh;
+
+    const activeHumans = fresh.state.players.filter((p) => !p.isBot && !p.spectator).length;
+    const currentBots = fresh.state.players.filter((p) => p.isBot).length;
+    const target = Math.max(0, minPlayers - activeHumans);
+    if (currentBots === target) return fresh;
+
+    let players = fresh.state.players;
+    let log = fresh.state.log;
+    if (currentBots < target) {
+      for (let i = currentBots; i < target && players.length < 6; i++) {
+        const botName = pickBotName(players);
+        players = [...players, { id: `bot-${uuid()}`, name: botName, isBot: true, hand: [] }];
+        log = [...log, { ts: Date.now(), message: `${botName} rejoint la table.` }];
+      }
+    } else {
+      const bots = players.filter((p) => p.isBot);
+      const toRemove = bots.slice(target);
+      const removeIds = new Set(toRemove.map((p) => p.id));
+      players = players.filter((p) => !removeIds.has(p.id));
+      log = [...log, ...toRemove.map((b) => ({ ts: Date.now(), message: `${b.name} quitte la table.` }))];
+    }
+
+    const newState = { ...fresh.state, players, log };
+    try {
+      return await updateRoomState(fresh.id, fresh.version, newState);
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+    }
+  }
+  return room; // pas grave, retentera au prochain déclenchement
 }
 
 // Au bout de ce délai sans nouvelles de l'hôte (en salle d'attente), n'importe
@@ -728,21 +851,27 @@ export async function startGame(room, gameType, gameModules) {
   const mod = gameModules[gameType];
   if (!mod) throw new Error('Jeu inconnu.');
 
+  // Les spectateurs (statut choisi librement dans la salle d'attente, voir
+  // toggleSpectator) ne jouent pas : exclus de l'effectif requis et de la
+  // partie qui démarre — ils atterrissent sur l'écran spectateur existant
+  // (voir draw() dans main.js, qui détecte leur absence de state.players).
+  const activePlayers = room.state.players.filter((p) => !p.spectator);
+
   if (mod.validatePlayerCount) {
-    mod.validatePlayerCount(room.state.players);
+    mod.validatePlayerCount(activePlayers);
   } else {
     const minPlayers = mod.meta?.minPlayers ?? 2;
-    if (room.state.players.length < minPlayers) {
+    if (activePlayers.length < minPlayers) {
       throw new Error(`Il faut au moins ${minPlayers} joueur${minPlayers > 1 ? 's' : ''}.`);
     }
-    if (mod.meta?.maxPlayers && room.state.players.length > mod.meta.maxPlayers) {
+    if (mod.meta?.maxPlayers && activePlayers.length > mod.meta.maxPlayers) {
       throw new Error(`${mod.meta.label} se joue au maximum à ${mod.meta.maxPlayers} joueurs.`);
     }
   }
 
   // `bet` (Blackjack) est réglé par chacun dans le lobby via setBlackjackBet, et
   // déjà présent sur l'entrée du joueur — on le transmet, ignoré par les autres jeux.
-  const playersList = room.state.players.map(({ id, name, isBot, bet }) => ({ id, name, isBot, bet }));
+  const playersList = activePlayers.map(({ id, name, isBot, bet }) => ({ id, name, isBot, bet }));
   const gameState = mod.initGame(playersList);
   const newState = { ...room.state, ...gameState, hostId: room.state.hostId };
   return updateRoomState(room.id, room.version, newState, { game: gameType });
