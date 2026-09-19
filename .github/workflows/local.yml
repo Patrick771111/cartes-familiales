@@ -83,13 +83,13 @@ jobs:
           fi
 
           # Le plan (ou la demande directe) peut préciser un modèle autre que le défaut
-          # (ex. gemma4-64k pour une tâche nécessitant de lire une image — qwen n'a pas de vision)
+          # (qwen3.6 accepte texte ET image, donc le repli gemma4 pour la vision n'est plus nécessaire)
           REQUESTED_MODEL=$(grep -oE '^MODELE: .+' .local-task-plan.txt | head -1 | sed 's/^MODELE: //')
           if [ -n "$REQUESTED_MODEL" ]; then
             echo "Modèle demandé explicitement : $REQUESTED_MODEL"
             echo "model=ollama/$REQUESTED_MODEL" >> "$GITHUB_OUTPUT"
           else
-            echo "model=ollama/qwen2.5-coder:14b" >> "$GITHUB_OUTPUT"
+            echo "model=ollama/qwen3.6:35b" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Exécuter qwen via Aider (étape par étape, repli auto si contexte dépassé)
