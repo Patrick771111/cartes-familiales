@@ -2,7 +2,7 @@
 
 ## Cycle de vie
 1. Triage (Claude, auto) → `VERDICT: SIMPLE` / `COMPLEXE` / `IMPLEMENTE`
-2. Plan (Claude, si COMPLEXE) → étapes atomiques, un fichier chacune
+2. Plan (Claude, si COMPLEXE) → étapes décrivant l'intention
 3. Validation humaine (`@local go`) — seul point d'arbitrage réel
 4. Coding (qwen) — étapes enchaînées automatiquement, sans revalidation humaine
 5. Relecture de chaque étape par un **second appel qwen** (jamais d'auto-jugement) → passe à la suivante seulement si validée
@@ -45,28 +45,26 @@ VERDICT: SIMPLE
 - chemin/fichier — ce qui change
 
 ## Étapes
-1. [chemin/fichier] instruction précise et autonome
-2. [chemin/fichier] instruction précise et autonome
+1. instruction précise, dans l'ordre logique
+2. instruction précise, dans l'ordre logique
 
 ## Critères de vérification
 - comment on sait que c'est correct
 
 ## Modèle requis
-[omettre si qwen convient ; sinon `gemma4-64k` si vision nécessaire]
+[omettre : qwen3.6 accepte texte et image, il couvre tous les cas]
 ```
 
 Règles :
-- **Un fichier par étape, format exact `N. [chemin] texte`**, crochet directement après le point (pas de gras autour). Chaque étape s'exécute isolément — ne voit ni les autres fichiers, ni le reste du plan.
-- Étape B dépendante du résultat de A ? Répète l'info utile dans l'instruction de B (qwen ne voit pas A à ce moment-là).
+- **Décris l'intention, pas la mécanique.** L'agent lit le dépôt et trouve les fichiers seul. Nommer un fichier reste utile quand la cible est ambiguë, mais ce n'est plus obligatoire ni un format imposé.
+- **Une étape peut s'appuyer sur la précédente** : l'agent voit tout le plan et son propre travail au fur et à mesure. Inutile de répéter l'information d'une étape à l'autre.
 - Décris **quoi/où** (sélecteur, fonction, valeur) — jamais le code final à recopier : ça gonfle le contexte pour rien.
-- Chaque étape doit tenir largement dans 32k tokens à elle seule.
-- Sans fichier entre crochets, le plan part en un seul appel (repli, à éviter sauf tâche ponctuelle).
+- Les `## Critères de vérification` alimentent la revue finale : ils doivent être vérifiables, pas décoratifs.
 
 ## Exécution (qwen, déclenchée par `@local go`)
 - Source de la consigne, dans l'ordre : `docs/plans/issue-<n>.md` sur la branche par défaut → branche `claude/issue-<n>-*` (non fusionnée) → dernier commentaire « Plan complet » (repli si le push du plan a échoué) → corps brut de l'issue.
-- Étapes exécutées en séquence, un appel Aider par étape, scopé au seul fichier indiqué (repo-map désactivé) ; repli gemma4-64k par étape si besoin.
-- **Relecture par un second appel qwen après chaque étape** (jamais le même appel qui a codé) : reçoit l'instruction + le diff produit, répond OUI/NON. NON → `git reset --hard` sur l'étape, marquée échouée. Objectif : éviter qu'un modèle valide son propre travail (faux positifs — ex. instruction seulement partiellement suivie).
-- **Revue finale** une fois toutes les étapes enchaînées : un appel qwen relit le diff complet du plan contre les `## Critères de vérification` du plan (pas contre chaque instruction isolée). NON → traité comme un échec (voir ci-dessous), rien n'est publié.
+- OpenCode exécute le plan entier dans un conteneur, avec sa propre boucle d'agent : il lit les fichiers dont il a besoin, enchaîne ses éditions et s'arrête quand il a fini. Un seul commit en sortie, donc une PR lisible.
+- **Revue finale** par `gemma4-reviewer`, d'une autre famille que le codeur : il relit le diff complet contre les `## Critères de vérification` du plan et répond OUI/NON. NON → traité comme un échec, rien n'est publié.
 - Avant toute PR : `node --check` sur les `.js` modifiés + `npm run build` si `package.json` le déclare. Échec → **rien n'est publié**, le code reste local au runner.
 - **Test navigateur headless (Playwright)** : sert le résultat (`npm run preview` si `package.json` en déclare un ; sinon `index.html` servi tel quel, à la racine ou dans un sous-dossier connu — voir ARCHITECTURE.md), ouvre la page dans Chromium headless (conteneur `mcr.microsoft.com/playwright`), vérifie qu'elle répond en HTTP OK, affiche du texte visible, et ne produit aucune erreur console/JS. Générique — ne connaît rien du contenu métier, c'est un filet minimal (« la page n'est pas blanche/cassée »), pas un test de la fonctionnalité livrée. Sauté (pas un échec) seulement si aucun de ces deux mécanismes n'est détectable.
 - Échec (aucun changement, étape ratée même après repli, revue finale KO, non-régression KO, ou test navigateur KO) → **Claude auto-invoqué** avec le diagnostic complet ; rien à redemander.

@@ -42,7 +42,7 @@ jobs:
 
       # Le PC gamer porte l'inférence et peut être éteint. On le réveille si
       # c'est possible, et on échoue vite et lisiblement sinon — plutôt que de
-      # laisser Aider s'épuiser en délais d'attente sur chaque étape du plan.
+      # laisser l'agent s'épuiser en délais d'attente.
       # Le message posté commence par VERDICT: pour ne déclencher ni Claude ni
       # un nouveau tour de cette voie : une panne d'infra ne se corrige pas en
       # brûlant du quota d'abonnement.
@@ -114,35 +114,6 @@ jobs:
           if ! grep -qxF '.local-task.txt' .gitignore 2>/dev/null; then
             echo '.local-task.txt' >> .gitignore
           fi
-          if ! grep -qxF '.aider.model.metadata.json' .gitignore 2>/dev/null; then
-            echo '.aider.model.metadata.json' >> .gitignore
-          fi
-
-          # Aider interroge litellm pour connaitre la fenetre de contexte d'un modele.
-          # Un modele servi par un endpoint prive y est inconnu, et Aider retombe alors
-          # sur une valeur prudente et basse : c'est la cause reelle des echecs
-          # "exceeds the N token limit" rencontres historiquement, et non la taille des
-          # taches. On lui declare donc les capacites reelles du serveur (-c 32768).
-          cat > .aider.model.metadata.json <<'METADATA_EOF'
-          {
-            "openai/qwen3.6-coder": {
-              "max_input_tokens": 32768,
-              "max_output_tokens": 8192,
-              "litellm_provider": "openai",
-              "mode": "chat",
-              "input_cost_per_token": 0,
-              "output_cost_per_token": 0
-            },
-            "openai/gemma4-reviewer": {
-              "max_input_tokens": 16384,
-              "max_output_tokens": 4096,
-              "litellm_provider": "openai",
-              "mode": "chat",
-              "input_cost_per_token": 0,
-              "output_cost_per_token": 0
-            }
-          }
-          METADATA_EOF
           PLAN_FILE="docs/plans/issue-${{ github.event.issue.number }}.md"
 
           # Le plan peut être sur main, ou encore sur la branche non fusionnée créée par Claude
@@ -183,164 +154,59 @@ jobs:
             echo "model=openai/qwen3.6-coder" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Exécuter qwen3.6 via Aider (étape par étape, repli auto si contexte dépassé)
-        id: aider
+      # OpenCode remplace Aider et les ~150 lignes d'orchestration qui
+      # l'entouraient. Aider édite en un coup à partir d'une instruction : il
+      # fallait donc lui découper le plan fichier par fichier, gérer les
+      # débordements de contexte, faire relire chaque étape et annuler celles
+      # qui échouaient. OpenCode a sa propre boucle d'agent — il lit les
+      # fichiers dont il a besoin, enchaîne ses éditions et s'arrête quand il a
+      # fini — donc le plan lui est passé tel quel.
+      #
+      # Il tourne en conteneur parce qu'avec --auto il dispose d'un shell, et
+      # que hubert héberge aussi Pi-hole, Jellyfin et Hermes.
+      - name: Exécuter le plan avec OpenCode (modèle local)
+        id: agent
         env:
-          PRIMARY_MODEL: ${{ steps.task.outputs.model }}
-          FALLBACK_MODEL: openai/gemma4-reviewer
+          MODELE: local/qwen3.6-coder
         run: |
-          run_aider() {
-            # $1 modèle, $2 argument fichier optionnel ("/app/chemin" ou vide), $3 fichier de log
-            local model="$1"
-            local file_arg="$2"
-            local log_file="$3"
-            local container="aider-${{ github.run_id }}-$RANDOM"
-            local map_arg=""
-            if [ -n "$file_arg" ]; then
-              # Fichier cible déjà connu (étape atomique) : pas besoin d'un repo-map, ça économise du contexte.
-              map_arg="--map-tokens 0"
-            fi
-            docker run -d --name "$container" \
-              --dns "$LLM_DNS" \
-              -v "$PWD":/app \
-              -e OPENAI_API_BASE="$LLM_API_BASE" \
-              -e OPENAI_API_KEY=llama-swap \
-              paulgauthier/aider \
-              --model "$model" \
-              --model-metadata-file /app/.aider.model.metadata.json \
-              --edit-format diff \
-              --yes-always \
-              --no-auto-lint \
-              --no-auto-test \
-              --no-check-update \
-              --no-show-release-notes \
-              --commit-language French \
-              $map_arg \
-              --message-file /app/.local-task.txt \
-              $file_arg
+          set +e
+          docker run --rm \
+            --dns "$LLM_DNS" \
+            -v "$PWD":/app \
+            usine/opencode:1.18.31 \
+            run --auto -m "$MODELE" "$(cat .local-task-plan.txt)" \
+            > /tmp/opencode.log 2>&1
+          CODE=$?
+          set -e
 
-            # timeout sur `docker run` seul ne tue pas le conteneur cote daemon :
-            # on attend via `docker wait` (tuable proprement) puis on tue le conteneur explicitement au besoin.
-            if ! timeout 300 docker wait "$container" > /tmp/aider-exit-code.txt; then
-              echo "::warning::$model n'a pas terminé dans les temps (5 min) — arrêt forcé du conteneur."
-              docker kill "$container" 2>/dev/null || true
-            fi
-            docker logs "$container" 2>&1 | tee "$log_file"
-            docker rm -f "$container" >/dev/null 2>&1 || true
-          }
+          # Les couleurs ANSI rendent le log illisible une fois recopié dans un
+          # commentaire d'issue.
+          sed -i 's/\x1b\[[0-9;]*m//g' /tmp/opencode.log
+          tail -c 4000 /tmp/opencode.log
 
-          # Relecture par gemma4 (Google), d'une autre famille que le codeur
-          # qwen3.6 (Alibaba). Un second appel au MEME modele partageait ses
-          # angles morts : il validait ce qu'il venait d'ecrire. Deux familles
-          # distinctes rendent cette seconde opinion reellement independante.
-          validate_step() {
-            local instruction="$1"
-            local diff="$2"
-            local diff_trunc
-            diff_trunc=$(printf '%s' "$diff" | head -c 6000)
-            local payload
-            payload=$(jq -n \
-              --arg instruction "$instruction" \
-              --arg diff "$diff_trunc" \
-              '{model: "gemma4-reviewer", max_tokens: 300, messages: [{role: "user", content: ("Instruction donnee a un developpeur :\n" + $instruction + "\n\nDiff Git produit :\n" + $diff + "\n\nCe diff correspond-il fidelement a l instruction, sans rien ajouter ni oublier d important ? Reponds uniquement OUI ou NON sur la premiere ligne, puis une phrase d explication.")}]}')
-            local result
-            # --max-time genereux : llama-swap peut devoir echanger le modele
-            # resident (codeur <-> relecteur), ce qui coute une quinzaine de secondes.
-            result=$(curl -s --max-time 180 "$LLM_API_BASE/chat/completions" -H "Content-Type: application/json" -d "$payload" | jq -r '.choices[0].message.content // empty')
-            {
-              echo "--- Relecture gemma4 de cette étape ---"
-              echo "$result"
-            } >> /tmp/aider-log-1.txt
-            echo "$result" | head -1 | grep -qi "^OUI"
-          }
+          echo "model=$MODELE" >> "$GITHUB_OUTPUT"
+          echo "last_log=/tmp/opencode.log" >> "$GITHUB_OUTPUT"
 
-          # Exécute une étape (avec repli automatique gemma4-reviewer si dépassement de contexte),
-          # puis fait relire le résultat par gemma4 avant de continuer.
-          # Met à jour les variables globales MODEL_USED, LAST_LOG, STEP_FAILED.
-          run_step() {
-            local instruction="$1"
-            local file="$2"
-            local step_label="$3"
-            printf '%s\n' "$instruction" > .local-task.txt
-            local file_arg=""
-            if [ -n "$file" ]; then
-              file_arg="/app/$file"
-            fi
-            echo "=== $step_label (fichier: ${file:-non précisé}) ==="
-            local step_base_sha
-            step_base_sha=$(git rev-parse HEAD)
-
-            run_aider "$PRIMARY_MODEL" "$file_arg" "/tmp/aider-log-1.txt"
-            LAST_LOG=/tmp/aider-log-1.txt
-            MODEL_USED="$PRIMARY_MODEL"
-
-            if grep -qE "exceeds the [0-9,]+ token limit|Empty response received from LLM" /tmp/aider-log-1.txt \
-               && [ "$PRIMARY_MODEL" != "$FALLBACK_MODEL" ]; then
-              echo "::warning::$step_label a échoué avec $PRIMARY_MODEL — repli automatique sur $FALLBACK_MODEL."
-              git checkout -- . 2>/dev/null || true
-              run_aider "$FALLBACK_MODEL" "$file_arg" "/tmp/aider-log-2.txt"
-              LAST_LOG=/tmp/aider-log-2.txt
-              MODEL_USED="$FALLBACK_MODEL"
-            fi
-
-            if grep -qE "exceeds the [0-9,]+ token limit|Empty response received from LLM" "$LAST_LOG"; then
-              STEP_FAILED="$step_label"
-              echo "::error::$step_label a échoué même après repli."
-              return 1
-            fi
-
-            if [ "$(git rev-parse HEAD)" = "$step_base_sha" ]; then
-              STEP_FAILED="$step_label (aucun commit produit)"
-              echo "::error::$step_label n'a produit aucun commit."
-              return 1
-            fi
-
-            if ! validate_step "$instruction" "$(git diff "$step_base_sha" HEAD)"; then
-              STEP_FAILED="$step_label (rejetée à la relecture gemma4)"
-              echo "::error::$step_label : la relecture juge que le diff ne correspond pas à l'instruction — annulation de cette étape."
-              git reset --hard "$step_base_sha"
-              return 1
-            fi
-            return 0
-          }
-
-          MODEL_USED="$PRIMARY_MODEL"
-          LAST_LOG=""
-          STEP_FAILED=""
-          STEP_COUNT=0
-
-          # Un plan bien formé décrit chaque étape sous la forme : "N. [chemin/fichier] instruction".
-          # Ce découpage garde chaque appel Aider minimal (un seul fichier, pas de repo-map, une
-          # instruction courte) — c'est ce qui évite le dépassement de contexte sur les tâches à
-          # plusieurs fichiers, plutôt que de compter uniquement sur le repli de modèle après coup.
-          # Claude formate parfois le chemin en gras Markdown ("1. **[fichier]** instruction") :
-          # tolérer 0 à 2 astérisques autour des crochets, dans la détection comme dans l'extraction.
-          if grep -qE '^[0-9]+\.[[:space:]]*\*{0,2}\[.+\]' .local-task-plan.txt; then
-            while IFS= read -r line; do
-              STEP_COUNT=$((STEP_COUNT+1))
-              FILE=$(echo "$line" | grep -oE '\[[^]]+\]' | head -1 | tr -d '[]')
-              INSTRUCTION=$(echo "$line" | sed -E 's/^[0-9]+\.[[:space:]]*\*{0,2}\[[^]]+\]\*{0,2}[[:space:]]*//')
-              if ! run_step "$INSTRUCTION" "$FILE" "Étape $STEP_COUNT"; then
-                break
-              fi
-            done < <(grep -E '^[0-9]+\.[[:space:]]*\*{0,2}\[.+\]' .local-task-plan.txt)
-          else
-            echo "Pas d'étapes structurées détectées : exécution en un seul appel (tâche simple)."
-            STEP_COUNT=1
-            run_step "$(cat .local-task-plan.txt)" "" "Exécution directe" || true
+          if [ "$CODE" -ne 0 ]; then
+            echo "failed=OpenCode s'est arrêté en erreur (code $CODE)" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-          echo "model_used=$MODEL_USED" >> "$GITHUB_OUTPUT"
-          echo "last_log=$LAST_LOG" >> "$GITHUB_OUTPUT"
-          echo "steps_executed=$STEP_COUNT" >> "$GITHUB_OUTPUT"
-          echo "step_failed=$STEP_FAILED" >> "$GITHUB_OUTPUT"
-          rm -f .local-task.txt
-          # .local-task-plan.txt gardé pour la revue finale (étape suivante), nettoyé à la fin du job.
+          # OpenCode modifie l'arbre de travail sans commiter. On transforme son
+          # travail en un seul commit, ce qui rend la PR lisible : un plan, un
+          # commit, au lieu d'un commit par étape comme du temps d'Aider.
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "failed=OpenCode n'a modifié aucun fichier" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git add -A
+          git commit -q -m "Voie locale : issue #${{ github.event.issue.number }}"
+          echo "failed=" >> "$GITHUB_OUTPUT"
 
       - name: Vérifier qu'il y a des changements
         id: changes
         run: |
-          # Comparer au point de départ réel de la branche, pas à HEAD~1 (faux si aider n'a fait aucun commit :
+          # Comparer au point de départ réel de la branche, pas à HEAD~1 (faux si l'agent n'a fait aucun commit :
           # HEAD~1 pointerait alors sur un commit historique de main, donnant un faux positif)
           if git diff --quiet "${{ steps.branch.outputs.base_sha }}" HEAD; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
@@ -551,28 +417,23 @@ jobs:
         run: |
           git push origin "${{ steps.branch.outputs.name }}"
           if [ "${{ steps.task.outputs.source }}" = "plan" ]; then
-            ORIGIN_NOTE="Exécute le plan validé dans docs/plans/issue-${{ github.event.issue.number }}.md (${{ steps.aider.outputs.steps_executed }} étape(s))."
+            ORIGIN_NOTE="Exécute le plan validé dans docs/plans/issue-${{ github.event.issue.number }}.md."
           else
             ORIGIN_NOTE="Exécute directement la demande de l'issue (aucun plan préalable)."
           fi
-          if [ "${{ steps.aider.outputs.model_used }}" = "openai/gemma4-reviewer" ]; then
-            MODEL_NOTE=" (repli automatique sur gemma4-reviewer utilisé sur au moins une étape)"
-          else
-            MODEL_NOTE=""
-          fi
-          if [ -n "${{ steps.aider.outputs.step_failed }}" ]; then
-            FAILED_NOTE=" ⚠️ ${{ steps.aider.outputs.step_failed }} a échoué et n'a pas été appliquée — voir le commentaire d'analyse sur l'issue."
+          if [ -n "${{ steps.agent.outputs.failed }}" ]; then
+            FAILED_NOTE=" ⚠️ ${{ steps.agent.outputs.failed }} — voir le commentaire d'analyse sur l'issue."
           else
             FAILED_NOTE=""
           fi
           gh pr create \
             --title "Voie locale : ${{ github.event.issue.title }}" \
-            --body "Résout #${{ github.event.issue.number }}. $ORIGIN_NOTE Produit entièrement par qwen sur le matériel local, sans consommer de quota Claude.$MODEL_NOTE$FAILED_NOTE" \
+            --body "Résout #${{ github.event.issue.number }}. $ORIGIN_NOTE Produit par qwen3.6 via OpenCode sur le matériel local, sans consommer de quota Claude.$FAILED_NOTE" \
             --base "${{ github.event.repository.default_branch }}" \
             --head "${{ steps.branch.outputs.name }}"
 
       - name: Demander à Claude d'analyser l'échec et de proposer une remédiation
-        if: steps.changes.outputs.has_changes == 'false' || steps.aider.outputs.step_failed != '' || steps.review.outputs.review_failed == 'true' || steps.verify.outputs.build_failed == 'true' || steps.browsertest.outputs.browser_failed == 'true'
+        if: steps.changes.outputs.has_changes == 'false' || steps.agent.outputs.failed != '' || steps.review.outputs.review_failed == 'true' || steps.verify.outputs.build_failed == 'true' || steps.browsertest.outputs.browser_failed == 'true'
         env:
           GH_TOKEN: ${{ secrets.TRIAGE_TOKEN }}
           REPO: ${{ github.repository }}
@@ -587,12 +448,12 @@ jobs:
             PROBLEME="Le code compile mais échoue au test de non-régression navigateur (page blanche, erreur console/JS, ou statut HTTP anormal au chargement)."
             DIAGNOSTIC=$(tail -c 4000 /tmp/browsertest-log.txt 2>/dev/null || echo "Log indisponible.")
           else
-            PROBLEME="La voie locale a rencontré un problème sur « ${{ steps.aider.outputs.step_failed }} » (modèle utilisé : ${{ steps.aider.outputs.model_used }}, ${{ steps.aider.outputs.steps_executed }} étape(s) prévue(s))."
-            DIAGNOSTIC=$(tail -c 4000 "${{ steps.aider.outputs.last_log }}" 2>/dev/null || echo "Log indisponible.")
+            PROBLEME="La voie locale a échoué : ${{ steps.agent.outputs.failed }} (modèle : ${{ steps.agent.outputs.model }})."
+            DIAGNOSTIC=$(tail -c 4000 "${{ steps.agent.outputs.last_log }}" 2>/dev/null || echo "Log indisponible.")
           fi
-          BODY=$(printf "%s\n\nAnalyse ce diagnostic et propose une remédiation : plan revu et plus ciblé (étapes encore plus atomiques si besoin), implémentation directe (VERDICT: IMPLEMENTE) si le blocage est structurel, ou question à l'utilisateur si l'ambiguïté ne peut être levée que par lui.\n\n\`\`\`\n%s\n\`\`\`\n\n@claude" "$PROBLEME" "$DIAGNOSTIC")
+          BODY=$(printf "%s\n\nAnalyse ce diagnostic et propose une remédiation : plan revu et plus précis, implémentation directe (VERDICT: IMPLEMENTE) si le blocage est structurel, ou question à l'utilisateur si l'ambiguïté ne peut être levée que par lui.\n\n\`\`\`\n%s\n\`\`\`\n\n@claude" "$PROBLEME" "$DIAGNOSTIC")
           gh issue comment ${{ github.event.issue.number }} --repo "$REPO" --body "$BODY"
 
       - name: Nettoyer les logs temporaires
         if: always()
-        run: rm -f /tmp/aider-log-1.txt /tmp/aider-log-2.txt /tmp/aider-exit-code.txt /tmp/verify-log.txt /tmp/review-log.txt /tmp/browsertest-log.txt /tmp/smoke.mjs /tmp/smoke-exit-code.txt /tmp/preview-server.log .local-task-plan.txt
+        run: rm -f /tmp/opencode.log /tmp/verify-log.txt /tmp/review-log.txt /tmp/browsertest-log.txt /tmp/smoke.mjs /tmp/smoke-exit-code.txt /tmp/preview-server.log .local-task-plan.txt
