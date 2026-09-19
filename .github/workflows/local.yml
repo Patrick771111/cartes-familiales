@@ -170,6 +170,19 @@ jobs:
           MODELE: local/qwen3.6-coder
         run: |
           set +e
+          # Le plan est transmis avec une consigne explicite. Sans elle, l'agent
+          # reçoit un document qui ressemble à une spécification et peut répondre
+          # par un autre document : vécu le 19/09/2026, PR #29 — 85 lignes de
+          # markdown dans docs/, zéro ligne de code, et la relecture a validé.
+          {
+            echo "Implémente le plan ci-dessous dans ce dépôt, en modifiant le code source."
+            echo "Le plan est déjà décidé et validé par un humain : ne rédige aucun document,"
+            echo "ne crée aucun fichier dans docs/, applique-le au code."
+            echo "Tu as terminé quand le code correspond au plan."
+            echo
+            cat .local-task-plan.txt
+          } > /tmp/oc-prompt.txt
+
           # --user : sans lui, l'agent écrit dans le workspace monté avec l'UID root
           # du conteneur, et le runner, qui n'est pas root, ne peut plus faire son
           # checkout au run suivant (« Permission denied » sur dist/). Vécu le
@@ -180,7 +193,7 @@ jobs:
             --dns "$LLM_DNS" \
             -v "$PWD":/app \
             usine/opencode:1.18.31 \
-            run --auto -m "$MODELE" "$(cat .local-task-plan.txt)" \
+            run --auto -m "$MODELE" "$(cat /tmp/oc-prompt.txt)" \
             > /tmp/opencode.log 2>&1
           CODE=$?
           set -e
@@ -205,6 +218,14 @@ jobs:
             echo "failed=OpenCode n'a modifié aucun fichier" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Garde-fou déterministe, parce qu'un relecteur de 12 milliards de
+          # paramètres ne l'a pas vu : si le plan désigne des fichiers sous src/
+          # et qu'aucun n'a bougé, l'agent a répondu à côté de la demande.
+          if grep -q 'src/' .local-task-plan.txt && [ -z "$(git status --porcelain -- src)" ]; then
+            echo "failed=OpenCode n'a touché aucun fichier de src/ alors que le plan en désignait" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           git add -A
           git commit -q -m "Voie locale : issue #${{ github.event.issue.number }}"
           echo "failed=" >> "$GITHUB_OUTPUT"
