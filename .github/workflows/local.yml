@@ -170,7 +170,13 @@ jobs:
           MODELE: local/qwen3.6-coder
         run: |
           set +e
+          # --user : sans lui, l'agent écrit dans le workspace monté avec l'UID root
+          # du conteneur, et le runner, qui n'est pas root, ne peut plus faire son
+          # checkout au run suivant (« Permission denied » sur dist/). Vécu le
+          # 19/09/2026 : 2315 fichiers root laissés derrière lui après qu'il eut
+          # lancé le build pour vérifier son propre travail.
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             --dns "$LLM_DNS" \
             -v "$PWD":/app \
             usine/opencode:1.18.31 \
