@@ -1,4 +1,4 @@
-name: Voie locale (qwen)
+name: Voie locale (qwen3.6)
 
 on:
   issue_comment:
@@ -24,7 +24,16 @@ jobs:
       pull-requests: write
       issues: write
     env:
-      OLLAMA_API_BASE: http://192.168.4.27:11434
+      # Endpoint OpenAI-compatible servi par llama-swap sur le PC gamer.
+      # Nom de SERVICE et non de machine : le jour ou l'inference demenage
+      # (ou passe derriere un proxy Wake-on-LAN), seul le DNS Pi-hole change.
+      LLM_API_BASE: http://llm.lan:8080/v1
+      # Un conteneur Docker n'herite pas du resolveur de l'hote : celui-ci vaut
+      # 127.0.0.1 (Pi-hole en local), or Docker refuse un resolveur en loopback
+      # et bascule sur un DNS public ou les noms .lan n'existent pas. C'est la
+      # seule IP qui subsiste, et c'est legitime : on ne resout pas un serveur
+      # DNS par un nom.
+      LLM_DNS: 192.168.4.31
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +61,35 @@ jobs:
           if ! grep -qxF '.local-task.txt' .gitignore 2>/dev/null; then
             echo '.local-task.txt' >> .gitignore
           fi
+          if ! grep -qxF '.aider.model.metadata.json' .gitignore 2>/dev/null; then
+            echo '.aider.model.metadata.json' >> .gitignore
+          fi
+
+          # Aider interroge litellm pour connaitre la fenetre de contexte d'un modele.
+          # Un modele servi par un endpoint prive y est inconnu, et Aider retombe alors
+          # sur une valeur prudente et basse : c'est la cause reelle des echecs
+          # "exceeds the N token limit" rencontres historiquement, et non la taille des
+          # taches. On lui declare donc les capacites reelles du serveur (-c 32768).
+          cat > .aider.model.metadata.json <<'METADATA_EOF'
+          {
+            "openai/qwen3.6-coder": {
+              "max_input_tokens": 32768,
+              "max_output_tokens": 8192,
+              "litellm_provider": "openai",
+              "mode": "chat",
+              "input_cost_per_token": 0,
+              "output_cost_per_token": 0
+            },
+            "openai/gemma4-reviewer": {
+              "max_input_tokens": 16384,
+              "max_output_tokens": 4096,
+              "litellm_provider": "openai",
+              "mode": "chat",
+              "input_cost_per_token": 0,
+              "output_cost_per_token": 0
+            }
+          }
+          METADATA_EOF
           PLAN_FILE="docs/plans/issue-${{ github.event.issue.number }}.md"
 
           # Le plan peut être sur main, ou encore sur la branche non fusionnée créée par Claude
@@ -87,16 +125,16 @@ jobs:
           REQUESTED_MODEL=$(grep -oE '^MODELE: .+' .local-task-plan.txt | head -1 | sed 's/^MODELE: //')
           if [ -n "$REQUESTED_MODEL" ]; then
             echo "Modèle demandé explicitement : $REQUESTED_MODEL"
-            echo "model=ollama/$REQUESTED_MODEL" >> "$GITHUB_OUTPUT"
+            echo "model=openai/$REQUESTED_MODEL" >> "$GITHUB_OUTPUT"
           else
-            echo "model=ollama/qwen3.6:35b" >> "$GITHUB_OUTPUT"
+            echo "model=openai/qwen3.6-coder" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Exécuter qwen via Aider (étape par étape, repli auto si contexte dépassé)
+      - name: Exécuter qwen3.6 via Aider (étape par étape, repli auto si contexte dépassé)
         id: aider
         env:
           PRIMARY_MODEL: ${{ steps.task.outputs.model }}
-          FALLBACK_MODEL: ollama/gemma4-64k
+          FALLBACK_MODEL: openai/gemma4-reviewer
         run: |
           run_aider() {
             # $1 modèle, $2 argument fichier optionnel ("/app/chemin" ou vide), $3 fichier de log
@@ -110,10 +148,13 @@ jobs:
               map_arg="--map-tokens 0"
             fi
             docker run -d --name "$container" \
+              --dns "$LLM_DNS" \
               -v "$PWD":/app \
-              -e OLLAMA_API_BASE="$OLLAMA_API_BASE" \
+              -e OPENAI_API_BASE="$LLM_API_BASE" \
+              -e OPENAI_API_KEY=llama-swap \
               paulgauthier/aider \
               --model "$model" \
+              --model-metadata-file /app/.aider.model.metadata.json \
               --edit-format diff \
               --yes-always \
               --no-auto-lint \
@@ -135,8 +176,10 @@ jobs:
             docker rm -f "$container" >/dev/null 2>&1 || true
           }
 
-          # Relecture par un second appel qwen, independant de celui qui a code l'etape :
-          # qwen ne juge jamais seul son propre travail (evite les faux "succes").
+          # Relecture par gemma4 (Google), d'une autre famille que le codeur
+          # qwen3.6 (Alibaba). Un second appel au MEME modele partageait ses
+          # angles morts : il validait ce qu'il venait d'ecrire. Deux familles
+          # distinctes rendent cette seconde opinion reellement independante.
           validate_step() {
             local instruction="$1"
             local diff="$2"
@@ -146,18 +189,20 @@ jobs:
             payload=$(jq -n \
               --arg instruction "$instruction" \
               --arg diff "$diff_trunc" \
-              '{model: "qwen2.5-coder:14b", prompt: ("Instruction donnee a un developpeur :\n" + $instruction + "\n\nDiff Git produit :\n" + $diff + "\n\nCe diff correspond-il fidelement a l instruction, sans rien ajouter ni oublier d important ? Reponds uniquement OUI ou NON sur la premiere ligne, puis une phrase d explication."), stream: false}')
+              '{model: "gemma4-reviewer", max_tokens: 300, messages: [{role: "user", content: ("Instruction donnee a un developpeur :\n" + $instruction + "\n\nDiff Git produit :\n" + $diff + "\n\nCe diff correspond-il fidelement a l instruction, sans rien ajouter ni oublier d important ? Reponds uniquement OUI ou NON sur la premiere ligne, puis une phrase d explication.")}]}')
             local result
-            result=$(curl -s --max-time 90 "$OLLAMA_API_BASE/api/generate" -d "$payload" | jq -r '.response // empty')
+            # --max-time genereux : llama-swap peut devoir echanger le modele
+            # resident (codeur <-> relecteur), ce qui coute une quinzaine de secondes.
+            result=$(curl -s --max-time 180 "$LLM_API_BASE/chat/completions" -H "Content-Type: application/json" -d "$payload" | jq -r '.choices[0].message.content // empty')
             {
-              echo "--- Relecture qwen de cette étape ---"
+              echo "--- Relecture gemma4 de cette étape ---"
               echo "$result"
             } >> /tmp/aider-log-1.txt
             echo "$result" | head -1 | grep -qi "^OUI"
           }
 
-          # Exécute une étape (avec repli automatique gemma4-64k si dépassement de contexte),
-          # puis fait relire le résultat par un second appel qwen avant de continuer.
+          # Exécute une étape (avec repli automatique gemma4-reviewer si dépassement de contexte),
+          # puis fait relire le résultat par gemma4 avant de continuer.
           # Met à jour les variables globales MODEL_USED, LAST_LOG, STEP_FAILED.
           run_step() {
             local instruction="$1"
@@ -198,7 +243,7 @@ jobs:
             fi
 
             if ! validate_step "$instruction" "$(git diff "$step_base_sha" HEAD)"; then
-              STEP_FAILED="$step_label (rejetée à la relecture qwen)"
+              STEP_FAILED="$step_label (rejetée à la relecture gemma4)"
               echo "::error::$step_label : la relecture juge que le diff ne correspond pas à l'instruction — annulation de cette étape."
               git reset --hard "$step_base_sha"
               return 1
@@ -250,11 +295,9 @@ jobs:
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Revue finale du plan (seconde opinion qwen)
+      - name: Revue finale du plan (seconde opinion gemma4)
         id: review
         if: steps.changes.outputs.has_changes == 'true'
-        env:
-          OLLAMA_API_BASE: http://192.168.4.27:11434
         run: |
           CRITERES=$(sed -n '/^## Critères de vérification/,/^## /p' .local-task-plan.txt | sed '$d' | tail -n +2)
           if [ -z "$CRITERES" ]; then
@@ -265,8 +308,8 @@ jobs:
             PAYLOAD=$(jq -n \
               --arg criteres "$CRITERES" \
               --arg diff "$FULL_DIFF" \
-              '{model: "qwen2.5-coder:14b", prompt: ("Criteres de verification attendus :\n" + $criteres + "\n\nDiff complet produit :\n" + $diff + "\n\nCe diff satisfait-il ces criteres ? Reponds uniquement OUI ou NON sur la premiere ligne, puis une phrase d explication."), stream: false}')
-            RESULT=$(curl -s --max-time 90 "$OLLAMA_API_BASE/api/generate" -d "$PAYLOAD" | jq -r '.response // empty')
+              '{model: "gemma4-reviewer", max_tokens: 300, messages: [{role: "user", content: ("Criteres de verification attendus :\n" + $criteres + "\n\nDiff complet produit :\n" + $diff + "\n\nCe diff satisfait-il ces criteres ? Reponds uniquement OUI ou NON sur la premiere ligne, puis une phrase d explication.")}]}')
+            RESULT=$(curl -s --max-time 180 "$LLM_API_BASE/chat/completions" -H "Content-Type: application/json" -d "$PAYLOAD" | jq -r '.choices[0].message.content // empty')
             echo "$RESULT" > /tmp/review-log.txt
             cat /tmp/review-log.txt
             if echo "$RESULT" | head -1 | grep -qi "^NON"; then
@@ -459,8 +502,8 @@ jobs:
           else
             ORIGIN_NOTE="Exécute directement la demande de l'issue (aucun plan préalable)."
           fi
-          if [ "${{ steps.aider.outputs.model_used }}" = "ollama/gemma4-64k" ]; then
-            MODEL_NOTE=" (repli automatique sur gemma4-64k utilisé sur au moins une étape)"
+          if [ "${{ steps.aider.outputs.model_used }}" = "openai/gemma4-reviewer" ]; then
+            MODEL_NOTE=" (repli automatique sur gemma4-reviewer utilisé sur au moins une étape)"
           else
             MODEL_NOTE=""
           fi
@@ -485,7 +528,7 @@ jobs:
             PROBLEME="Le code produit ne compile pas (échec de syntaxe ou de build) — voir Vérification de non-régression dans CLAUDE.md."
             DIAGNOSTIC=$(tail -c 4000 /tmp/verify-log.txt 2>/dev/null || echo "Log indisponible.")
           elif [ "${{ steps.review.outputs.review_failed }}" = "true" ]; then
-            PROBLEME="Le code produit compile, mais la revue finale (seconde opinion qwen) juge qu'il ne satisfait pas les critères de vérification du plan."
+            PROBLEME="Le code produit compile, mais la revue finale (seconde opinion gemma4) juge qu'il ne satisfait pas les critères de vérification du plan."
             DIAGNOSTIC=$(tail -c 4000 /tmp/review-log.txt 2>/dev/null || echo "Log indisponible.")
           elif [ "${{ steps.browsertest.outputs.browser_failed }}" = "true" ]; then
             PROBLEME="Le code compile mais échoue au test de non-régression navigateur (page blanche, erreur console/JS, ou statut HTTP anormal au chargement)."
