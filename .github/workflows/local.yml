@@ -250,6 +250,14 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           export PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:$PATH"
+          # Tout le bloc qui suit est redirigé vers un fichier qui n'est affiché qu'à la
+          # fin. Avec le « -e » que les actions imposent au shell, une commande non
+          # gardée qui échoue interrompt donc l'étape AVANT le `cat`, sans laisser la
+          # moindre trace : observé le 19/09/2026 sur l'issue #28 — code 243, sortie
+          # vide, alors que les mêmes commandes passaient à la main sur le runner.
+          # On désactive « -e » ici : les échecs qui nous intéressent sont déjà
+          # capturés explicitement par FAILED, et un diagnostic muet coûte une heure.
+          set +e
           FAILED=false
           {
             echo "=== Vérification syntaxe des fichiers JS modifiés ==="
@@ -268,7 +276,7 @@ jobs:
               if [ -n "$VITE_SUPABASE_URL" ] && [ ! -f .env ]; then
                 printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" > .env
               fi
-              npm install --no-audit --no-fund 2>&1
+              npm install --no-audit --no-fund 2>&1 || FAILED=true
               npm run build 2>&1 || FAILED=true
             else
               echo "Pas de script build dans package.json, étape sautée."
