@@ -4,22 +4,23 @@
 1. Triage (Claude, auto) → `VERDICT: SIMPLE` / `COMPLEXE` / `IMPLEMENTE`
 2. Plan (Claude, si COMPLEXE) → étapes décrivant l'intention
 3. Validation humaine (`@local go`) — seul point d'arbitrage réel
-4. Coding (qwen) — étapes enchaînées automatiquement, sans revalidation humaine
-5. Relecture de chaque étape par un **second appel qwen** (jamais d'auto-jugement) → passe à la suivante seulement si validée
-6. Relances auto si besoin (repli de modèle, ou Claude re-diagnostique)
-7. Revue finale (second appel qwen sur le diff complet vs critères du plan) + non-régression (syntaxe + build + test navigateur headless) avant publication
+4. Exécution (OpenCode + qwen3.6, en conteneur) → le plan entier en une passe, **un seul commit**
+5. Revue finale (gemma4, autre famille que le codeur) : diff complet contre les critères de vérification du plan
+6. Non-régression : syntaxe, build, et test navigateur headless quand le projet en déclare un
+7. Échec à l'une de ces étapes → rien n'est publié, Claude re-diagnostique sur l'issue
 8. PR ouverte → merge = validation humaine finale
 
-## Capacités des moteurs locaux
-- **qwen2.5-coder:14b** (défaut) — édition précise, **32k tokens (natif, non extensible sans perte de fiabilité)**, aucune vision.
-- **gemma4-64k** (même poids que gemma4:12b, ~7,5 Go, 0 coût VRAM en plus) — **262k tokens**, **vision** (photo/tableau/texte), moins précis en édition de code.
-- 12 Go de VRAM sur gamer : un seul modèle chargé à la fois (bascule auto Ollama, pas de parallélisme).
-- **Repli auto** qwen → gemma4-64k sur dépassement de contexte ou réponse vide : rien à anticiper dans un plan.
+## Capacités du moteur local
+- **`qwen3.6-coder`** — MoE de 35 milliards de paramètres dont 3 actifs. Agent de code complet : il lit le dépôt, trouve ses fichiers et enchaîne ses éditions. **Texte et image.** Environ 52 tokens/s en génération, 565 en lecture de contexte.
+- **Fenêtre servie : 32k tokens.** Le modèle en supporte 256k, mais la VRAM disponible borne le service à 32k. C'est la seule limite dure à considérer au triage.
+- **`gemma4-reviewer`** — relecteur uniquement, jamais codeur : autre famille que le codeur, pour que la seconde opinion ne partage pas ses angles morts.
+- Un seul modèle réside à la fois sur les 12 Go de VRAM ; llama-swap échange en une quinzaine de secondes. Sans conséquence ici : le codeur travaille, puis le relecteur relit.
+- **Aucun repli de modèle.** Si l'exécution échoue, elle échoue et Claude re-diagnostique sur l'issue.
 
 Conséquences pour le triage/plan :
-- Vision requise → `MODELE: gemma4-64k`.
-- Fichier trop gros pour tout modèle local (même 262k) → `VERDICT: IMPLEMENTE`, ne jamais déléguer.
-- Génération d'image → aucun moteur local ni Claude ne sait le faire → `VERDICT: IMPLEMENTE`, fournir le(s) prompt(s) prêts à coller dans Grok Imagine (ou l'outil préféré de l'utilisateur).
+- Contexte utile au-delà de 32k (fichier énorme, refonte touchant tout le dépôt) → `VERDICT: IMPLEMENTE`, ne jamais déléguer.
+- Génération d'image → aucun moteur ne sait le faire → `VERDICT: IMPLEMENTE`, fournir le(s) prompt(s) prêts à coller dans Grok Imagine (ou l'outil préféré de l'utilisateur).
+- **Lecture** d'image (capture d'écran, maquette) → la voie locale sait faire ; ce n'est plus un motif d'exclusion ni un choix de modèle à préciser.
 
 ## Triage
 Invoqué auto à l'ouverture de toute issue (sauf `@local go` déjà dans le corps) et sur tout `@claude` en commentaire.
@@ -30,9 +31,11 @@ VERDICT: SIMPLE
 ```
 (ou `COMPLEXE`, ou `IMPLEMENTE`) — lue par le workflow pour router la suite.
 
-- **SIMPLE** = mécanique, cible évidente (texte, config, petite fonction, doc, test isolé, dépendance). Une phrase d'explication ; **aucun fichier touché, aucun plan**. Renvoi auto vers qwen.
-- **COMPLEXE** = conception, ambigu, exploration nécessaire, plusieurs fichiers, ou risque de régression. Écris un plan (format ci-dessous), committe-le dans `docs/plans/issue-<n>.md`, poste-le en entier après le VERDICT. Aucun code, aucune PR de ta part.
-- **IMPLEMENTE** = hors de portée de tout moteur local (fichier trop gros, génération d'image). Implémente toi-même, **vérifie toi-même** (`node --check` sur les `.js` modifiés, `npm run build` si `package.json` le déclare — ces commandes te sont explicitement autorisées, voir Infra), committe, ouvre la PR (règles de restitution plus bas) ; explique en une phrase pourquoi la voie locale ne convenait pas.
+- **SIMPLE** = l'objectif est clair, il ne reste qu'à l'exécuter. Cela inclut **plusieurs fichiers**, une fonction utilisée à plusieurs endroits, un renommage transverse, des tests, une dépendance, de la configuration. L'agent local explore le dépôt seul : lui désigner les fichiers n'est plus nécessaire. Une phrase d'explication ; **aucun fichier touché, aucun plan**. Renvoi auto vers la voie locale.
+- **COMPLEXE** = il reste une **décision** à prendre. Conception, arbitrage entre options, ambiguïté que seul l'utilisateur peut lever, ou risque de régression qui demande un jugement. Écris un plan (format ci-dessous), committe-le dans `docs/plans/issue-<n>.md`, poste-le en entier après le VERDICT. Aucun code, aucune PR de ta part.
+- **IMPLEMENTE** = hors de portée de la voie locale : contexte utile au-delà de 32k, ou génération d'image. Implémente toi-même, **vérifie toi-même** (`node --check` sur les `.js` modifiés, `npm run build` si `package.json` le déclare — ces commandes te sont explicitement autorisées, voir Infra), committe, ouvre la PR (règles de restitution plus bas) ; explique en une phrase pourquoi la voie locale ne convenait pas.
+
+**Où passe la frontière, et pourquoi.** Elle a bougé le 19/09/2026 : la voie locale exécute désormais un plan entier avec un agent qui lit le dépôt et enchaîne ses éditions. « Plusieurs fichiers » n'est donc plus un motif de COMPLEXE. Ce qui justifie de dépenser du quota d'abonnement, c'est le **jugement** — pas le découpage en étapes, pas la recherche des fichiers à modifier. Dans le doute, SIMPLE : un échec local coûte un re-diagnostic, un COMPLEXE inutile coûte du quota à chaque fois.
 
 ## Format du plan
 ```
@@ -50,9 +53,6 @@ VERDICT: SIMPLE
 
 ## Critères de vérification
 - comment on sait que c'est correct
-
-## Modèle requis
-[omettre : qwen3.6 accepte texte et image, il couvre tous les cas]
 ```
 
 Règles :
@@ -67,14 +67,16 @@ Règles :
 - **Revue finale** par `gemma4-reviewer`, d'une autre famille que le codeur : il relit le diff complet contre les `## Critères de vérification` du plan et répond OUI/NON. NON → traité comme un échec, rien n'est publié.
 - Avant toute PR : `node --check` sur les `.js` modifiés + `npm run build` si `package.json` le déclare. Échec → **rien n'est publié**, le code reste local au runner.
 - **Test navigateur headless (Playwright)** : sert le résultat (`npm run preview` si `package.json` en déclare un ; sinon `index.html` servi tel quel, à la racine ou dans un sous-dossier connu — voir ARCHITECTURE.md), ouvre la page dans Chromium headless (conteneur `mcr.microsoft.com/playwright`), vérifie qu'elle répond en HTTP OK, affiche du texte visible, et ne produit aucune erreur console/JS. Générique — ne connaît rien du contenu métier, c'est un filet minimal (« la page n'est pas blanche/cassée »), pas un test de la fonctionnalité livrée. Sauté (pas un échec) seulement si aucun de ces deux mécanismes n'est détectable.
-- Échec (aucun changement, étape ratée même après repli, revue finale KO, non-régression KO, ou test navigateur KO) → **Claude auto-invoqué** avec le diagnostic complet ; rien à redemander.
+- Échec (aucun changement, exécution en erreur, revue finale KO, non-régression KO, ou test navigateur KO) → **Claude auto-invoqué** avec le diagnostic complet ; rien à redemander.
 
 ## Analyser un échec
 Invoqué avec un diagnostic en pièce jointe : comprendre la vraie cause avant d'agir, pas retrier par réflexe.
-- `exceeds the ... token limit` malgré le repli → structurellement trop gros → `VERDICT: IMPLEMENTE`.
-- `Empty response received from LLM` → aléa probable, pas forcément la taille → plan plus ciblé (moins à charger).
-- Aucun changement, pas d'erreur visible → consigne ambiguë ou mauvaise cible → plan plus précis, ou question à l'utilisateur si lui seul a l'info manquante.
-- Rejet en relecture d'étape (le second qwen a répondu NON) → l'instruction était ambiguë ou trop large pour être vérifiable en un coup d'œil → étape reformulée plus précisément, ou scindée en deux.
+- **« OpenCode n'a modifié aucun fichier »** → le plan était trop vague pour que l'agent sache quoi faire, ou il a jugé le travail déjà fait. Le log joint dit lequel : il explique ce qu'il a lu et pourquoi il s'est arrêté. Remède : plan plus précis, pas plus découpé.
+- **« OpenCode s'est arrêté en erreur (code N) »** → panne technique, pas ambiguïté. Lire le log avant toute reformulation du plan.
+- **Revue finale KO** (gemma4 a répondu NON) → le diff ne satisfait pas les `## Critères de vérification`. Vérifier d'abord que les critères étaient vérifiables : un critère décoratif produit un faux négatif.
+- **Non-régression KO** (syntaxe, build) ou **test navigateur KO** → le code produit est cassé. Diagnostic technique direct, sans repasser par le plan.
+- Contexte structurellement trop gros pour la fenêtre de 32k → `VERDICT: IMPLEMENTE`.
+- Un commentaire commençant par `VERDICT: INFRA` signale que le moteur d'inférence était injoignable. Ce n'est pas un échec de la tâche : il n'y a rien à rediagnostiquer, il faut relancer `@local go` une fois le gamer disponible.
 - Rejet en revue finale (diff complet ne satisfait pas les critères de vérification) → un ou plusieurs critères n'étaient pas couverts par les étapes → plan corrigé pour les couvrir explicitement.
 - Build/syntaxe cassé → corriger l'étape en cause, ou `VERDICT: IMPLEMENTE` si le problème est structurel.
 - Test navigateur KO (page blanche, erreur console, statut HTTP anormal) → souvent une variable d'environnement manquante au runtime (voir Infra) plutôt qu'un bug de code — vérifier ça avant de rerédiger le plan.
@@ -115,7 +117,7 @@ Avant d'explorer le dépôt pour un triage ou un plan, **lire `ARCHITECTURE.md` 
 
 ## Infra
 - `claude-code.yml` : `ubuntu-latest`, aucun accès réseau local requis. Node/npm déjà présents sur ce runner ; `node --check`, `npm install`, `npm run build` explicitement autorisés (`--allowedTools`) pour que tu puisses vérifier ton propre code en `VERDICT: IMPLEMENTE`.
-- `local.yml` : `[self-hosted, local]` (hubert) → inférence llama.cpp/llama-swap sur gamer (`llm.lan:8080`, endpoint OpenAI-compatible ; Ollama sur 11434 ne sert plus que Hermes), Docker/Aider, Node.js (`~/.hermes/node/bin`, déjà dans le PATH du runner).
+- `local.yml` : `[self-hosted, local]` (hubert) → inférence llama.cpp/llama-swap sur gamer (`llm.lan:8080`, endpoint OpenAI-compatible ; Ollama sur 11434 ne sert plus que Hermes), Docker/OpenCode, Node.js (`~/.hermes/node/bin`, déjà dans le PATH du runner).
 - **Test navigateur** : image `mcr.microsoft.com/playwright:v1.49.1-jammy` (navigateurs préinstallés, `playwright-core` installé à la volée dans le conteneur — voir local.yml). Secrets `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` écrits dans `.env` avant le build de CI (clé publique "publishable", déjà exposée dans le bundle JS du site déployé — sans eux l'appli échoue silencieusement au chargement, faute de pouvoir initialiser Supabase).
 - `CLAUDE_CODE_OAUTH_TOKEN` : abonnement ($20/mois), pas facturation à l'usage — tient car Claude ne fait que du triage/plans, jamais d'implémentation lourde.
 - Une GitHub App (Claude) ne peut pas pousser de commit touchant `.github/workflows/*.yml`, même inchangé, sans permission `workflows` — si la branche du plan diverge de la branche par défaut sur ces fichiers, le push échoue silencieusement (géré par le repli de recherche de plan ci-dessus).
