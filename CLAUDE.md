@@ -125,3 +125,4 @@ L'infrastructure qui fait tourner ces workflows (hubert, PC gamer, llama-swap, m
 - **Ne pas raisonner de mémoire sur l'infra** : les réglages y sont chiffrés et datés. `DECISIONS.md` donne chaque choix et sa mesure, `RUNBOOK.md` les pannes connues, `ETAT.md` l'état réel (généré, jamais édité à la main).
 - Toute modification de `local.yml` touchant l'endpoint, un nom de modèle ou une fenêtre de contexte doit être **répercutée dans les deux dépôts** (`cartes-familiales` et `repas-malin` : leurs `local.yml` sont identiques et doivent le rester) **et** reflétée dans `usine-dev/DECISIONS.md`.
 - La section « Infra » ci-dessus résume ; en cas de contradiction, `usine-dev` fait foi.
+- Les notes personnelles de Patrick (réflexion transverse, décisions hors dépôt) vivent dans `Documents/projets/notes`, coffre Obsidian partagé avec Hermes. **Chercher avec `Grep`, ne pas tout charger**, et ne jamais lire `notes/prive/`.
