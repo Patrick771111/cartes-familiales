@@ -1,0 +1,231 @@
+name: Vérification locale d'une implémentation Claude
+
+# Pourquoi ce workflow existe
+# ---------------------------
+# Quand une tâche est trop lourde pour le modèle local (VERDICT: IMPLEMENTE),
+# Claude l'implémente lui-même et pousse une branche. Mais son environnement n'a
+# ni Playwright ni la possibilité d'ouvrir un port : il ne peut pas vérifier que
+# la page se charge encore. Constaté le 19/09/2026 sur l'issue #28, où il a
+# signalé la lacune lui-même après 354 lignes sur six fichiers.
+#
+# Les changements les plus lourds étaient donc les moins vérifiés.
+#
+# Tester est un travail mécanique : il part en local, comme tout le reste. Claude
+# implémente, hubert vérifie — c'est le même partage que pour le reste de
+# l'usine, appliqué à la vérification.
+#
+# Déclenchement : claude-code.yml poste « @local test <branche> » après un
+# IMPLEMENTE, avec TRIAGE_TOKEN — exactement le mécanisme déjà utilisé pour
+# router un VERDICT: SIMPLE vers « @local go ». Un commentaire posté avec le
+# GITHUB_TOKEN par défaut ne déclenche aucun workflow, d'où ce jeton dédié.
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  verifier:
+    # Les commentaires de Claude commencent toujours par « VERDICT: » (voir
+    # CLAUDE.md) : on les exclut pour qu'une explication du mécanisme ne le
+    # déclenche pas toute seule, comme pour « @local go ».
+    if: |
+      contains(github.event.comment.body, '@local test') &&
+      !startsWith(github.event.comment.body, 'VERDICT:')
+    # Runner self-hosted : Docker et l'image Playwright y sont déjà en cache.
+    runs-on: [self-hosted, local]
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      # Clé "publishable" Supabase : déjà publique (embarquée dans le bundle JS
+      # du site déployé, protégée par les policies RLS). Sans elle l'appli échoue
+      # silencieusement au chargement, et le test signalerait une fausse
+      # régression.
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.49.1-jammy
+      PLAYWRIGHT_CORE_VERSION: "1.49.1"
+
+    steps:
+      - name: Identifier la branche à vérifier
+        id: cible
+        run: |
+          BODY=$(cat <<'COMMENT_EOF'
+          ${{ github.event.comment.body }}
+          COMMENT_EOF
+          )
+          BRANCHE=$(printf '%s' "$BODY" | grep -oE '@local test[[:space:]]+[^[:space:]]+' | head -1 | awk '{print $3}')
+          if [ -z "$BRANCHE" ]; then
+            # Repli : la dernière branche claude/ ouverte pour cette issue.
+            BRANCHE=$(gh api "repos/$REPO/branches?per_page=100" --paginate --jq '.[].name' \
+              | grep "^claude/issue-${{ github.event.issue.number }}-" | sort | tail -1 || true)
+          fi
+          if [ -z "$BRANCHE" ]; then
+            echo "::error::Aucune branche à vérifier (ni nommée dans le commentaire, ni trouvée pour cette issue)."
+            exit 1
+          fi
+          echo "Branche à vérifier : $BRANCHE"
+          echo "nom=$BRANCHE" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.cible.outputs.nom }}
+          fetch-depth: 0
+
+      # Rien n'est redirigé vers un fichier affiché plus tard : une étape qui
+      # échoue doit dire pourquoi au moment où elle échoue (leçon du 19/09/2026,
+      # voir usine-dev/RUNBOOK.md).
+      - name: Syntaxe des fichiers JS modifiés
+        id: syntaxe
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:$PATH"
+          BASE=$(git merge-base origin/main HEAD)
+          CHANGED_JS=$(git diff --name-only "$BASE" HEAD -- '*.js')
+          if [ -z "$CHANGED_JS" ]; then
+            echo "Aucun fichier .js modifié."
+            exit 0
+          fi
+          FAILED=false
+          for f in $CHANGED_JS; do
+            echo "-- node --check $f"
+            node --check "$f" || FAILED=true
+          done
+          [ "$FAILED" = "false" ] || { echo "::error::Erreur de syntaxe."; exit 1; }
+
+      - name: Build
+        id: build
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:$PATH"
+          if [ ! -f package.json ] || ! grep -q '"build"' package.json; then
+            echo "Pas de script build déclaré, étape sautée."
+            exit 0
+          fi
+          if [ -n "$VITE_SUPABASE_URL" ] && [ ! -f .env ]; then
+            printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" > .env
+          fi
+          npm install --no-audit --no-fund
+          npm run build
+
+      - name: Test navigateur (Playwright headless)
+        id: navigateur
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:$PATH"
+
+          # Filet minimal et générique : la page se charge, elle affiche du
+          # texte, aucune erreur console. Ne connaît rien du métier — ce n'est
+          # pas un test de la fonctionnalité livrée.
+          SERVE_DIR=""
+          if [ -f package.json ] && grep -q '"preview"' package.json; then
+            MODE="vite"
+          elif [ -f repas-malin/index.html ]; then
+            MODE="static"; SERVE_DIR="repas-malin"
+          elif [ -f index.html ]; then
+            MODE="static"; SERVE_DIR="."
+          else
+            echo "Aucun mécanisme de prévisualisation détecté : test sauté."
+            exit 0
+          fi
+
+          cat > /tmp/smoke-verif.mjs << 'SMOKE_EOF'
+          import { chromium } from 'playwright-core';
+
+          const url = process.argv[2];
+          const browser = await chromium.launch();
+          const page = await browser.newPage();
+          const errors = [];
+          page.on('pageerror', (err) => errors.push('pageerror: ' + err.message));
+          page.on('console', (msg) => {
+            if (msg.type() === 'error') errors.push('console.error: ' + msg.text());
+          });
+
+          let response;
+          try {
+            response = await page.goto(url, { waitUntil: 'networkidle', timeout: 15000 });
+          } catch (e) {
+            console.error('NAVIGATION_FAILED: ' + e.message);
+            await browser.close();
+            process.exit(1);
+          }
+
+          if (!response || !response.ok()) {
+            console.error('BAD_HTTP_STATUS: ' + (response ? response.status() : 'aucune réponse'));
+            await browser.close();
+            process.exit(1);
+          }
+
+          const bodyText = await page.evaluate(() => document.body.innerText.trim());
+          await browser.close();
+
+          let failed = false;
+          if (errors.length > 0) {
+            console.error('CONSOLE_ERRORS:\n' + errors.join('\n'));
+            failed = true;
+          }
+          if (!bodyText) {
+            console.error('EMPTY_BODY: la page ne contient aucun texte visible');
+            failed = true;
+          }
+          if (failed) process.exit(1);
+          console.log('OK: page chargée sans erreur, contenu visible présent.');
+          process.exit(0);
+          SMOKE_EOF
+
+          if [ "$MODE" = "vite" ]; then
+            npm run preview -- --port 4175 --strictPort --host 127.0.0.1 > /tmp/preview-verif.log 2>&1 &
+          else
+            (cd "$SERVE_DIR" && python3 -m http.server 4175 --bind 127.0.0.1) > /tmp/preview-verif.log 2>&1 &
+          fi
+          PREVIEW_PID=$!
+
+          READY=false
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:4175 >/dev/null 2>&1; then READY=true; break; fi
+            sleep 1
+          done
+          if [ "$READY" != "true" ]; then
+            echo "::error::Le serveur de prévisualisation n'a pas démarré à temps."
+            cat /tmp/preview-verif.log
+            kill "$PREVIEW_PID" 2>/dev/null || true
+            exit 1
+          fi
+
+          container="smoke-verif-${{ github.run_id }}-$RANDOM"
+          docker run -d --name "$container" --network host \
+            -v /tmp/smoke-verif.mjs:/smoke.mjs:ro \
+            -e PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+            "$PLAYWRIGHT_IMAGE" \
+            bash -c "mkdir -p /work && cp /smoke.mjs /work/ && cd /work && npm install --no-audit --no-fund --silent playwright-core@$PLAYWRIGHT_CORE_VERSION && node smoke.mjs http://127.0.0.1:4175"
+
+          if ! timeout 120 docker wait "$container" > /tmp/smoke-verif-code.txt; then
+            echo "::warning::Le test navigateur n'a pas terminé dans les temps (2 min) — arrêt forcé."
+            docker kill "$container" 2>/dev/null || true
+          fi
+          docker logs "$container" > /tmp/verif-navigateur.txt 2>&1 || true
+          cat /tmp/verif-navigateur.txt
+          SMOKE_EXIT=$(cat /tmp/smoke-verif-code.txt 2>/dev/null || echo 1)
+          docker rm -f "$container" >/dev/null 2>&1 || true
+          kill "$PREVIEW_PID" 2>/dev/null || true
+
+          [ "$SMOKE_EXIT" = "0" ] || { echo "::error::La page ne se charge pas correctement."; exit 1; }
+
+      - name: Rapporter le résultat sur l'issue
+        if: always()
+        run: |
+          BRANCHE="${{ steps.cible.outputs.nom }}"
+          RUN="https://github.com/$REPO/actions/runs/${{ github.run_id }}"
+          if [ "${{ job.status }}" = "success" ]; then
+            BODY=$(printf 'VERDICT: VERIFIE\n\nVérification locale de `%s` : syntaxe, build et test navigateur passés.\n\n[Ouvrir la pull request](https://github.com/%s/compare/main...%s?quick_pull=1)  ·  [Détail du run](%s)' "$BRANCHE" "$REPO" "$BRANCHE" "$RUN")
+          else
+            # Pas de relance automatique vers Claude : un échec de vérification
+            # qui rappelle Claude tout seul peut boucler et consommer du quota
+            # sans que personne n'ait rien décidé. L'humain lit le run et choisit.
+            BODY=$(printf 'VERDICT: VERIFICATION KO\n\nLa vérification locale de `%s` a échoué : la branche n'"'"'est pas prête à être fusionnée.\n\n[Détail du run](%s)' "$BRANCHE" "$RUN")
+          fi
+          gh issue comment ${{ github.event.issue.number }} --repo "$REPO" --body "$BODY"
+
+      - name: Nettoyer
+        if: always()
+        run: rm -f /tmp/smoke-verif.mjs /tmp/preview-verif.log /tmp/smoke-verif-code.txt /tmp/verif-navigateur.txt

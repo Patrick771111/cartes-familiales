@@ -52,7 +52,7 @@ jobs:
       # relancerait @local go à tort lors d'un simple échange de dialogue sans nouveau triage.
       # Un commentaire posté avec le GITHUB_TOKEN par défaut ne déclenche pas de nouveau workflow
       # (restriction GitHub anti-boucle), d'où l'usage d'un jeton dédié ici.
-      - name: Router vers la voie locale si Claude a jugé la tâche simple
+      - name: Router vers la voie locale selon le verdict
         env:
           GH_TOKEN: ${{ secrets.TRIAGE_TOKEN }}
           REPO: ${{ github.repository }}
@@ -60,8 +60,22 @@ jobs:
           LAST_COMMENT=$(gh api "repos/$REPO/issues/${{ github.event.issue.number }}/comments" \
             --paginate --jq '. | last | .body // empty')
           if echo "$LAST_COMMENT" | grep -q "VERDICT: SIMPLE"; then
-            echo "Claude a jugé la tâche simple : passage à la voie locale."
+            echo "Claude a jugé la tâche simple : exécution en local."
             gh issue comment ${{ github.event.issue.number }} --repo "$REPO" --body "@local go"
+          elif echo "$LAST_COMMENT" | grep -q "VERDICT: IMPLEMENTE"; then
+            # Claude a implémenté lui-même et poussé une branche, mais son
+            # environnement n'a ni Playwright ni la possibilité d'ouvrir un port :
+            # il ne peut pas vérifier que la page se charge encore. Tester est un
+            # travail mécanique, donc il part en local comme le reste — c'est le
+            # même partage que pour l'exécution, appliqué à la vérification.
+            BRANCHE=$(gh api "repos/$REPO/branches?per_page=100" --paginate --jq '.[].name' \
+              | grep "^claude/issue-${{ github.event.issue.number }}-" | sort | tail -1 || true)
+            if [ -n "$BRANCHE" ]; then
+              echo "Claude a implémenté sur $BRANCHE : vérification en local."
+              gh issue comment ${{ github.event.issue.number }} --repo "$REPO" --body "@local test $BRANCHE"
+            else
+              echo "VERDICT: IMPLEMENTE mais aucune branche claude/ pour cette issue — rien à vérifier."
+            fi
           else
-            echo "Pas de verdict SIMPLE détecté (plan en cours, déjà écrit, ou dialogue sans nouveau triage)."
+            echo "Ni SIMPLE ni IMPLEMENTE (plan en cours, déjà écrit, ou dialogue sans nouveau triage)."
           fi
