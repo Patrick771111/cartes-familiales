@@ -28,7 +28,7 @@ Même principe que sur repas-malin (voir son `ARCHITECTURE.md`, incident du 2026
 **Conséquence pour tout futur déploiement** : incrémenter `CACHE_NAME` dans `public/sw.js` à chaque changement de comportement (pas juste pour le service worker : le garde-fou de version en dépend directement).
 
 ## Pièges connus
-- `src/style.css` dépasse la fenêtre de contexte de qwen (32k tokens) même isolé, avec repli gemma4-64k inclus (observé : réponse vide malgré `--map-tokens 0`). Toute tâche CSS doit cibler une plage précise (nom de règle/sélecteur à chercher), jamais une lecture/réécriture du fichier entier — et si l'étape échoue quand même, `VERDICT: IMPLEMENTE` plutôt que de réessayer en boucle.
+- `src/style.css` (4782 lignes) dépasse à lui seul la fenêtre servie de 64k. Toute tâche CSS doit cibler une plage précise (nom de règle/sélecteur à chercher), jamais une lecture/réécriture du fichier entier — et si l'étape échoue quand même, `VERDICT: IMPLEMENTE` plutôt que de réessayer en boucle.
 - Ajouter un jeu = ajouter les 3 fichiers `src/game/<jeu>{,.rules,.bot}.js` + une scène `src/three/<jeu>Scene.js` si rendu 3D + entrée dans `src/ui/gameCovers.js`/`games/` — voir un jeu existant similaire comme modèle plutôt que de partir de zéro.
 - Pas de état serveur custom : tout l'état partagé passe par la table Supabase `game_rooms` (Realtime), pas de fichier de session côté client à chercher.
 

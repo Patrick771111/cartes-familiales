@@ -11,14 +11,14 @@
 8. PR ouverte → merge = validation humaine finale
 
 ## Capacités du moteur local
-- **`qwen3.6-coder`** — MoE de 35 milliards de paramètres dont 3 actifs. Agent de code complet : il lit le dépôt, trouve ses fichiers et enchaîne ses éditions. **Texte et image.** Environ 52 tokens/s en génération, 565 en lecture de contexte.
-- **Fenêtre servie : 32k tokens.** Le modèle en supporte 256k, mais la VRAM disponible borne le service à 32k. C'est la seule limite dure à considérer au triage.
+- **`qwen3.6-coder`** — MoE de 35 milliards de paramètres dont 3 actifs. Agent de code complet : il lit le dépôt, trouve ses fichiers et enchaîne ses éditions. **Texte et image.** Environ 39 tokens/s en génération, 421 en lecture de contexte.
+- **Fenêtre servie : 64k tokens.** Le modèle en supporte 256k ; la VRAM disponible borne le service à 64k. C'est la seule limite dure à considérer au triage.
 - **`gemma4-reviewer`** — relecteur uniquement, jamais codeur : autre famille que le codeur, pour que la seconde opinion ne partage pas ses angles morts.
 - Un seul modèle réside à la fois sur les 12 Go de VRAM ; llama-swap échange en une quinzaine de secondes. Sans conséquence ici : le codeur travaille, puis le relecteur relit.
 - **Aucun repli de modèle.** Si l'exécution échoue, elle échoue et Claude re-diagnostique sur l'issue.
 
 Conséquences pour le triage/plan :
-- Contexte utile au-delà de 32k (fichier énorme, refonte touchant tout le dépôt) → `VERDICT: IMPLEMENTE`, ne jamais déléguer.
+- Contexte utile au-delà de 64k (fichier énorme, refonte touchant tout le dépôt) → `VERDICT: IMPLEMENTE`, ne jamais déléguer.
 - Génération d'image → aucun moteur ne sait le faire → `VERDICT: IMPLEMENTE`, fournir le(s) prompt(s) prêts à coller dans Grok Imagine (ou l'outil préféré de l'utilisateur).
 - **Lecture** d'image (capture d'écran, maquette) → la voie locale sait faire ; ce n'est plus un motif d'exclusion ni un choix de modèle à préciser.
 
@@ -33,7 +33,7 @@ VERDICT: SIMPLE
 
 - **SIMPLE** = l'objectif est clair, il ne reste qu'à l'exécuter. Cela inclut **plusieurs fichiers**, une fonction utilisée à plusieurs endroits, un renommage transverse, des tests, une dépendance, de la configuration. L'agent local explore le dépôt seul : lui désigner les fichiers n'est plus nécessaire. Une phrase d'explication ; **aucun fichier touché, aucun plan**. Renvoi auto vers la voie locale.
 - **COMPLEXE** = il reste une **décision** à prendre. Conception, arbitrage entre options, ambiguïté que seul l'utilisateur peut lever, ou risque de régression qui demande un jugement. Écris un plan (format ci-dessous), committe-le dans `docs/plans/issue-<n>.md`, poste-le en entier après le VERDICT. Aucun code, aucune PR de ta part.
-- **IMPLEMENTE** = hors de portée de la voie locale : contexte utile au-delà de 32k, ou génération d'image. Implémente toi-même, **vérifie toi-même** (`node --check` sur les `.js` modifiés, `npm run build` si `package.json` le déclare — ces commandes te sont explicitement autorisées, voir Infra), committe, ouvre la PR (règles de restitution plus bas) ; explique en une phrase pourquoi la voie locale ne convenait pas.
+- **IMPLEMENTE** = hors de portée de la voie locale : contexte utile au-delà de 64k, ou génération d'image. Implémente toi-même, **vérifie toi-même** (`node --check` sur les `.js` modifiés, `npm run build` si `package.json` le déclare — ces commandes te sont explicitement autorisées, voir Infra), committe, ouvre la PR (règles de restitution plus bas) ; explique en une phrase pourquoi la voie locale ne convenait pas.
 
 **Où passe la frontière, et pourquoi.** Elle a bougé le 19/09/2026 : la voie locale exécute désormais un plan entier avec un agent qui lit le dépôt et enchaîne ses éditions. « Plusieurs fichiers » n'est donc plus un motif de COMPLEXE. Ce qui justifie de dépenser du quota d'abonnement, c'est le **jugement** — pas le découpage en étapes, pas la recherche des fichiers à modifier. Dans le doute, SIMPLE : un échec local coûte un re-diagnostic, un COMPLEXE inutile coûte du quota à chaque fois.
 
@@ -75,7 +75,7 @@ Invoqué avec un diagnostic en pièce jointe : comprendre la vraie cause avant d
 - **« OpenCode s'est arrêté en erreur (code N) »** → panne technique, pas ambiguïté. Lire le log avant toute reformulation du plan.
 - **Revue finale KO** (gemma4 a répondu NON) → le diff ne satisfait pas les `## Critères de vérification`. Vérifier d'abord que les critères étaient vérifiables : un critère décoratif produit un faux négatif.
 - **Non-régression KO** (syntaxe, build) ou **test navigateur KO** → le code produit est cassé. Diagnostic technique direct, sans repasser par le plan.
-- Contexte structurellement trop gros pour la fenêtre de 32k → `VERDICT: IMPLEMENTE`.
+- Contexte structurellement trop gros pour la fenêtre de 64k → `VERDICT: IMPLEMENTE`.
 - Un commentaire commençant par `VERDICT: INFRA` signale que le moteur d'inférence était injoignable. Ce n'est pas un échec de la tâche : il n'y a rien à rediagnostiquer, il faut relancer `@local go` une fois le gamer disponible.
 - Rejet en revue finale (diff complet ne satisfait pas les critères de vérification) → un ou plusieurs critères n'étaient pas couverts par les étapes → plan corrigé pour les couvrir explicitement.
 - Build/syntaxe cassé → corriger l'étape en cause, ou `VERDICT: IMPLEMENTE` si le problème est structurel.
