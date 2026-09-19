@@ -742,7 +742,10 @@ export async function startGame(room, gameType, gameModules) {
 
   // `bet` (Blackjack) est réglé par chacun dans le lobby via setBlackjackBet, et
   // déjà présent sur l'entrée du joueur — on le transmet, ignoré par les autres jeux.
-  const playersList = room.state.players.map(({ id, name, isBot, bet }) => ({ id, name, isBot, bet }));
+  // Les joueurs spectateurs (isSpectator) sont exclus de la liste de jeu.
+  const playersList = room.state.players
+    .filter((p) => !p.isSpectator)
+    .map(({ id, name, isBot, bet }) => ({ id, name, isBot, bet }));
   const gameState = mod.initGame(playersList);
   const newState = { ...room.state, ...gameState, hostId: room.state.hostId };
   return updateRoomState(room.id, room.version, newState, { game: gameType });
@@ -765,7 +768,9 @@ export async function continueGame(room, gameModules) {
   const mod = gameModules[room.game];
   if (!mod) throw new Error('Jeu inconnu.');
 
-  const playersList = room.state.players.map(({ id, name, isBot, bet }) => ({ id, name, isBot, bet }));
+  const playersList = room.state.players
+    .filter((p) => !p.isSpectator)
+    .map(({ id, name, isBot, bet }) => ({ id, name, isBot, bet }));
   const gameState = mod.continueRound ? mod.continueRound(room, playersList) : mod.initGame(playersList);
 
   const newState = { ...room.state, ...gameState, hostId: room.state.hostId };
@@ -827,4 +832,36 @@ export async function reportRelayStatus(room, playerId, active) {
 
 export function watchRoom(roomId, onChange) {
   return subscribeRoom(roomId, onChange);
+}
+
+/**
+ * Bascule le statut spectateur du joueur local dans un salon en salle d'attente.
+ * Chaque joueur ne peut basculer que son propre statut — jamais celui d'un autre.
+ */
+export async function toggleSpectator(room, playerId, isSpectator) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const fresh = await fetchRoomById(room.id);
+    const player = fresh.state.players.find((p) => p.id === playerId);
+    if (!player) return fresh;
+    if (player.isBot) throw new Error('Un bot ne peut pas devenir spectateur.');
+    if (fresh.state.status !== 'lobby') throw new Error('La partie a déjà démarré.');
+
+    const newState = {
+      ...fresh.state,
+      players: fresh.state.players.map((p) =>
+        p.id === playerId ? { ...p, isSpectator: isSpectator } : p
+      ),
+      log: [...fresh.state.log, {
+        ts: Date.now(),
+        message: `${player.name} ${isSpectator ? 'est passé·e spectateur.' : 'a quitté le mode spectateur.'}`
+      }]
+    };
+
+    try {
+      return await updateRoomState(fresh.id, fresh.version, newState);
+    } catch (e) {
+      if (!(e instanceof ConflictError)) throw e;
+    }
+  }
+  throw new Error('Impossible de changer de statut, réessaie.');
 }

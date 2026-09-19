@@ -310,6 +310,60 @@ h1 {
 }
 .tag--you { background: var(--felt-500); color: var(--cream); }
 
+/* Spectateur toggle dans la salle d'attente */
+.spectator-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: rgba(247, 241, 225, 0.6);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.spectator-toggle input {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--brass);
+}
+.spectator-toggle__label { white-space: nowrap; }
+
+/* Compteur de bots (salle d'attente, hôte) */
+.bot-counter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 12px;
+  padding: 8px 12px;
+  background: var(--felt-900);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+}
+.bot-counter__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cream);
+}
+.bot-counter__controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bot-counter__btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+.bot-counter__hint {
+  font-size: 10px;
+  color: rgba(247, 241, 225, 0.5);
+  white-space: nowrap;
+}
+
 .waiting-note { color: rgba(247, 241, 225, 0.6); font-size: 14px; text-align: center; }
 
 .game-picker { margin: 4px 0 18px; }

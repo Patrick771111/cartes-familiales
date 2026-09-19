@@ -1,5 +1,6 @@
 import { cardFaceHtml, cardBackHtml } from './cards.js';
 import { AVAILABLE_GAMES, startGame, claimHost, addBot, HOST_STALE_MS, playerCountAllowed, replaceBotWithPlayer } from '../game/engine.js';
+import * as core from '../game/core.js';
 import { rankLabel as trouducRankLabel } from '../game/trouduc.js';
 import { SEQUENCE_TARGET as SUITE_INFERNALE_TARGET } from '../game/suiteinfernale.js';
 import { connectionBadge, resetRevealHands, shareInviteLink, threeDToggleHtml, wireThreeDToggle } from './gameShared.js';
@@ -60,6 +61,39 @@ export function renderGame(container, { room, player, onLeave, onKick } = {}) {
 // (ex : ajout d'un bot via Realtime), ce qui réinitialiserait la sélection du jeu
 // si elle n'était pas mémorisée en dehors de la fonction de rendu.
 let selectedGameIdByRoom = null;
+// Bots manuels : nombre total de bots sur la table, défini par l'hôte.
+// null = automatique (cible = minPlayers - humains non-spectateurs).
+let manualBotCountByRoom = null;
+
+function getActivePlayers(state) {
+  return (state.players || []).filter((p) => !p.isSpectator);
+}
+
+function getHumanNonSpectatorCount(state) {
+  return getActivePlayers(state).filter((p) => !p.isBot).length;
+}
+
+function calcTargetBots(state, gameId) {
+  const game = AVAILABLE_GAMES.find((g) => g.id === gameId);
+  const minPlayers = game?.minPlayers ?? 2;
+  const activeHumans = getHumanNonSpectatorCount(state);
+  return Math.max(0, minPlayers - activeHumans);
+}
+
+function getBotCount(state) {
+  return (state.players || []).filter((p) => p.isBot).length;
+}
+
+/** Écrit le jeu choisi sur le salon en temps réel (visible par les autres appareils). */
+async function updateRoomGame(room, gameId) {
+  if (room.game === gameId) return;
+  try {
+    await core.updateRoomState(room.id, room.version, room.state, { game: gameId });
+  } catch {
+    // Le verrou optimiste échoue si quelqu'un d'autre a écrit entre-temps —
+    // le prochain Realtime push corrigera tout de même.
+  }
+}
 
 function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   const state = room.state;
@@ -82,6 +116,28 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
   const hostMissing = !state.hostId || !currentHost;
   const hostIsStale = !hostIsBot && Date.now() - (state.hostLastSeen || 0) > HOST_STALE_MS;
   const hostUnavailable = hostMissing || hostIsBot || hostIsStale;
+  const activePlayers = getActivePlayers(state);
+  const activeHumanCount = getHumanNonSpectatorCount(state);
+  const botCount = getBotCount(state);
+  const targetBots = calcTargetBots(state, selectedGameId);
+  const effectiveCount = activeHumanCount + botCount;
+
+  // Auto vs manual bot count tracking
+  let displayBotCount = botCount;
+  if (manualBotCountByRoom?.roomId !== room.id) {
+    manualBotCountByRoom = { roomId: room.id, count: null };
+  }
+  if (manualBotCountByRoom.roomId === room.id && manualBotCountByRoom.count !== null) {
+    displayBotCount = manualBotCountByRoom.count;
+  } else {
+    displayBotCount = targetBots;
+  }
+
+  const game = AVAILABLE_GAMES.find((g) => g.id === selectedGameId) || AVAILABLE_GAMES[0];
+  const maxPlayers = game.maxPlayers ?? 6;
+  const tooManyPlayers = activeHumanCount > maxPlayers;
+  const notEnoughPlayers = activeHumanCount < (game.minPlayers ?? 2);
+  const canStart = playerCountAllowed(selectedGameId, effectiveCount) && !tooManyPlayers;
 
   container.innerHTML = `
     <div class="screen screen--waiting">
@@ -109,9 +165,15 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
             .map(
               (p) => `
                 <li class="player-chip">
-                  <span class="player-chip__name">${p.name}${connectionBadge(state, p.id)}${p.isBot ? ' 🤖' : ''}</span>
+                  <span class="player-chip__name">${p.name}${connectionBadge(state, p.id)}${p.isBot ? ' 🤖' : ''}${p.isSpectator ? ' 👁️' : ''}</span>
                   ${p.id === state.hostId ? '<span class="tag">hôte</span>' : ''}${p.id === player.id ? '<span class="tag tag--you">toi</span>' : ''}
                   ${isHost && p.id !== player.id ? `<button class="player-chip__kick" data-kick-id="${p.id}" title="Retirer ${p.name}" aria-label="Retirer ${p.name}">✕</button>` : ''}
+                  ${!p.isBot ? `
+                    <label class="spectator-toggle">
+                      <input type="checkbox" data-spectator-id="${p.id}" ${p.isSpectator ? 'checked' : ''} ${p.id === player.id ? '' : 'disabled'} />
+                      <span class="spectator-toggle__label">Spectateur</span>
+                    </label>
+                  ` : ''}
                 </li>`
             )
             .join('')}
@@ -119,12 +181,16 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
 
         ${hostUnavailable && !isHost ? `<button class="btn btn--ghost btn--small" id="btn-claim-host">Devenir l'hôte</button>` : ''}
 
-        ${
-          isHost &&
-          state.players.length < (AVAILABLE_GAMES.find((g) => g.id === selectedGameId)?.maxPlayers || 6)
-            ? `<button class="btn btn--ghost btn--small" id="btn-add-bot">+ Ajouter un bot</button>`
-            : ''
-        }
+        ${isHost ? `
+          <div class="bot-counter">
+            <span class="bot-counter__label">Bots : ${displayBotCount}</span>
+            <div class="bot-counter__controls">
+              <button class="btn btn--ghost btn--small bot-counter__btn" id="btn-bot-minus" ${displayBotCount <= 0 ? 'disabled' : ''}>−</button>
+              <span class="bot-counter__hint">${manualBotCountByRoom?.roomId === room.id && manualBotCountByRoom.count !== null ? 'manuel' : 'auto (min ' + targetBots + ')'}</span>
+              <button class="btn btn--ghost btn--small bot-counter__btn" id="btn-bot-plus" ${effectiveCount >= maxPlayers ? 'disabled' : ''}>+</button>
+            </div>
+          </div>
+        ` : ''}
 
         ${
           isHost
@@ -134,7 +200,7 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
                 <div class="game-picker__options">
                   ${AVAILABLE_GAMES.map((g) => {
                     const cover = gameCoverImage(g.id);
-                    const disabled = !playerCountAllowed(g.id, state.players.length);
+                    const disabled = !playerCountAllowed(g.id, effectiveCount);
                     return `
                       <label class="game-picker__option ${cover ? 'game-picker__option--cover' : ''} ${disabled ? 'game-picker__option--disabled' : ''}" title="${g.label} — ${g.hint}">
                         <input type="radio" name="game" value="${g.id}" ${g.id === selectedGameId ? 'checked' : ''} />
@@ -159,16 +225,32 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
     if (!startBtn) return;
     const selectedId = container.querySelector('input[name="game"]:checked')?.value;
     const game = AVAILABLE_GAMES.find((g) => g.id === selectedId) || AVAILABLE_GAMES[0];
-    const canStart = playerCountAllowed(game.id, state.players.length);
-    startBtn.disabled = !canStart;
-    startBtn.textContent = canStart
-      ? `Lancer la partie (${state.players.length} joueur${state.players.length > 1 ? 's' : ''})`
-      : `En attente (${game.hint})`;
+    const effectiveCount = getHumanNonSpectatorCount(state) + getBotCount(state);
+    const activeCount = getHumanNonSpectatorCount(state);
+    const maxPlayers = game.maxPlayers ?? 6;
+    const tooManyPlayers = activeCount > maxPlayers;
+
+    if (tooManyPlayers) {
+      startBtn.disabled = true;
+      startBtn.textContent = `Trop de joueurs pour ce jeu (max ${maxPlayers}) — passe en spectateur ou choisis un autre jeu.`;
+    } else if (!playerCountAllowed(selectedId, effectiveCount)) {
+      startBtn.disabled = true;
+      startBtn.textContent = `En attente (${game.hint})`;
+    } else {
+      startBtn.disabled = false;
+      startBtn.textContent = `Lancer la partie (${effectiveCount} joueur${effectiveCount > 1 ? 's' : ''})`;
+    }
   };
   updateStartButton();
   container.querySelectorAll('input[name="game"]').forEach((r) =>
     r.addEventListener('change', () => {
       selectedGameIdByRoom = { roomId: room.id, gameId: r.value };
+      // Écrire le changement sur le salon en temps réel pour que les autres le voient.
+      updateRoomGame(room, r.value).catch(() => {});
+      // Réinitialiser le compteur de bots manuel quand le jeu change.
+      if (manualBotCountByRoom?.roomId === room.id) {
+        manualBotCountByRoom.count = null;
+      }
       updateStartButton();
     })
   );
@@ -201,6 +283,59 @@ function renderWaitingRoom(container, { room, player, onLeave, onKick }) {
     } catch (err) {
       e.target.disabled = false;
       alert(err.message || "Impossible d'ajouter un bot.");
+    }
+  });
+
+  // Spectateur toggle : chaque joueur bascule son propre statut (l'hôte peut
+  // aussi le faire pour les autres, mais on limite à soi-même pour éviter
+  // les conflits).
+  container.querySelectorAll('input[data-spectator-id]').forEach((cb) => {
+    cb.addEventListener('change', async (e) => {
+      e.stopPropagation();
+      const targetId = e.target.dataset.spectatorId;
+      const isSelf = targetId === player.id;
+      if (!isSelf) return; // seul soi-même peut changer son propre statut
+      e.target.disabled = true;
+      try {
+        await toggleSpectator(room, targetId, e.target.checked);
+      } catch (err) {
+        e.target.checked = !e.target.checked;
+        e.target.disabled = false;
+      }
+    });
+  });
+
+  // Bouton + / − pour les bots (hôte uniquement).
+  container.querySelector('#btn-bot-minus')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      const fresh = await core.fetchRoomById(room.id);
+      const bots = fresh.state.players.filter((p) => p.isBot);
+      if (bots.length === 0) return;
+      const botToRemove = bots[bots.length - 1];
+      const newState = {
+        ...fresh.state,
+        players: fresh.state.players.filter((p) => p.id !== botToRemove.id),
+        log: [...fresh.state.log, { ts: Date.now(), message: `${botToRemove.name} quitte la table.` }]
+      };
+      await core.updateRoomState(fresh.id, fresh.version, newState);
+      if (manualBotCountByRoom?.roomId === room.id) {
+        manualBotCountByRoom.count = Math.max(0, (manualBotCountByRoom.count ?? getBotCount(fresh.state)) - 1);
+      }
+    } catch (err) {
+      // ignore
+    }
+  });
+
+  container.querySelector('#btn-bot-plus')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await addBot(room);
+      if (manualBotCountByRoom?.roomId === room.id) {
+        manualBotCountByRoom.count = (manualBotCountByRoom.count ?? getBotCount(room.state)) + 1;
+      }
+    } catch (err) {
+      // ignore
     }
   });
 

@@ -31,6 +31,7 @@ export {
   reclaimStalePlayers,
   playAgain,
   reportRelayStatus,
+  toggleSpectator,
   watchRoom,
   HOST_STALE_MS,
   PLAYER_STALE_MS,
@@ -80,9 +81,9 @@ export function playerCountAllowed(gameId, playerCount) {
   return true;
 }
 
-/** Crée un nouveau salon vide (salle d'attente) sur le premier jeu disponible. */
-export async function createNewRoom() {
-  return core.createNewRoom(DEFAULT_GAME);
+/** Crée un nouveau salon (salle d'attente) pour le jeu indiqué. */
+export async function createNewRoom(gameId) {
+  return core.createNewRoom(gameId || DEFAULT_GAME);
 }
 
 export async function startGame(room, gameType = DEFAULT_GAME) {
