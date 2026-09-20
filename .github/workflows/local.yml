@@ -242,6 +242,19 @@ jobs:
 
           git add -A
           git commit -q -m "Voie locale : issue #${{ github.event.issue.number }}"
+
+          # Sauvegarder ici, avant la relecture : jusqu'ici la branche n'était
+          # poussée qu'après revue, build, test navigateur et aperçu, donc le
+          # moindre accroc en aval condamnait dix minutes de génération. Trois
+          # passages ont été régénérés pour cette raison le 20/09/2026.
+          #
+          # Ce n'est PAS une publication : cette branche porte du code que rien
+          # n'a encore validé. Elle est supprimée en fin de run si la chaîne
+          # échoue, et ne survit que si une pull request l'adopte — ou si le run
+          # est interrompu avant d'avoir pu trancher, ce qui est précisément le
+          # cas qu'on veut couvrir.
+          git push -q origin "${{ steps.branch.outputs.name }}"
+          echo "poussee=true" >> "$GITHUB_OUTPUT"
           echo "failed=" >> "$GITHUB_OUTPUT"
 
       - name: Vérifier qu'il y a des changements
@@ -519,10 +532,11 @@ jobs:
           echo "Aperçu : $URL"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
-      - name: Publier la branche et ouvrir la pull request
+      - name: Ouvrir la pull request
         if: steps.changes.outputs.has_changes == 'true' && steps.review.outputs.review_failed != 'true' && steps.verify.outputs.build_failed != 'true' && steps.browsertest.outputs.browser_failed != 'true'
         run: |
-          git push origin "${{ steps.branch.outputs.name }}"
+          # La branche est déjà poussée depuis l'étape de l'agent : c'est la PR
+          # qui l'adopte et la rend légitime.
           if [ "${{ steps.task.outputs.source }}" = "plan" ]; then
             ORIGIN_NOTE="Exécute le plan validé dans docs/plans/issue-${{ github.event.issue.number }}.md."
           else
@@ -578,6 +592,20 @@ jobs:
           fi
 
           gh issue comment ${{ github.event.issue.number }} --repo "$REPO" --body "$BODY"
+
+      # Le pendant de la sauvegarde faite plus haut : une branche poussée que
+      # rien n'a validé ne doit pas survivre au run. Soit une pull request
+      # l'adopte, soit elle disparaît — sans quoi le dépôt se remplirait de
+      # code non relu que personne ne saurait distinguer du reste.
+      #
+      # Le travail n'est pas perdu pour autant : il reste dans le workspace du
+      # runner, sous ~/actions-runner-<dépôt>/_work/, le temps du passage
+      # suivant.
+      - name: Nettoyer la branche non validée
+        if: steps.agent.outputs.poussee == 'true' && (steps.review.outputs.review_failed == 'true' || steps.verify.outputs.build_failed == 'true' || steps.browsertest.outputs.browser_failed == 'true')
+        run: |
+          echo "::warning::La chaîne n'a pas validé ce travail : la branche ${{ steps.branch.outputs.name }} est supprimée."
+          git push -q origin --delete "${{ steps.branch.outputs.name }}" || true
 
       # Sans cette étape, un passage qui ne publie rien se termine en vert :
       # depuis que l'étape de diagnostic ne plante plus faute de jeton, plus
