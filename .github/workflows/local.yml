@@ -264,11 +264,33 @@ jobs:
             echo "Pas de critères de vérification explicites dans le plan (tâche simple) — revue finale sautée."
             echo "review_failed=false" >> "$GITHUB_OUTPUT"
           else
-            FULL_DIFF=$(git diff "${{ steps.branch.outputs.base_sha }}" HEAD | head -c 8000)
+            # `gemma4-reviewer` est servi avec 16384 tokens — mesuré le
+            # 20/09/2026 : 8000 octets passent, 24000 sont refusés (17107
+            # tokens). On coupe donc, mais on réduit d'abord le contexte du
+            # diff (-U1 au lieu de 3 par défaut) pour faire tenir plus de code
+            # réel dans la même place.
+            DIFF_COMPLET=$(git diff -U1 "${{ steps.branch.outputs.base_sha }}" HEAD)
+            TAILLE=$(printf '%s' "$DIFF_COMPLET" | wc -c)
+            LIMITE=32000
+            FULL_DIFF=$(printf '%s' "$DIFF_COMPLET" | head -c "$LIMITE")
+
+            # Le point qui a coûté trois runs : un diff coupé en plein milieu
+            # d'un fichier faisait répondre NON au relecteur — à juste titre,
+            # puisqu'il lui manquait de quoi juger. Son verdict portait sur
+            # notre troncature, pas sur le code. On le lui dit désormais, et on
+            # lui demande de juger ce qu'il voit.
+            if [ "$TAILLE" -gt "$LIMITE" ]; then
+              PREAMBULE="Attention : le diff ci-dessous est un EXTRAIT des $LIMITE premiers octets d'un diff de $TAILLE octets. Il est donc coupe en cours de fichier, et c'est normal. Ne repond pas NON pour cette raison : juge uniquement ce que tu vois, et reponds OUI si rien dans cet extrait ne contredit les criteres."
+              echo "::warning::Diff de $TAILLE octets tronqué à $LIMITE pour la revue."
+            else
+              PREAMBULE="Le diff ci-dessous est complet."
+            fi
+
             PAYLOAD=$(jq -n \
               --arg criteres "$CRITERES" \
               --arg diff "$FULL_DIFF" \
-              '{model: "gemma4-reviewer", max_tokens: 300, messages: [{role: "user", content: ("Criteres de verification attendus :\n" + $criteres + "\n\nDiff complet produit :\n" + $diff + "\n\nCe diff satisfait-il ces criteres ? Reponds uniquement OUI ou NON sur la premiere ligne, puis une phrase d explication.")}]}')
+              --arg preambule "$PREAMBULE" \
+              '{model: "gemma4-reviewer", max_tokens: 300, messages: [{role: "user", content: ($preambule + "\n\nCriteres de verification attendus :\n" + $criteres + "\n\nDiff produit :\n" + $diff + "\n\nCe diff satisfait-il ces criteres ? Reponds uniquement OUI ou NON sur la premiere ligne, puis une phrase d explication.")}]}')
             RESULT=$(curl -s --max-time 180 "$LLM_API_BASE/chat/completions" -H "Content-Type: application/json" -d "$PAYLOAD" | jq -r '.choices[0].message.content // empty')
             echo "$RESULT" > /tmp/review-log.txt
             cat /tmp/review-log.txt
@@ -556,6 +578,17 @@ jobs:
           fi
 
           gh issue comment ${{ github.event.issue.number }} --repo "$REPO" --body "$BODY"
+
+      # Sans cette étape, un passage qui ne publie rien se termine en vert :
+      # depuis que l'étape de diagnostic ne plante plus faute de jeton, plus
+      # rien ne signalait l'échec, et le run affichait un succès trompeur.
+      # C'est précisément ce que DECISIONS.md §16 met en garde : une chaîne qui
+      # se termine en vert n'est pas une chaîne qui a produit le bon résultat.
+      - name: Échouer si rien n'a été publié
+        if: steps.changes.outputs.has_changes == 'false' || steps.agent.outputs.failed != '' || steps.review.outputs.review_failed == 'true' || steps.verify.outputs.build_failed == 'true' || steps.browsertest.outputs.browser_failed == 'true'
+        run: |
+          echo "::error::La voie locale n'a pas abouti : aucune pull request n'a été ouverte. Voir le diagnostic ci-dessus."
+          exit 1
 
       - name: Nettoyer les logs temporaires
         if: always()
