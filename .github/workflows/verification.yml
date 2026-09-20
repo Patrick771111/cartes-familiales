@@ -46,6 +46,10 @@ jobs:
       # régression.
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      # L'usine recette, elle ne touche jamais la production. Le schéma est fixé
+      # à la construction du bundle : même une requête qui nomme sa table en dur
+      # atterrit dans `recette`. Voir usine-dev/DECISIONS.md §18.
+      VITE_SUPABASE_SCHEMA: recette
       PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.49.1-jammy
       PLAYWRIGHT_CORE_VERSION: "1.49.1"
 
@@ -95,6 +99,8 @@ jobs:
           done
           [ "$FAILED" = "false" ] || { echo "::error::Erreur de syntaxe."; exit 1; }
 
+      # Un seul build sert au test navigateur ET à l'aperçu : ce que Patrick
+      # visite est exactement ce qui a été testé, pas une reconstruction.
       - name: Build
         id: build
         run: |
@@ -104,7 +110,8 @@ jobs:
             exit 0
           fi
           if [ -n "$VITE_SUPABASE_URL" ] && [ ! -f .env ]; then
-            printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" > .env
+            printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\nVITE_SUPABASE_SCHEMA=%s\n' \
+              "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" "$VITE_SUPABASE_SCHEMA" > .env
           fi
           npm install --no-audit --no-fund
           npm run build
@@ -211,13 +218,57 @@ jobs:
 
           [ "$SMOKE_EXIT" = "0" ] || { echo "::error::La page ne se charge pas correctement."; exit 1; }
 
+      # Pourquoi « versions upload » et pas « deploy » : cette commande téléverse
+      # une version servie sur sa propre adresse, sans rien changer au trafic de
+      # production. L'usine donne quelque chose de visitable sans déployer quoi
+      # que ce soit — c'est ce qui permet à Patrick de juger une branche sans
+      # lire le code, et sans risque pour le site en ligne.
+      #
+      # L'échec n'invalide pas la vérification : le code peut être bon et
+      # Cloudflare indisponible. On rapporte alors le verdict sans adresse.
+      - name: Publier un aperçu Cloudflare
+        id: apercu
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:$PATH"
+          if [ ! -f wrangler.jsonc ] && [ ! -f wrangler.json ] && [ ! -f wrangler.toml ]; then
+            echo "Pas de configuration Wrangler dans ce dépôt : aucun aperçu à publier."
+            exit 0
+          fi
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::Secrets Cloudflare absents : aperçu non publié."
+            exit 0
+          fi
+          if ! npx --yes wrangler versions upload > /tmp/wrangler-verif.log 2>&1; then
+            echo "::warning::wrangler n'a pas pu téléverser la version :"
+            cat /tmp/wrangler-verif.log
+            exit 0
+          fi
+          cat /tmp/wrangler-verif.log
+          URL=$(grep -oE 'https://[A-Za-z0-9._-]+\.workers\.dev' /tmp/wrangler-verif.log | head -1)
+          if [ -z "$URL" ]; then
+            echo "::warning::Version téléversée, mais aucune adresse d'aperçu dans la sortie — les Preview URLs sont-elles activées sur le Worker ?"
+            exit 0
+          fi
+          echo "Aperçu : $URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
       - name: Rapporter le résultat sur l'issue
         if: always()
         run: |
           BRANCHE="${{ steps.cible.outputs.nom }}"
           RUN="https://github.com/$REPO/actions/runs/${{ github.run_id }}"
+          APERCU="${{ steps.apercu.outputs.url }}"
           if [ "${{ job.status }}" = "success" ]; then
-            BODY=$(printf 'VERDICT: VERIFIE\n\nVérification locale de `%s` : syntaxe, build et test navigateur passés.\n\n[Ouvrir la pull request](https://github.com/%s/compare/main...%s?quick_pull=1)  ·  [Détail du run](%s)' "$BRANCHE" "$REPO" "$BRANCHE" "$RUN")
+            if [ -n "$APERCU" ]; then
+              ESSAI=$(printf '\n\n**À essayer : %s**\n\nLes données affichées viennent du schéma `recette`, jamais de la production.' "$APERCU")
+            else
+              ESSAI=""
+            fi
+            BODY=$(printf 'VERDICT: VERIFIE\n\nVérification locale de `%s` : syntaxe, build et test navigateur passés.%s\n\n[Ouvrir la pull request](https://github.com/%s/compare/main...%s?quick_pull=1)  ·  [Détail du run](%s)' "$BRANCHE" "$ESSAI" "$REPO" "$BRANCHE" "$RUN")
           else
             # Pas de relance automatique vers Claude : un échec de vérification
             # qui rappelle Claude tout seul peut boucler et consommer du quota
@@ -228,4 +279,4 @@ jobs:
 
       - name: Nettoyer
         if: always()
-        run: rm -f /tmp/smoke-verif.mjs /tmp/preview-verif.log /tmp/smoke-verif-code.txt /tmp/verif-navigateur.txt
+        run: rm -f /tmp/smoke-verif.mjs /tmp/preview-verif.log /tmp/smoke-verif-code.txt /tmp/verif-navigateur.txt /tmp/wrangler-verif.log
