@@ -510,10 +510,17 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           export PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:$PATH"
-          if [ ! -f wrangler.jsonc ] && [ ! -f wrangler.json ] && [ ! -f wrangler.toml ]; then
+          # La configuration n'est pas forcément à la racine : `pronote-famille`
+          # range la sienne dans `web/`. La chercher jusqu'à deux niveaux évite
+          # de refaire l'erreur du garde-fou `src/` (DECISIONS.md §22), qui
+          # supposait lui aussi l'arborescence de cartes-familiales.
+          CONF=$(find . -maxdepth 2 \( -name 'wrangler.jsonc' -o -name 'wrangler.json' -o -name 'wrangler.toml' \) -not -path '*/node_modules/*' | head -1)
+          if [ -z "$CONF" ]; then
             echo "Pas de configuration Wrangler dans ce dépôt : aucun aperçu à publier."
             exit 0
           fi
+          cd "$(dirname "$CONF")"
+          echo "Configuration Wrangler trouvée dans $(pwd)"
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             echo "::warning::Secrets Cloudflare absents : aperçu non publié."
             exit 0
@@ -534,6 +541,8 @@ jobs:
 
       - name: Ouvrir la pull request
         if: steps.changes.outputs.has_changes == 'true' && steps.review.outputs.review_failed != 'true' && steps.verify.outputs.build_failed != 'true' && steps.browsertest.outputs.browser_failed != 'true'
+        env:
+          REPO: ${{ github.repository }}
         run: |
           # La branche est déjà poussée depuis l'étape de l'agent : c'est la PR
           # qui l'adopte et la rend légitime.
@@ -552,11 +561,24 @@ jobs:
           else
             APERCU_NOTE=""
           fi
-          gh pr create \
+          PR_URL=$(gh pr create \
             --title "Voie locale : ${{ github.event.issue.title }}" \
-            --body "Résout #${{ github.event.issue.number }}. $ORIGIN_NOTE Produit par qwen3.6 via OpenCode sur le matériel local, sans consommer de quota Claude.$FAILED_NOTE$APERCU_NOTE" \
+            --body "Closes #${{ github.event.issue.number }}. $ORIGIN_NOTE Produit par qwen3.6 via OpenCode sur le matériel local, sans consommer de quota Claude.$FAILED_NOTE$APERCU_NOTE" \
             --base "${{ github.event.repository.default_branch }}" \
-            --head "${{ steps.branch.outputs.name }}"
+            --head "${{ steps.branch.outputs.name }}")
+          echo "$PR_URL"
+
+          # Rendre compte dans le fil de l'issue, et pas seulement en ouvrant
+          # une pull request ailleurs. Jusqu'ici la voie locale ne commentait
+          # qu'en cas d'échec : qui postait « @local go » et voyait tout se
+          # passer bien n'avait aucun retour — ni commentaire, ni référence
+          # croisée, puisque le corps de la PR écrivait « Résout » là où GitHub
+          # n'entend que « Closes ».
+          #
+          # Ce commentaire est posté avec le jeton par défaut, qui ne déclenche
+          # aucun workflow : pas de risque de boucle.
+          gh issue comment ${{ github.event.issue.number }} --repo "$REPO" \
+            --body "$(printf 'Travail terminé et vérifié : syntaxe, build, revue par gemma4 et test navigateur.\n\nPull request : %s%s' "$PR_URL" "$APERCU_NOTE")"
 
       - name: Demander à Claude d'analyser l'échec et de proposer une remédiation
         if: steps.changes.outputs.has_changes == 'false' || steps.agent.outputs.failed != '' || steps.review.outputs.review_failed == 'true' || steps.verify.outputs.build_failed == 'true' || steps.browsertest.outputs.browser_failed == 'true'

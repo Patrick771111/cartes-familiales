@@ -234,10 +234,15 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           export PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:$PATH"
-          if [ ! -f wrangler.jsonc ] && [ ! -f wrangler.json ] && [ ! -f wrangler.toml ]; then
+          # La configuration n'est pas forcément à la racine : `pronote-famille`
+          # range la sienne dans `web/`. Même raison que dans `local.yml`.
+          CONF=$(find . -maxdepth 2 \( -name 'wrangler.jsonc' -o -name 'wrangler.json' -o -name 'wrangler.toml' \) -not -path '*/node_modules/*' | head -1)
+          if [ -z "$CONF" ]; then
             echo "Pas de configuration Wrangler dans ce dépôt : aucun aperçu à publier."
             exit 0
           fi
+          cd "$(dirname "$CONF")"
+          echo "Configuration Wrangler trouvée dans $(pwd)"
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             echo "::warning::Secrets Cloudflare absents : aperçu non publié."
             exit 0
