@@ -35,6 +35,12 @@ jobs:
       # DNS par un nom.
       LLM_DNS: 192.168.4.31
       GH_TOKEN: ${{ github.token }}
+      # L'usine recette, elle ne touche jamais la production. Le schéma est fixé
+      # à la construction du bundle : même une requête qui nomme sa table en dur
+      # atterrit dans `recette`. Posé au niveau du job et non d'une étape, pour
+      # qu'une étape ajoutée plus tard en hérite au lieu de l'oublier.
+      # Voir usine-dev/DECISIONS.md §18.
+      VITE_SUPABASE_SCHEMA: recette
     steps:
       - uses: actions/checkout@v4
         with:
@@ -301,7 +307,7 @@ jobs:
             echo "=== Build (npm run build) ==="
             if [ -f package.json ] && grep -q '"build"' package.json; then
               if [ -n "$VITE_SUPABASE_URL" ] && [ ! -f .env ]; then
-                printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" > .env
+                printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\nVITE_SUPABASE_SCHEMA=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" "$VITE_SUPABASE_SCHEMA" > .env
               fi
               npm install --no-audit --no-fund 2>&1 || FAILED=true
               npm run build 2>&1 || FAILED=true
@@ -447,6 +453,42 @@ jobs:
             echo "browser_failed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # Même mécanisme que dans verification.yml : « versions upload » sert une
+      # version sur sa propre adresse sans toucher au trafic de production, et
+      # c'est le build déjà vérifié qui part — pas une reconstruction. Les deux
+      # voies doivent offrir la même chose à l'arrivée, sinon juger une branche
+      # dépendrait de qui l'a écrite. Voir usine-dev/DECISIONS.md §19.
+      - name: Publier un aperçu Cloudflare
+        id: apercu
+        continue-on-error: true
+        if: steps.changes.outputs.has_changes == 'true' && steps.review.outputs.review_failed != 'true' && steps.verify.outputs.build_failed != 'true' && steps.browsertest.outputs.browser_failed != 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:$PATH"
+          if [ ! -f wrangler.jsonc ] && [ ! -f wrangler.json ] && [ ! -f wrangler.toml ]; then
+            echo "Pas de configuration Wrangler dans ce dépôt : aucun aperçu à publier."
+            exit 0
+          fi
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::Secrets Cloudflare absents : aperçu non publié."
+            exit 0
+          fi
+          if ! npx --yes wrangler versions upload > /tmp/wrangler-local.log 2>&1; then
+            echo "::warning::wrangler n'a pas pu téléverser la version :"
+            cat /tmp/wrangler-local.log
+            exit 0
+          fi
+          cat /tmp/wrangler-local.log
+          URL=$(grep -oE 'https://[A-Za-z0-9._-]+\.workers\.dev' /tmp/wrangler-local.log | head -1)
+          if [ -z "$URL" ]; then
+            echo "::warning::Version téléversée, mais aucune adresse d'aperçu dans la sortie — les Preview URLs sont-elles activées sur le Worker ?"
+            exit 0
+          fi
+          echo "Aperçu : $URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
       - name: Publier la branche et ouvrir la pull request
         if: steps.changes.outputs.has_changes == 'true' && steps.review.outputs.review_failed != 'true' && steps.verify.outputs.build_failed != 'true' && steps.browsertest.outputs.browser_failed != 'true'
         run: |
@@ -461,9 +503,14 @@ jobs:
           else
             FAILED_NOTE=""
           fi
+          if [ -n "${{ steps.apercu.outputs.url }}" ]; then
+            APERCU_NOTE=$(printf '\n\n**À essayer : %s**\n\nLes données affichées viennent du schéma `recette`, jamais de la production.' "${{ steps.apercu.outputs.url }}")
+          else
+            APERCU_NOTE=""
+          fi
           gh pr create \
             --title "Voie locale : ${{ github.event.issue.title }}" \
-            --body "Résout #${{ github.event.issue.number }}. $ORIGIN_NOTE Produit par qwen3.6 via OpenCode sur le matériel local, sans consommer de quota Claude.$FAILED_NOTE" \
+            --body "Résout #${{ github.event.issue.number }}. $ORIGIN_NOTE Produit par qwen3.6 via OpenCode sur le matériel local, sans consommer de quota Claude.$FAILED_NOTE$APERCU_NOTE" \
             --base "${{ github.event.repository.default_branch }}" \
             --head "${{ steps.branch.outputs.name }}"
 
@@ -491,4 +538,4 @@ jobs:
 
       - name: Nettoyer les logs temporaires
         if: always()
-        run: rm -f /tmp/opencode.log /tmp/verify-log.txt /tmp/review-log.txt /tmp/browsertest-log.txt /tmp/smoke.mjs /tmp/smoke-exit-code.txt /tmp/preview-server.log .local-task-plan.txt
+        run: rm -f /tmp/opencode.log /tmp/verify-log.txt /tmp/review-log.txt /tmp/browsertest-log.txt /tmp/smoke.mjs /tmp/smoke-exit-code.txt /tmp/preview-server.log /tmp/wrangler-local.log .local-task-plan.txt
