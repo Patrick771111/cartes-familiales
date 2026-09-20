@@ -1,4 +1,5 @@
 import { supabase } from './client.js';
+import { schema } from './schema.js';
 import { versionAJour } from './versionGuard.js';
 
 export class ConflictError extends Error {
@@ -148,7 +149,7 @@ export function subscribeRoom(roomId, onChange) {
     .channel(`game_rooms:${roomId}`)
     .on(
       'postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'game_rooms', filter: `id=eq.${roomId}` },
+      { event: 'UPDATE', schema, table: 'game_rooms', filter: `id=eq.${roomId}` },
       (payload) => {
         if (active) onChange(payload.new);
       }
