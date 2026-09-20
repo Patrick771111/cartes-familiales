@@ -8,3 +8,5 @@ dist/
 
 # Bundles/pages générés par le skill e2e-regression — jamais commités (voir .claude/skills/e2e-regression/SKILL.md)
 _test_*
+.local-task-plan.txt
+.local-task.txt
