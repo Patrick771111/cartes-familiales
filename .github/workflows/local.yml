@@ -225,10 +225,18 @@ jobs:
             exit 0
           fi
           # Garde-fou déterministe, parce qu'un relecteur de 12 milliards de
-          # paramètres ne l'a pas vu : si le plan désigne des fichiers sous src/
-          # et qu'aucun n'a bougé, l'agent a répondu à côté de la demande.
-          if grep -q 'src/' .local-task-plan.txt && [ -z "$(git status --porcelain -- src)" ]; then
-            echo "failed=OpenCode n'a touché aucun fichier de src/ alors que le plan en désignait" >> "$GITHUB_OUTPUT"
+          # paramètres ne l'a pas vu : l'agent a-t-il produit du code, ou
+          # seulement des documents comme sur l'issue #28 ?
+          #
+          # Il testait `git status -- src`, ce qui supposait que les sources
+          # vivent dans `src/` à la racine. Faux dès qu'un dépôt les range
+          # ailleurs : sur l'issue #3 de pronote-famille, un plan désignant
+          # `web/src/` a fait échouer un travail correct — six fichiers et
+          # 18 tests qui passaient — parce que `./src` n'existe pas ici.
+          # On teste donc l'intention réelle, indépendamment de l'arborescence :
+          # au moins un fichier modifié qui ne soit ni du markdown ni sous docs/.
+          if [ -z "$(git status --porcelain | awk '{print $NF}' | grep -vE '\.(md|txt)$' | grep -v '^docs/')" ]; then
+            echo "failed=OpenCode n'a produit que des documents, pas de code" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -534,6 +542,19 @@ jobs:
             DIAGNOSTIC=$(tail -c 4000 "${{ steps.agent.outputs.last_log }}" 2>/dev/null || echo "Log indisponible.")
           fi
           BODY=$(printf "%s\n\nAnalyse ce diagnostic et propose une remédiation : plan revu et plus précis, implémentation directe (VERDICT: IMPLEMENTE) si le blocage est structurel, ou question à l'utilisateur si l'ambiguïté ne peut être levée que par lui.\n\n\`\`\`\n%s\n\`\`\`\n\n@claude" "$PROBLEME" "$DIAGNOSTIC")
+
+          # Un dépôt qui n'a pas de TRIAGE_TOKEN n'a pas de voie Claude : il n'y
+          # a alors personne à appeler à l'aide, et tenter de commenter fait
+          # échouer l'étape. Le run entier passait au rouge pour cette seule
+          # raison, masquant l'état réel du travail (issue #3 de
+          # pronote-famille). Le diagnostic va dans le résumé du run, qui se lit
+          # sans jeton, et l'étape rend la main proprement.
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::Pas de TRIAGE_TOKEN : diagnostic écrit dans le résumé du run plutôt que posté sur l'issue."
+            printf '## Échec de la voie locale\n\n%s\n\n```\n%s\n```\n' "$PROBLEME" "$DIAGNOSTIC" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           gh issue comment ${{ github.event.issue.number }} --repo "$REPO" --body "$BODY"
 
       - name: Nettoyer les logs temporaires
