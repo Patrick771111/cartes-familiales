@@ -254,7 +254,7 @@ jobs:
           for F in $(printf '%s\n' "$NOUVEAUX" | grep -E '(^|/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|package\.json)$'); do
             DOSSIER=$(dirname "$F")
             if [ "$(basename "$F")" = "package.json" ]; then
-              [ "$DOSSIER" = "." ] && PARASITE="$PARASITE $F"
+              if [ "$DOSSIER" = "." ]; then PARASITE="$PARASITE $F"; fi
             elif [ -z "$(git ls-files -- "$DOSSIER/package-lock.json" "$DOSSIER/yarn.lock" "$DOSSIER/pnpm-lock.yaml")" ]; then
               PARASITE="$PARASITE $F"
             fi
@@ -268,9 +268,15 @@ jobs:
           #    ~/.pronote-famille/supabase.txt, la chaîne de connexion de production, et
           #    créaient des tables dedans. Un test n'ouvre jamais cette connexion : il
           #    reçoit un faux curseur, ou une URL de test par variable d'environnement.
-          TESTS_MODIFIES=$(git status --porcelain | awk '{print $NF}' | grep -E '(^|/)(test_[^/]*\.py|[^/]*\.test\.[a-z]+|[^/]*_test\.[a-z]+)$')
+          # ATTENTION, « bash -e » : une affectation dont la substitution renvoie un code non nul
+          # (un grep qui ne trouve rien renvoie 1) arrête toute l'étape. Chaque grep de ce bloc se
+          # termine donc par « || true ». Ce garde-fou a fait sortir en erreur, sans message, toutes
+          # les exécutions de la voie locale du 21/09/2026 à 05 h 52 (PR #46) jusqu'à sa correction :
+          # l'agent avait fini son travail, et il était perdu (DECISIONS.md §30).
+          # `-uall` : lister un par un les fichiers d'un dossier neuf, pas le dossier seul.
+          TESTS_MODIFIES=$(git status --porcelain -uall | awk '{print $NF}' | grep -E '(^|/)(test_[^/]*\.py|[^/]*\.test\.[a-z]+|[^/]*_test\.[a-z]+)$' || true)
           if [ -n "$TESTS_MODIFIES" ]; then
-            FAUTIFS=$(grep -l -E 'supabase\.txt|\.pronote-famille|postgres(ql)?://' $TESTS_MODIFIES 2>/dev/null)
+            FAUTIFS=$(grep -l -E 'supabase\.txt|\.pronote-famille|postgres(ql)?://' $TESTS_MODIFIES 2>/dev/null || true)
             if [ -n "$FAUTIFS" ]; then
               echo "failed=Un test vise la connexion de production (chaîne de connexion en dur ou fichier supabase.txt) : $(echo $FAUTIFS | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
               exit 0
