@@ -240,6 +240,43 @@ jobs:
             exit 0
           fi
 
+          # Deux garde-fous de plus, écrits après la nuit du 20/09/2026 (DECISIONS.md §26) :
+          # une relecture par un modèle ne les avait pas vus, un test les voit tout seul.
+          #
+          # 1. Un lockfile ou un package.json que le projet n'a pas. Sur l'issue #33,
+          #    l'agent a lancé `npm install` à la racine : 1 589 lignes de package-lock.json
+          #    sans rapport avec la tâche, qui auraient aussi noyé la relecture (16 000
+          #    jetons). Un lockfile n'apparaît légitimement que dans un dossier qui en a déjà
+          #    un ; un package.json neuf à la racine signale presque toujours une commande
+          #    lancée au mauvais endroit.
+          NOUVEAUX=$(git ls-files --others --exclude-standard)
+          PARASITE=""
+          for F in $(printf '%s\n' "$NOUVEAUX" | grep -E '(^|/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|package\.json)$'); do
+            DOSSIER=$(dirname "$F")
+            if [ "$(basename "$F")" = "package.json" ]; then
+              [ "$DOSSIER" = "." ] && PARASITE="$PARASITE $F"
+            elif [ -z "$(git ls-files -- "$DOSSIER/package-lock.json" "$DOSSIER/yarn.lock" "$DOSSIER/pnpm-lock.yaml")" ]; then
+              PARASITE="$PARASITE $F"
+            fi
+          done
+          if [ -n "$PARASITE" ]; then
+            echo "failed=OpenCode a créé un fichier de dépendances que le projet n'a pas :$PARASITE (commande npm lancée au mauvais endroit ?)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # 2. Un test qui vise la base de production. Les tests de l'issue #30 lisaient
+          #    ~/.pronote-famille/supabase.txt, la chaîne de connexion de production, et
+          #    créaient des tables dedans. Un test n'ouvre jamais cette connexion : il
+          #    reçoit un faux curseur, ou une URL de test par variable d'environnement.
+          TESTS_MODIFIES=$(git status --porcelain | awk '{print $NF}' | grep -E '(^|/)(test_[^/]*\.py|[^/]*\.test\.[a-z]+|[^/]*_test\.[a-z]+)$')
+          if [ -n "$TESTS_MODIFIES" ]; then
+            FAUTIFS=$(grep -l -E 'supabase\.txt|\.pronote-famille|postgres(ql)?://' $TESTS_MODIFIES 2>/dev/null)
+            if [ -n "$FAUTIFS" ]; then
+              echo "failed=Un test vise la connexion de production (chaîne de connexion en dur ou fichier supabase.txt) : $(echo $FAUTIFS | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
           git add -A
           git commit -q -m "Voie locale : issue #${{ github.event.issue.number }}"
 
@@ -347,15 +384,73 @@ jobs:
               echo "Aucun fichier .js modifié."
             fi
 
-            echo "=== Build (npm run build) ==="
-            if [ -f package.json ] && grep -q '"build"' package.json; then
-              if [ -n "$VITE_SUPABASE_URL" ] && [ ! -f .env ]; then
-                printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\nVITE_SUPABASE_SCHEMA=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" "$VITE_SUPABASE_SCHEMA" > .env
-              fi
-              npm install --no-audit --no-fund 2>&1 || FAILED=true
-              npm run build 2>&1 || FAILED=true
+            # Le build cherchait `package.json` à la RACINE seulement. Ici il vit dans
+            # `web/` : l'étape répondait « Pas de script build, étape sautée » et ni le
+            # build ni les tests ne tournaient, sur aucune PR — alors que la description
+            # de la PR annonçait « syntaxe, build, revue ». Constaté le 21/09/2026 sur
+            # les runs des issues #30 et #32 (DECISIONS.md §26). On cherche donc dans
+            # les deux premiers niveaux, comme le fait déjà deploiement.yml pour wrangler.
+            echo "=== Build et tests JS (npm run build) ==="
+            PAQUETS=$(find . -maxdepth 2 -name package.json -not -path '*/node_modules/*' -print0 \
+              | xargs -0 -r grep -l '"build"' 2>/dev/null)
+            if [ -n "$PAQUETS" ]; then
+              for P in $PAQUETS; do
+                D=$(dirname "$P")
+                echo "-- $D --"
+                if [ -n "$VITE_SUPABASE_URL" ] && [ ! -f "$D/.env" ]; then
+                  printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\nVITE_SUPABASE_SCHEMA=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" "$VITE_SUPABASE_SCHEMA" > "$D/.env"
+                fi
+                (cd "$D" && npm install --no-audit --no-fund 2>&1 && npm run build 2>&1) || FAILED=true
+              done
             else
-              echo "Pas de script build dans package.json, étape sautée."
+              echo "Aucun package.json avec un script build (2 niveaux), étape sautée."
+            fi
+
+            # Tests Python : seulement ceux qui n'ont besoin d'aucune base. `HOME` pointe
+            # sur un dossier vide et `PRONOTE_TEST_DB` n'est pas défini : un test qui
+            # tenterait de lire la chaîne de connexion de production échoue au lieu de
+            # s'y connecter (les tests de la PR #34 la lisaient, DECISIONS.md §26).
+            echo "=== Tests Python (sans base) ==="
+            TESTS_PY=$(find . -maxdepth 3 -name 'test_*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*')
+            if [ -n "$TESTS_PY" ]; then
+              DEPOTS_PY=$(for T in $TESTS_PY; do dirname "$T"; done | sort -u)
+              for D in $DEPOTS_PY; do
+                PY=python3
+                if [ -f "$D/requirements.txt" ]; then
+                  EMPREINTE=$(sha256sum "$D/requirements.txt" | cut -c1-16)
+                  VENV="$HOME/.cache/usine-venvs/$EMPREINTE"
+                  if [ ! -x "$VENV/bin/python" ]; then
+                    python3 -m venv "$VENV" && "$VENV/bin/pip" install -q -r "$D/requirements.txt" 2>&1 || FAILED=true
+                  fi
+                  PY="$VENV/bin/python"
+                fi
+                for T in "$D"/test_*.py; do
+                  echo "-- $T --"
+                  (cd "$D" && env -u PRONOTE_TEST_DB HOME="$(mktemp -d)" "$PY" "$(basename "$T")" 2>&1) || FAILED=true
+                done
+              done
+            else
+              echo "Aucun test Python."
+            fi
+
+            # `wrangler deploy --dry-run` lit la configuration et fait le bundle sans
+            # contacter Cloudflare, donc sans identifiants. Il attrape une règle de module
+            # ignorée (#22) ou un import que wrangler ne sait pas résoudre, que ni node
+            # --check ni les tests ne voient. Seulement si la PR touche ce dossier.
+            echo "=== wrangler deploy --dry-run ==="
+            CONFS=$(find . -maxdepth 2 \( -name 'wrangler.jsonc' -o -name 'wrangler.json' -o -name 'wrangler.toml' \) -not -path '*/node_modules/*')
+            if [ -n "$CONFS" ]; then
+              for C in $CONFS; do
+                D=$(dirname "$C")
+                if [ -n "$(git diff --name-only "${{ steps.branch.outputs.base_sha }}" HEAD -- "$D")" ]; then
+                  echo "-- $D --"
+                  (cd "$D" && npx --yes wrangler@latest deploy --dry-run 2>&1) || FAILED=true
+                else
+                  echo "-- $D : aucun fichier modifié, sauté --"
+                fi
+              done
+            else
+              echo "Aucune configuration wrangler."
             fi
           } > /tmp/verify-log.txt 2>&1
           cat /tmp/verify-log.txt
